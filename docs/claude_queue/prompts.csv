@@ -1,0 +1,9 @@
+id,priority,working_dir,prompt,status,scheduled_time,dependencies,repeat,repeat_interval,retry_count,max_retries
+1,high,/home/ken/Spr_ws/case_study,"case_studyフォルダ内に追加、更新するべき進捗を反映してください",pending,,,yes,weekly,0,3
+2,medium,/home/ken/Spr_ws/spresense,"ビルドシステムの状態を診断してください",pending,2025-12-15 09:00,1,no,,0,3
+3,low,/home/ken/Spr_ws,"case_studyディレクトリのファイル一覧を表示してください",pending,,,no,,0,3
+4,high,/home/ken/Spr_ws/spresense,"examples/sixaxisのKconfigファイルを読んで構造を説明してください",pending,2025-12-15 10:00,,no,,0,3
+5,medium,/home/ken/Spr_ws,"PATENT_ANALYSIS.mdを読んで弁理士の視点で評価、こちらで検討が必要な案件を5つまで出してください",pending,,,no,,0,3
+10,high,/home/ken/Spr_ws,"AI技術の最新動向を調査してください。主要なニュースサイトやGitHubのトレンドをチェック",pending,,,yes,daily,0,5
+11,medium,/home/ken/Spr_ws,"組み込み開発の最新技術をリサーチしてください",pending,,,yes,weekly,0,5
+12,low,/home/ken/Spr_ws/spresense,"ビルドログをチェックして問題がないか確認してください",pending,,,no,12h,0,5

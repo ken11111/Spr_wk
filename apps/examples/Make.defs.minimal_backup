@@ -1,0 +1,11 @@
+############################################################################
+# apps/examples/Make.defs
+#
+# External examples build definitions
+#
+############################################################################
+
+# Include security_camera if configured
+ifeq ($(CONFIG_EXAMPLES_SECURITY_CAMERA),y)
+CONFIGURED_APPS += $(APPDIR)/examples/security_camera
+endif

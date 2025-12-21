@@ -1,0 +1,8 @@
+# asmpApp Make.defs
+# Note: asmpApp does not have Kconfig, so it needs to be manually enabled
+# Add CONFIG_EXAMPLES_ASMAPP=y to defconfig to enable this app
+
+ifneq ($(CONFIG_EXAMPLES_ASMAPP),)
+CONFIGURED_APPS += $(APPDIR)/examples/asmpApp
+endif
+

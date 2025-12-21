@@ -1,0 +1,25 @@
+############################################################################
+# bmi160_orientation/Makefile
+#
+# BMI160 Orientation and Position Estimation Application
+#
+############################################################################
+
+include $(APPDIR)/Make.defs
+
+# BMI160 Orientation built-in application info
+
+PROGNAME  = $(CONFIG_EXAMPLES_BMI160_ORIENTATION_PROGNAME)
+PRIORITY  = $(CONFIG_EXAMPLES_BMI160_ORIENTATION_PRIORITY)
+STACKSIZE = $(CONFIG_EXAMPLES_BMI160_ORIENTATION_STACKSIZE)
+MODULE    = $(CONFIG_EXAMPLES_BMI160_ORIENTATION)
+
+# BMI160 Orientation Example
+
+MAINSRC = bmi160_orientation_main.c
+CSRCS = orientation_calc.c position_estimator.c
+
+# Add path to AHRS library headers
+CFLAGS += -I$(SDKDIR)/../externals/ahrs/src/MadgwickAHRS
+
+include $(APPDIR)/Application.mk

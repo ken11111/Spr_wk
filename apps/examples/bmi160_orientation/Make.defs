@@ -1,0 +1,8 @@
+############################################################################
+# bmi160_orientation/Make.defs
+#
+############################################################################
+
+ifneq ($(CONFIG_EXAMPLES_BMI160_ORIENTATION),)
+CONFIGURED_APPS += $(APPDIR)/examples/bmi160_orientation
+endif

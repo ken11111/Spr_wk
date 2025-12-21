@@ -1,0 +1,4 @@
+{
+  "executor": "web",
+  "note": "web = Web自動化（Claude Code使用量活用、無料）, api = Anthropic API（有料・安定）"
+}

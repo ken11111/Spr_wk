@@ -1,0 +1,9 @@
+############################################################################
+# apps/Make.defs
+#
+# External applications build definitions
+#
+############################################################################
+
+# Include examples directory
+CONFIGURED_APPS += $(wildcard examples/*)

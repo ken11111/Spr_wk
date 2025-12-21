@@ -1,0 +1,51 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config EXAMPLES_SECURITY_CAMERA
+	tristate "Security Camera example"
+	default n
+	select VIDEO
+	select VIDEO_STREAM
+	select VIDEO_ISX012
+	select USBDEV
+	select CDCACM
+	---help---
+		Enable the security camera example with H.264 streaming
+
+if EXAMPLES_SECURITY_CAMERA
+
+config EXAMPLES_SECURITY_CAMERA_PROGNAME
+	string "Program name"
+	default "security_camera"
+
+config EXAMPLES_SECURITY_CAMERA_PRIORITY
+	int "Task priority"
+	default 100
+
+config EXAMPLES_SECURITY_CAMERA_STACKSIZE
+	int "Stack size"
+	default 8192
+
+config EXAMPLES_SECURITY_CAMERA_CAMERA_WIDTH
+	int "Camera width"
+	default 320
+
+config EXAMPLES_SECURITY_CAMERA_CAMERA_HEIGHT
+	int "Camera height"
+	default 240
+
+config EXAMPLES_SECURITY_CAMERA_FPS
+	int "Frame rate (fps)"
+	default 30
+
+config EXAMPLES_SECURITY_CAMERA_BITRATE
+	int "H.264 bitrate (bps)"
+	default 2000000
+
+config EXAMPLES_SECURITY_CAMERA_HDR_ENABLE
+	bool "Enable HDR"
+	default n
+
+endif # EXAMPLES_SECURITY_CAMERA

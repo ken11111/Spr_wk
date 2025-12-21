@@ -1,0 +1,23 @@
+mksmartfs.c.home.ken.Spr_ws.spresense.sdk.apps.fsutils.mksmartfs.o: \
+ mksmartfs.c /home/ken/Spr_ws/spresense/nuttx/include/nuttx/config.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/sys/stat.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/sys/types.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/nuttx/compiler.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/stdint.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/arch/types.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/arch/inttypes.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/limits.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/arch/limits.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/time.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/sys/ioctl.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/nuttx/fs/ioctl.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/nuttx/serial/tioctl.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/nuttx/net/ioctl.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/fcntl.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/errno.h \
+ /home/ken/Spr_ws/spresense/sdk/apps/include/fsutils/mksmartfs.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/nuttx/fs/smart.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/stdbool.h \
+ /home/ken/Spr_ws/spresense/nuttx/include/unistd.h
+# No files specified for dependency generation
+# No files specified for dependency generation

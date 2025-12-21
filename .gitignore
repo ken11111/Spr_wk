@@ -1,0 +1,31 @@
+# Spresense Security Camera Project - Main Repository
+# Build artifacts
+*.spk
+*.bin
+*.log
+*.elf
+
+# Temporary files
+*.tmp
+*~
+*.swp
+*.bak
+*.backup
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Rust (for PC-side viewer)
+target/
+Cargo.lock

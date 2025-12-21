@@ -1,0 +1,36 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config MYPRO_BMI160_ORIENTATION
+	tristate "BMI160 Orientation and Position Estimation"
+	default n
+	select SENSORS_BMI160
+	select EXTERNALS_AHRS
+	---help---
+		Enable BMI160 sensor orientation (Roll/Pitch/Yaw) and
+		position estimation application using Madgwick AHRS algorithm.
+
+if MYPRO_BMI160_ORIENTATION
+
+config MYPRO_BMI160_ORIENTATION_PROGNAME
+	string "Program name"
+	default "bmi160_orientation"
+	---help---
+		This is the name of the program that will be used when the
+		NSH ELF program is installed.
+
+config MYPRO_BMI160_ORIENTATION_PRIORITY
+	int "Task priority"
+	default 100
+	---help---
+		Task priority (0-255)
+
+config MYPRO_BMI160_ORIENTATION_STACKSIZE
+	int "Stack size"
+	default 4096
+	---help---
+		Task stack size in bytes
+
+endif

@@ -49,6 +49,7 @@ CSRCS += encoder_manager.c
 CSRCS += protocol_handler.c
 CSRCS += usb_transport.c
 CSRCS += mjpeg_protocol.c
+CSRCS += perf_logger.c
 
 MAINSRC = camera_app_main.c
 

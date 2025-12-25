@@ -48,6 +48,7 @@
 #include "protocol_handler.h"
 #include "usb_transport.h"
 #include "mjpeg_protocol.h"
+#include "perf_logger.h"
 #include "config.h"
 
 /****************************************************************************
@@ -110,6 +111,8 @@ int main(int argc, FAR char *argv[])
   uint32_t sequence = 0;
   uint8_t *packet_buffer;
   int packet_size;
+  perf_frame_metrics_t perf_metrics;
+  uint64_t last_frame_ts = 0;
 
   LOG_INFO("=================================================");
   LOG_INFO("Security Camera Application Starting (MJPEG)");
@@ -167,6 +170,10 @@ int main(int argc, FAR char *argv[])
 
   LOG_INFO("USB transport initialized (/dev/ttyACM0)");
 
+  /* Initialize performance logger */
+
+  perf_logger_init();
+
   LOG_INFO("Starting main loop (will capture 90 frames for testing)...");
   LOG_INFO("=================================================");
 
@@ -174,9 +181,27 @@ int main(int argc, FAR char *argv[])
 
   while (g_running && frame_count < 90)
     {
+      /* Initialize performance metrics for this frame */
+
+      memset(&perf_metrics, 0, sizeof(perf_frame_metrics_t));
+      perf_metrics.ts_frame_start = perf_logger_get_timestamp_us();
+      perf_metrics.frame_num = frame_count + 1;
+
+      /* Calculate inter-frame interval */
+
+      if (last_frame_ts > 0)
+        {
+          perf_metrics.interval_us =
+            perf_metrics.ts_frame_start - last_frame_ts;
+        }
+
+      last_frame_ts = perf_metrics.ts_frame_start;
+
       /* Get JPEG frame from camera */
 
+      perf_metrics.ts_camera_poll_start = perf_logger_get_timestamp_us();
       ret = camera_get_frame(&frame);
+      perf_metrics.ts_camera_dqbuf_end = perf_logger_get_timestamp_us();
       if (ret < 0)
         {
           if (ret == ERR_TIMEOUT)
@@ -204,10 +229,19 @@ int main(int argc, FAR char *argv[])
 
       frame_count++;
 
+      /* Calculate camera latency */
+
+      perf_metrics.latency_camera_poll =
+        perf_metrics.ts_camera_dqbuf_end - perf_metrics.ts_camera_poll_start;
+      perf_metrics.latency_camera_dqbuf = perf_metrics.latency_camera_poll;
+      perf_metrics.jpeg_size = frame.size;
+
       /* Pack JPEG frame using MJPEG protocol */
 
+      perf_metrics.ts_pack_start = perf_logger_get_timestamp_us();
       packet_size = mjpeg_pack_frame(frame.buf, frame.size, &sequence,
                                       packet_buffer, MJPEG_MAX_PACKET_SIZE);
+      perf_metrics.ts_pack_end = perf_logger_get_timestamp_us();
 
       if (packet_size < 0)
         {
@@ -215,9 +249,15 @@ int main(int argc, FAR char *argv[])
           continue;
         }
 
+      perf_metrics.latency_pack =
+        perf_metrics.ts_pack_end - perf_metrics.ts_pack_start;
+      perf_metrics.packet_size = packet_size;
+
       /* Send packet via USB CDC */
 
+      perf_metrics.ts_usb_write_start = perf_logger_get_timestamp_us();
       ret = usb_transport_send_bytes(packet_buffer, packet_size);
+      perf_metrics.ts_usb_write_end = perf_logger_get_timestamp_us();
       if (ret < 0)
         {
           LOG_ERROR("Failed to send packet via USB: %d", ret);
@@ -232,13 +272,20 @@ int main(int argc, FAR char *argv[])
       else
         {
           error_count = 0;  /* Reset error count on success */
+          perf_metrics.usb_written = ret;
         }
 
-      if (frame_count == 1 || frame_count % 30 == 0)  /* Log first and every second */
-        {
-          LOG_INFO("Frame %u: JPEG=%u bytes, Packet=%d bytes, USB sent=%d, Seq=%u",
-                   frame_count, frame.size, packet_size, ret, sequence - 1);
-        }
+      /* Calculate final metrics */
+
+      perf_metrics.latency_usb_write =
+        perf_metrics.ts_usb_write_end - perf_metrics.ts_usb_write_start;
+      perf_metrics.ts_frame_end = perf_logger_get_timestamp_us();
+      perf_metrics.latency_total =
+        perf_metrics.ts_frame_end - perf_metrics.ts_frame_start;
+
+      /* Record performance metrics */
+
+      perf_logger_record_frame(&perf_metrics);
 
       /* Maintain frame rate (30 fps = 33333 us per frame) */
 
@@ -253,6 +300,8 @@ cleanup:
   /* Cleanup */
 
   LOG_INFO("Cleaning up...");
+
+  perf_logger_cleanup();
 
   if (packet_buffer != NULL)
     {

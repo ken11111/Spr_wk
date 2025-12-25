@@ -215,20 +215,172 @@ USB使用率 = 14.4 Mbps / 12 Mbps × 100%
 #define PERF_LOG_INTERVAL_FRAMES     30    /* 変更可能 */
 ```
 
-### 6.3 ログ取得方法
+### 6.3 Spresense USB接続の詳細
 
-#### Spresense側（シリアルコンソール）
+Spresenseは3つのUSBデバイスを公開します。用途に応じて使い分けが必要です。
 
-```bash
-# Spresenseに接続してログ取得
-picocom -b 115200 /dev/ttyUSB1
+```
+Spresense ─┬─ /dev/ttyUSB0  (Boot Loader)
+           │   └→ フラッシュ時に使用（tools/flash.sh）
+           │
+           ├─ /dev/ttyUSB1  (Serial Console)
+           │   └→ syslog出力（性能ログ、デバッグメッセージ）
+           │
+           └─ /dev/ttyACM0  (USB CDC-ACM)
+               └→ MJPEGデータ通信（PC側Rustアプリケーション）
 ```
 
-#### PC側（ファイル保存）
+**重要**: テスト実行時は**2つの端末が必要**です。
+
+### 6.4 実機テスト手順
+
+#### ステップ1: ファームウェアのフラッシュ（1端末）
 
 ```bash
-# ログをファイルに保存
-picocom -b 115200 /dev/ttyUSB1 | tee spresense_perf.log
+# 端末A
+cd /home/ken/Spr_ws/spresense/sdk
+
+# フラッシュ実行
+sudo -E PATH=$HOME/spresenseenv/usr/bin:$PATH \
+  ./tools/flash.sh -c /dev/ttyUSB0 nuttx.spk
+
+# 完了後、Spresenseをリセット
+# アプリケーションが自動起動します
+```
+
+**使用デバイス**: `/dev/ttyUSB0`（ブートローダー通信専用）
+
+#### ステップ2: 性能ログ取得開始（端末A）
+
+```bash
+# 端末A（フラッシュ完了後、同じ端末で実行）
+picocom -b 115200 /dev/ttyUSB1 | tee spresense_vga_perf_$(date +%Y%m%d_%H%M%S).log
+```
+
+**使用デバイス**: `/dev/ttyUSB1`（シリアルコンソール）
+
+**出力内容**:
+- アプリケーション起動メッセージ
+- カメラ/USB初期化ログ
+- **性能統計（30フレーム毎）**
+- USB帯域警告（⚠️ BANDWIDTH EXCEEDED等）
+- エラーログ
+
+**picocom操作**:
+- 終了: `Ctrl+A → Ctrl+X`
+- スクロールロック: `Ctrl+A → Ctrl+Q`
+
+#### ステップ3: PC側アプリケーション起動（端末B）
+
+**別の端末を開いて実行**:
+
+```bash
+# 端末B
+cd /home/ken/Rust_ws/security_camera_viewer
+
+# リリースビルドで実行
+cargo run --release
+```
+
+**使用デバイス**: `/dev/ttyACM0`（USB CDC-ACM）
+
+**機能**:
+- MJPEGパケット受信
+- CRC検証
+- JPEG映像表示
+- PC側受信統計（フレームレート、パケットロス等）
+
+**注意**: Spresenseアプリが起動して初めて`/dev/ttyACM0`が出現します。以下の順序を守ってください:
+
+1. Spresenseフラッシュ → リセット
+2. アプリ起動を待つ（数秒）
+3. `/dev/ttyACM0`出現を確認
+4. Rustアプリ起動
+
+#### ステップ4: 並行観察
+
+**端末A（/dev/ttyUSB1）で確認**:
+```
+[CAM] [PERF STATS] Window: 30 frames in 1.00 sec (30.00 fps)
+[CAM] [USB] Utilization: 119.2% of 12 Mbps Full Speed
+[CAM] [USB] ⚠️  BANDWIDTH EXCEEDED! Target: <100%, Actual: 119.2%
+```
+
+**端末B（Rustアプリ）で確認**:
+- MJPEG映像がリアルタイム表示される
+- フレームレートが表示される
+- パケットロス率を確認
+
+### 6.5 トラブルシューティング
+
+#### デバイスが見つからない
+
+```bash
+# USB接続確認
+lsusb | grep -i sony
+
+# デバイス一覧
+ls -l /dev/ttyUSB* /dev/ttyACM*
+```
+
+**正常時の出力例**:
+```
+crw-rw---- 1 root dialout 188, 0 Dec 25 21:00 /dev/ttyUSB0
+crw-rw---- 1 root dialout 188, 1 Dec 25 21:00 /dev/ttyUSB1
+crw-rw---- 1 root dialout 166, 0 Dec 25 21:01 /dev/ttyACM0
+```
+
+#### ポート使用中エラー
+
+```bash
+# picocomプロセスが残っている場合
+pkill picocom
+
+# Rustアプリが残っている場合
+pkill security_camera
+
+# ポート使用状況確認
+lsof /dev/ttyUSB1
+lsof /dev/ttyACM0
+```
+
+#### /dev/ttyACM0が出現しない
+
+**原因**: Spresenseアプリケーションが起動していない
+
+**対処**:
+1. `/dev/ttyUSB1`でログを確認し、アプリが起動しているか確認
+2. 起動ログが見えない場合、Spresenseをリセット
+3. フラッシュが正常に完了しているか確認
+
+#### パーミッションエラー
+
+```bash
+# dialoutグループに追加（初回のみ）
+sudo usermod -a -G dialout $USER
+
+# ログアウト→ログインして反映
+
+# 確認
+groups | grep dialout
+```
+
+### 6.6 ログファイルの保存場所
+
+推奨ディレクトリ構成:
+
+```
+/home/ken/Spr_ws/GH_wk_test/docs/security_camera/02_test_results/
+├── spresense_vga_perf_20251225_210000.log  ← 端末Aのログ
+├── pc_rust_output_20251225_210000.log      ← 端末Bの出力（任意）
+└── README.md                                ← テスト結果サマリ
+```
+
+**ログファイル保存コマンド**:
+```bash
+# 端末A（日時付きファイル名で自動保存）
+cd /home/ken/Spr_ws/GH_wk_test/docs/security_camera/02_test_results/
+picocom -b 115200 /dev/ttyUSB1 | tee spresense_vga_perf_$(date +%Y%m%d_%H%M%S).log
 ```
 
 ---

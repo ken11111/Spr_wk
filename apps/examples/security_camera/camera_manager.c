@@ -58,7 +58,7 @@
  ****************************************************************************/
 
 #define VIDEO_DEVICE_PATH  "/dev/video"
-#define CAMERA_BUFFER_NUM  2  /* Double buffering */
+#define CAMERA_BUFFER_NUM  3  /* Triple buffering (Phase 1.5: frame drop mitigation) */
 
 /****************************************************************************
  * Private Types

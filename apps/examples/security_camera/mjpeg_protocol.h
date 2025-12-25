@@ -28,7 +28,7 @@
 #define MJPEG_HEADER_SIZE        12           /* sync + seq + size */
 #define MJPEG_CRC_SIZE           2
 #define MJPEG_OVERHEAD_SIZE      (MJPEG_HEADER_SIZE + MJPEG_CRC_SIZE)
-#define MJPEG_MAX_JPEG_SIZE      65536        /* 64 KB (sufficient for QVGA JPEG) */
+#define MJPEG_MAX_JPEG_SIZE      131072       /* 128 KB (Phase 1.5: VGA support) */
 #define MJPEG_MAX_PACKET_SIZE    (MJPEG_HEADER_SIZE + MJPEG_MAX_JPEG_SIZE + MJPEG_CRC_SIZE)
 
 /****************************************************************************

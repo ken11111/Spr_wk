@@ -1,0 +1,374 @@
+@startuml Phase3アプリケーション開発フロー
+!theme plain
+skinparam ActivityBackgroundColor LightGreen
+skinparam ActivityBorderColor DarkGreen
+
+title Phase 3: Spresenseアプリケーション開発フロー\n(センサーアプリケーション例)
+
+start
+
+partition "要件定義" {
+  :アプリケーション要件を整理;
+  note right
+    例: BMI160センサーアプリ
+
+    要件:
+    - 加速度・ジャイロデータ取得
+    - 100Hzサンプリング
+    - 姿勢推定（AHRS）
+    - リアルタイム表示
+  end note
+
+  :必要なハードウェアを確認;
+  note right
+    - 使用センサー: BMI160
+    - インターフェース: I2C
+    - デバイスパス: /dev/accel0, /dev/gyro0
+  end note
+
+  :ソフトウェアアーキテクチャ設計;
+  note right
+    モジュール構成:
+    1. センサーマネージャー
+    2. データ処理
+    3. AHRS（姿勢推定）
+    4. 表示・出力
+  end note
+}
+
+partition "センサードライバー確認" {
+  :デバイスファイルの存在確認;
+  note right
+    NuttShellで:
+    nsh> ls /dev/accel*
+    nsh> ls /dev/gyro*
+  end note
+
+  if (デバイスファイル存在?) then (yes)
+    #PaleGreen:ドライバーOK;
+  else (no)
+    #Orange:ドライバー設定が必要;
+
+    :nuttx/.configにドライバー設定を追加;
+    note right
+      CONFIG_SENSORS=y
+      CONFIG_SENSORS_BMI160=y
+      CONFIG_CXD56_I2C0=y  # またはI2C1
+    end note
+
+    :再ビルド;
+    note right
+      make clean
+      make
+    end note
+
+    detach
+  endif
+}
+
+partition "センサーデータ取得実装" {
+  :デバイスオープン処理;
+  note right
+    int accel_fd = open("/dev/accel0", O_RDONLY);
+    if (accel_fd < 0) {
+      // エラー処理
+    }
+
+    int gyro_fd = open("/dev/gyro0", O_RDONLY);
+    if (gyro_fd < 0) {
+      // エラー処理
+    }
+  end note
+
+  :サンプリングレート設定;
+  note right
+    struct sensor_config_s config;
+    config.rate = 100;  // 100Hz
+    ioctl(accel_fd, SNIOC_SET_CONFIG, &config);
+    ioctl(gyro_fd, SNIOC_SET_CONFIG, &config);
+  end note
+
+  :データ読み取りループ実装;
+  note right
+    while (running) {
+      struct sensor_accel accel_data;
+      read(accel_fd, &accel_data, sizeof(accel_data));
+
+      struct sensor_gyro gyro_data;
+      read(gyro_fd, &gyro_data, sizeof(gyro_data));
+
+      // データ処理
+      process_sensor_data(&accel_data, &gyro_data);
+
+      usleep(10000);  // 10ms = 100Hz
+    }
+  end note
+
+  :エラーハンドリング実装;
+  note right
+    - read失敗時のリトライ
+    - タイムアウト処理
+    - センサーリセット処理
+  end note
+}
+
+partition "データ処理実装" {
+  :生データのフィルタリング;
+  note right
+    // ローパスフィルタ
+    filtered_data = low_pass_filter(raw_data);
+
+    // ハイパスフィルタ（ドリフト除去）
+    detrended_data = high_pass_filter(filtered_data);
+  end note
+
+  if (姿勢推定が必要?) then (yes)
+    :AHRS（姿勢推定）実装;
+    note right
+      // Madgwick AHRSアルゴリズム
+      madgwick_update(
+        accel_data.x, accel_data.y, accel_data.z,
+        gyro_data.x, gyro_data.y, gyro_data.z
+      );
+
+      // クォータニオンからオイラー角へ
+      float roll, pitch, yaw;
+      quaternion_to_euler(&roll, &pitch, &yaw);
+    end note
+
+    :AHRSパラメータ調整;
+    note right
+      ベータ値の調整:
+      - 大きい: 応答速度速い、ノイズ多い
+      - 小さい: 応答遅い、ノイズ少ない
+
+      推奨: 0.1 - 0.5 の範囲で調整
+    end note
+
+  else (no)
+    :基本的なデータ処理のみ;
+  endif
+
+  :キャリブレーション実装;
+  note right
+    // センサーオフセット補正
+    calibrated_data = raw_data - offset;
+
+    // スケール補正
+    scaled_data = calibrated_data * scale_factor;
+  end note
+}
+
+partition "出力・表示実装" {
+  :データ出力方法を選択;
+
+  if (出力先は?) then (シリアル)
+    :printf/syslogで出力;
+    note right
+      printf("Roll: %.2f, Pitch: %.2f, Yaw: %.2f\n",
+             roll, pitch, yaw);
+    end note
+
+  elseif (ファイル) then (ファイル)
+    :SDカードにログ保存;
+    note right
+      FILE *fp = fopen("/mnt/sd0/sensor.log", "a");
+      fprintf(fp, "%.2f,%.2f,%.2f\n", roll, pitch, yaw);
+      fclose(fp);
+    end note
+
+  elseif (LCD) then (LCD)
+    :LCDに表示;
+    note right
+      // NXグラフィックスライブラリ使用
+      nxtk_drawtext(hwnd, &pos, "Roll: %.2f", roll);
+    end note
+
+  else (ネットワーク)
+    :TCP/UDP送信;
+    note right
+      // ソケット通信
+      send(sock, data, sizeof(data), 0);
+    end note
+  endif
+}
+
+partition "ビルドとテスト" {
+  :ビルド設定の最適化;
+  note right
+    nuttx/.config で:
+    - スタックサイズを適切に設定
+      CONFIG_EXAMPLES_MY_APP_STACKSIZE=4096
+    - 優先度を調整
+      CONFIG_EXAMPLES_MY_APP_PRIORITY=100
+  end note
+
+  :ビルド実行;
+  note right
+    cd sdk
+    make clean
+    make
+  end note
+
+  if (ビルド成功?) then (yes)
+    #PaleGreen:ビルドOK;
+  else (no)
+    #LightCoral:ビルドエラー;
+
+    if (エラー種類は?) then (リンクエラー)
+      :必要なライブラリを追加;
+      note right
+        Makefileに:
+        LIBS += -lm  # 数学ライブラリ
+      end note
+
+    elseif (ヘッダー不足) then (include)
+      :インクルードパスを追加;
+      note right
+        Makefileに:
+        CFLAGS += -I$(APPDIR)/include
+      end note
+
+    else (その他)
+      :ビルドログを確認;
+      detach
+    endif
+  endif
+
+  :実機でテスト;
+  note right
+    ./tools/flash.sh -c /dev/ttyUSB0 \
+      ../nuttx/nuttx.spk
+
+    minicom -D /dev/ttyUSB0
+    nsh> my_app
+  end note
+
+  if (期待通り動作?) then (yes)
+    #PaleGreen:動作OK;
+  else (no)
+    #Orange:デバッグが必要;
+
+    partition "デバッグ" {
+      :ログ出力を追加;
+      note right
+        syslog(LOG_INFO, "Debug: value=%d", value);
+      end note
+
+      :センサーデータの妥当性確認;
+      note right
+        加速度の範囲チェック:
+        -2G ~ +2G 程度
+
+        ジャイロの範囲チェック:
+        静止時はほぼ0
+      end note
+
+      if (AHRSの発散?) then (yes)
+        :AHRSパラメータ調整;
+        note right
+          - ベータ値を小さくする
+          - サンプリング周期を確認
+          - 磁気センサーデータの確認
+        end note
+      endif
+
+      :メモリリークチェック;
+      note right
+        NuttShellで:
+        nsh> free
+
+        実行前後のメモリ使用量を比較
+      end note
+    }
+
+    detach
+  endif
+}
+
+partition "性能最適化" {
+  :処理時間の測定;
+  note right
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    // 処理
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    // 処理時間を計算
+  end note
+
+  if (性能目標達成?) then (yes)
+    #PaleGreen:最適化完了;
+  else (no)
+    :ボトルネック特定;
+    note right
+      - 重い計算をプロファイル
+      - メモリアクセスパターン確認
+      - 不要な処理を削除
+    end note
+
+    :最適化実施;
+    note right
+      - ループ展開
+      - インライン関数化
+      - テーブル化
+      - 浮動小数点→固定小数点
+    end note
+  endif
+}
+
+:Phase 3 完了;
+#DarkGreen:本番環境へデプロイ;
+
+stop
+
+legend right
+  |= 色 |= 意味 |
+  | 緑系 | 通常処理/成功 |
+  | オレンジ | デバッグ/調整必要 |
+  | 赤 | エラー |
+
+  **所要時間**: 3-5時間
+  （センサーアプリの場合）
+
+  **難易度**: ★★★☆☆
+endlegend
+
+note right
+  **Phase 3のゴール**:
+  1. センサーデータ取得成功
+  2. データ処理ロジック動作
+  3. 期待通りの出力
+  4. 性能要件の達成
+
+  **よくある問題**:
+  - デバイスオープン失敗
+    → ドライバー設定確認
+  - AHRSの発散
+    → パラメータ調整
+  - メモリ不足
+    → スタックサイズ増加
+
+  **参考ドキュメント**:
+  - 03_application_development.md
+  - camera_lessons_learned.md
+end note
+
+note right
+  **関連構成図**:
+  - camera_application_flow.puml - カメラアプリの具体例
+  - config_dependencies.puml - センサー/カメラに必要なCONFIG
+  - build_flow.puml - アプリ修正後の再ビルド手順
+  - troubleshooting_flow.puml - ビルドエラー時の対処
+
+  **このPhaseの前提**:
+  - Phase 1: 環境構築完了
+  - Phase 2: アプリがbuiltin登録済み
+
+  **アプリケーション種類別のフロー**:
+  - センサーアプリ: このフローに従う
+  - カメラアプリ: camera_application_flow.puml を参照
+end note
+
+@enduml

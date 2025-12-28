@@ -1,0 +1,159 @@
+@startuml ビルドフロー
+!theme plain
+skinparam ActivityBackgroundColor LightBlue
+skinparam ActivityBorderColor DarkBlue
+skinparam ActivityFontSize 11
+
+title Spresense Phase 1.5 VGA ビルドフロー\n(推奨手順)
+
+start
+
+:クリーン環境から開始;
+note right
+  cd /path/to/spresense/sdk
+  make distclean
+end note
+
+:defconfigを適用;
+note right
+  ./tools/config.py examples/camera
+
+  **ポイント**:
+  ゼロから構築せず、
+  既存の動作する設定を
+  ベースにする
+end note
+
+partition "設定のカスタマイズ" {
+  :標準カメラアプリを無効化;
+  note right
+    cd ../nuttx
+    sed -i 's/^CONFIG_EXAMPLES_CAMERA=y$/
+    # CONFIG_EXAMPLES_CAMERA is not set/' .config
+    sed -i '/^CONFIG_EXAMPLES_CAMERA_/d' .config
+  end note
+
+  :カスタムアプリを有効化;
+  note right
+    cat >> .config <<'EOF'
+    CONFIG_EXAMPLES_SECURITY_CAMERA=y
+    CONFIG_EXAMPLES_SECURITY_CAMERA_PROGNAME="security_camera"
+    CONFIG_EXAMPLES_SECURITY_CAMERA_PRIORITY=100
+    CONFIG_EXAMPLES_SECURITY_CAMERA_STACKSIZE=8192
+    EOF
+  end note
+}
+
+:PATH環境変数を設定;
+note right
+  export PATH=$HOME/spresenseenv/usr/bin:
+                /usr/bin:/bin
+
+  または
+  PATH=$HOME/spresenseenv/usr/bin:
+       /usr/bin:/bin make
+end note
+
+partition "ビルド実行" {
+  :makeを実行;
+  note right
+    cd ../sdk
+    make -j$(nproc) 2>&1 | tee build.log
+
+    **並列ビルドで高速化**
+  end note
+
+  if (ビルド成功?) then (yes)
+    #LightGreen:ビルド完了;
+  else (no)
+    #LightCoral:エラー発生;
+
+    :エラーログを確認;
+    note right
+      grep -i "error:" build.log | head -20
+    end note
+
+    if (よくあるエラー?) then (yes)
+      :チートシートで解決;
+      note right
+        build_troubleshooting_cheatsheet.md
+        を参照して即座に解決
+      end note
+    else (no)
+      :詳細トラブルシューティング;
+      note right
+        build_environment_migration_
+        troubleshooting.md
+        でエラーパターンを確認
+      end note
+    endif
+
+    :設定を修正;
+    note right
+      例: CONFIG_ARCH_ARMV7M=y を追加
+    end note
+
+    detach
+  endif
+}
+
+partition "検証" {
+  :nuttx.spk生成確認;
+  note right
+    ls -lh ../nuttx/nuttx.spk
+
+    期待: 200-300KB程度
+  end note
+
+  :シンボルテーブル確認;
+  note right
+    arm-none-eabi-nm ../nuttx/nuttx |
+      grep "security_camera_main"
+
+    arm-none-eabi-nm ../nuttx/nuttx |
+      grep -E "perf_logger|camera_manager"
+
+    **Phase 1.5固有の機能が含まれているか**
+  end note
+
+  if (すべてOK?) then (yes)
+    #LightGreen:検証完了;
+  else (no)
+    #LightCoral:検証失敗;
+    :ビルドログを再確認;
+    detach
+  endif
+}
+
+:ファームウェア書き込み準備完了;
+
+stop
+
+legend right
+  |= 色 |= 意味 |
+  | 水色 | 通常処理 |
+  | 緑 | 成功 |
+  | 赤 | エラー・失敗 |
+
+  **所要時間**: 5-15分
+  （エラーがない場合）
+endlegend
+
+note right
+  **関連フローチャート**:
+  - phase1_environment_setup_flow.puml - ビルド前の環境準備（初回のみ）
+  - phase2_builtin_registration_flow.puml - アプリケーション統合の詳細手順
+  - troubleshooting_flow.puml - ビルドエラー時の診断フロー
+  - config_dependencies.puml - CONFIG設定の依存関係
+
+  **このフローの位置づけ**:
+  - Phase 1完了後、Phase 2以降で繰り返し使用する標準ビルド手順
+  - defconfigベースのアプローチで依存関係エラーを最小化
+  - カスタマイズはdefconfig適用後に最小限の変更のみ行う
+
+  **関連ドキュメント**:
+  - build_troubleshooting_cheatsheet.md - エラー即座解決ガイド
+  - build_environment_migration_troubleshooting.md - 詳細トラブルシューティング
+end note
+
+@enduml

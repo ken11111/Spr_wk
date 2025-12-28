@@ -1,0 +1,343 @@
+@startuml カメラアプリケーション開発フロー
+!theme plain
+skinparam ActivityBackgroundColor LightPink
+skinparam ActivityBorderColor DarkRed
+
+title Spresense カメラアプリケーション開発フロー\n(Phase 1.5 VGA セキュリティカメラ例)
+
+start
+
+partition "カメラ設定の決定" {
+  :解像度を選択;
+  note right
+    よく使われる解像度:
+    - QVGA: 320x240 (軽量)
+    - VGA:  640x480 (標準)
+    - HD:   1280x720 (高品質)
+
+    Phase 1.5では VGA (640x480) を選択
+  end note
+
+  :画像フォーマットを選択;
+  note right
+    - JPEG: 圧縮あり、転送効率良
+    - YUV:  圧縮なし、処理速い
+    - RGB:  表示用
+
+    Phase 1.5では JPEG を選択
+  end note
+
+  :フレームレートを決定;
+  note right
+    目標: 30fps
+
+    実際の制約:
+    - USB転送速度
+    - JPEG圧縮時間
+    - バッファサイズ
+  end note
+
+  :バッファ数を決定;
+  note right
+    **重要な最適化ポイント**
+
+    バッファ数の影響:
+    - 1個: シンプル、フレームドロップ多い
+    - 2個: ダブルバッファ、基本的
+    - 3個: トリプルバッファ、推奨
+
+    Phase 1.5では 3個（トリプルバッファ）
+  end note
+}
+
+partition "カメラドライバー設定" {
+  :nuttx/.configにカメラ設定を追加;
+  note right
+    CONFIG_VIDEO=y
+    CONFIG_VIDEO_STREAM=y
+    CONFIG_VIDEO_ISX012=y  # またはISX019
+    CONFIG_CXD56_CISIF=y
+    CONFIG_CXD56_I2C2=y
+  end note
+
+  :バッファサイズを設定;
+  note right
+    // config.h で定義
+    #define CAMERA_BUFFER_NUM 3
+    #define VIDEO_BUFFER_SIZE (640*480*2)
+    #define JPEG_BUFFER_SIZE (128*1024)  // 128KB
+  end note
+}
+
+partition "カメラ初期化" {
+  :ビデオデバイスをオープン;
+  note right
+    int video_fd = open("/dev/video", O_RDONLY);
+    if (video_fd < 0) {
+      // エラー処理
+      return -1;
+    }
+  end note
+
+  :カメラパラメータを設定;
+  note right
+    struct v4l2_format fmt;
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    fmt.fmt.pix.width = 640;
+    fmt.fmt.pix.height = 480;
+    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_JPEG;
+
+    ioctl(video_fd, VIDIOC_S_FMT, &fmt);
+  end note
+
+  :バッファをリクエスト;
+  note right
+    struct v4l2_requestbuffers req;
+    req.count = CAMERA_BUFFER_NUM;  // 3
+    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = V4L2_MEMORY_USERPTR;
+
+    ioctl(video_fd, VIDIOC_REQBUFS, &req);
+  end note
+
+  :バッファをキューイング;
+  note right
+    for (int i = 0; i < CAMERA_BUFFER_NUM; i++) {
+      struct v4l2_buffer buf;
+      buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+      buf.memory = V4L2_MEMORY_USERPTR;
+      buf.index = i;
+      buf.m.userptr = (unsigned long)buffers[i];
+      buf.length = JPEG_BUFFER_SIZE;
+
+      ioctl(video_fd, VIDIOC_QBUF, &buf);
+    }
+  end note
+
+  :ストリーミング開始;
+  note right
+    enum v4l2_buf_type type =
+      V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    ioctl(video_fd, VIDIOC_STREAMON, &type);
+  end note
+}
+
+partition "フレーム取得ループ" {
+  while (アプリケーション実行中?) is (yes)
+    :バッファをデキュー（フレーム取得）;
+    note right
+      struct v4l2_buffer buf;
+      buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+      buf.memory = V4L2_MEMORY_USERPTR;
+
+      ret = ioctl(video_fd, VIDIOC_DQBUF, &buf);
+    end note
+
+    if (デキュー成功?) then (yes)
+      #LightPink:フレーム取得成功;
+
+      :パフォーマンス測定（オプション）;
+      note right
+        // Phase 1.5の機能
+        perf_logger_record_frame(
+          frame_size, timestamp
+        );
+      end note
+
+      :フレーム処理;
+      note right
+        処理の選択肢:
+        1. USB経由でPCに送信
+        2. SDカードに保存
+        3. LCDに表示
+        4. 画像認識処理
+
+        Phase 1.5では USB送信
+      end note
+
+      if (処理タイプは?) then (USB送信)
+        :MJPEG over USBプロトコル;
+        note right
+          // mjpeg_protocol.h で定義
+          packet_t packet;
+          packet.type = PACKET_TYPE_FRAME;
+          packet.size = buf.bytesused;
+
+          write(usb_fd, &packet, sizeof(packet));
+          write(usb_fd, buffer, buf.bytesused);
+        end note
+
+        if (送信成功?) then (yes)
+          #PaleGreen:送信OK;
+        else (no)
+          #Orange:USB送信エラー;
+          :リトライ処理;
+          note right
+            最大3回リトライ
+            それでも失敗ならログ
+          end note
+        endif
+
+      elseif (SDカード保存) then (SDカード)
+        :ファイルに書き込み;
+        note right
+          char filename[64];
+          snprintf(filename, sizeof(filename),
+                   "/mnt/sd0/img_%05d.jpg", frame_num);
+
+          FILE *fp = fopen(filename, "wb");
+          fwrite(buffer, 1, buf.bytesused, fp);
+          fclose(fp);
+        end note
+
+      elseif (LCD表示) then (LCD)
+        :JPEG デコード;
+        note right
+          // JPEGライブラリ使用
+          jpeg_decode(buffer, buf.bytesused,
+                      rgb_buffer);
+        end note
+
+        :LCDに描画;
+        note right
+          // NXグラフィックス使用
+          nxgl_copyrectangle(lcd_plane,
+                             &rect, rgb_buffer);
+        end note
+
+      else (画像処理)
+        :画像処理パイプライン;
+        note right
+          - 顔検出
+          - 動体検知
+          - QRコード読取
+          etc.
+        end note
+      endif
+
+      :バッファを再キューイング;
+      note right
+        // 重要: 必ず再キューイング
+        ioctl(video_fd, VIDIOC_QBUF, &buf);
+      end note
+
+    else (no)
+      #LightCoral:デキューエラー;
+
+      if (errno == EAGAIN) then (一時的)
+        #LightYellow:データ未準備;
+        :少し待機;
+        note right
+          usleep(1000);  // 1ms待機
+        end note
+
+      elseif (errno == EIO) then (I/Oエラー)
+        #Orange:カメラエラー;
+        :カメラをリセット;
+        note right
+          ストリーミング停止
+          → 再初期化
+        end note
+
+      else (その他)
+        #LightCoral:致命的エラー;
+        :ループを抜ける;
+        break
+      endif
+    endif
+
+  endwhile (no)
+}
+
+partition "クリーンアップ" {
+  :ストリーミング停止;
+  note right
+    enum v4l2_buf_type type =
+      V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    ioctl(video_fd, VIDIOC_STREAMOFF, &type);
+  end note
+
+  :パフォーマンス統計出力（オプション）;
+  note right
+    // Phase 1.5の機能
+    perf_logger_print_stats();
+
+    出力例:
+    - 総フレーム数
+    - 平均FPS
+    - フレームドロップ数
+    - USB転送速度
+  end note
+
+  :デバイスをクローズ;
+  note right
+    close(video_fd);
+  end note
+
+  :バッファを解放;
+  note right
+    for (int i = 0; i < CAMERA_BUFFER_NUM; i++) {
+      free(buffers[i]);
+    }
+  end note
+}
+
+:カメラアプリ終了;
+
+stop
+
+legend right
+  |= 色 |= 意味 |
+  | ピンク系 | 通常処理 |
+  | 緑 | 成功 |
+  | 黄 | 警告/一時的エラー |
+  | オレンジ | リカバリ可能エラー |
+  | 赤 | 致命的エラー |
+
+  **所要時間**: 2-4時間
+  （カメラアプリ実装）
+endlegend
+
+note right
+  **カメラアプリのポイント**:
+
+  1. **バッファ管理が最重要**
+     - トリプルバッファで安定
+     - 必ず再キューイング
+
+  2. **エラーハンドリング**
+     - EAGAIN: 正常な一時待機
+     - EIO: カメラリセットが必要
+     - その他: ログして継続 or 終了
+
+  3. **パフォーマンス最適化**
+     - JPEG圧縮は時間がかかる
+     - USB転送は非同期化推奨
+     - フレームドロップを監視
+
+  4. **Phase 1.5の拡張機能**
+     - トリプルバッファリング
+     - パフォーマンスロギング
+     - 128KB JPEG バッファ
+
+  **参考ドキュメント**:
+  - camera_config_reference.md
+  - camera_lessons_learned.md
+  - build_environment_migration_troubleshooting.md
+end note
+
+note right
+  **関連構成図**:
+  - config_dependencies.puml - カメラに必要なCONFIG設定
+    (CONFIG_VIDEO, CONFIG_VIDEO_STREAM, CONFIG_CXD56_CISIF等)
+  - phase3_application_development_flow.puml - 一般的なアプリ開発フロー
+  - build_flow.puml - カメラアプリのビルド手順
+  - troubleshooting_flow.puml - ビルドエラー時の診断
+
+  **Phase 1.5固有の最適化**:
+  config_dependencies.puml でカメラ関連のCONFIG依存関係を確認し、
+  このフローでトリプルバッファリングを実装することで
+  フレームドロップを最小化
+end note
+
+@enduml

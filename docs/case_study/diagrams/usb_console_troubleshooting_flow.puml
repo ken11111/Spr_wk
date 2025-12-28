@@ -1,0 +1,254 @@
+@startuml USBコンソール接続トラブルシューティングフロー
+!theme plain
+skinparam ActivityBackgroundColor LightCoral
+skinparam ActivityBorderColor DarkRed
+
+title Spresense USB シリアルコンソール接続トラブルシューティングフロー
+
+start
+
+#LightCoral:ファームウェア書き込み完了;
+
+:NuttShellにログイン;
+note right
+  minicom -D /dev/ttyUSB0
+  または
+  picocom -b 115200 /dev/ttyUSB0
+end note
+
+:USBコンソールを有効化;
+note right
+  nsh> sercon
+end note
+
+if (serconコマンドが見つかる?) then (yes)
+  #LightGreen:コマンド実行成功;
+
+  :PC側で/dev/ttyACM0を確認;
+  note right
+    ls /dev/ttyACM0
+  end note
+
+  if (/dev/ttyACM0が存在?) then (yes)
+    #LightGreen:USB接続成功;
+    stop
+  else (no)
+    #Orange:デバイスが見つからない;
+
+    partition "デバイス未検出のトラブルシューティング" {
+      :Linux側ドライバー確認;
+      note right
+        lsmod | grep cdc_acm
+      end note
+
+      if (cdc_acmドライバーロード済み?) then (yes)
+        #LightYellow:ドライバーOK;
+      else (no)
+        :ドライバーをロード;
+        note right
+          sudo modprobe cdc-acm
+        end note
+      endif
+
+      :WSL2へのUSB接続確認;
+      note right
+        Windows PowerShellで:
+        usbipd list
+
+        Sony 054c:0bc2 が
+        "Attached" 状態か確認
+      end note
+
+      if (USB Attached?) then (yes)
+        #LightGreen:接続OK;
+        :/dev/ttyACM0再確認;
+        stop
+      else (no)
+        :USBをWSL2にアタッチ;
+        note right
+          Windows PowerShellで:
+          usbipd attach --wsl --busid <BUSID>
+        end note
+        stop
+      endif
+    }
+  endif
+
+else (no)
+  #LightCoral:**sercon: command not found**;
+
+  partition "CONFIG設定の確認と修正" {
+    :現在のCONFIG設定を確認;
+    note right
+      cd /home/ken/Spr_ws/GH_wk_test/spresense/nuttx
+      grep -E "CONFIG_SYSTEM_CDCACM|CONFIG_NSH_USBCONSOLE" .config
+    end note
+
+    if (CONFIG_SYSTEM_CDCACMは?) then (=y)
+      #LightYellow:設定はあるが何か問題;
+      :builtin登録を確認;
+      note right
+        cd ../sdk
+        grep "Register: sercon" build.log
+      end note
+
+      if (sercon登録あり?) then (yes)
+        #Orange:ビルドは正常だがコマンド認識されない;
+        :Spresenseリブート;
+        note right
+          nsh> reboot
+        end note
+        detach
+      else (no)
+        #LightCoral:ビルドが不完全;
+        :再ビルドが必要;
+        note right
+          make clean
+          make -j4
+        end note
+        detach
+      endif
+
+    elseif (is not set) then (無効)
+      #LightCoral:**CONFIG_SYSTEM_CDCACM が無効**;
+
+      :解決策を選択;
+
+      if (どの方式?) then (A: 手動sercon)
+        #LightYellow:解決策A: sercon復活;
+
+        :CONFIG_SYSTEM_CDCACMを追加;
+        note right
+          cat >> .config <<'EOF'
+          CONFIG_SYSTEM_CDCACM=y
+          EOF
+
+          sed -i '/^# CONFIG_SYSTEM_CDCACM is not set$/d' .config
+        end note
+
+      elseif (B: 自動起動) then (自動)
+        #LightYellow:解決策B: USB自動起動;
+
+        :CONFIG_NSH_USBCONSOLEを追加;
+        note right
+          cat >> .config <<'EOF'
+          CONFIG_NSH_USBCONSOLE=y
+          EOF
+
+          sed -i '/^# CONFIG_NSH_USBCONSOLE is not set$/d' .config
+        end note
+
+      else (C: 両方)
+        #LightGreen:解決策C: 両方有効化（推奨）;
+
+        :両方のCONFIGを追加;
+        note right
+          cat >> .config <<'EOF'
+          CONFIG_SYSTEM_CDCACM=y
+          CONFIG_NSH_USBCONSOLE=y
+          EOF
+
+          sed -i '/^# CONFIG_SYSTEM_CDCACM is not set$/d' .config
+          sed -i '/^# CONFIG_NSH_USBCONSOLE is not set$/d' .config
+        end note
+      endif
+
+      :再ビルド;
+      note right
+        cd ../sdk
+        export PATH=/home/ken/spresenseenv/usr/bin:/usr/bin:/bin
+        make clean
+        make -j4
+      end note
+
+      if (ビルド成功?) then (yes)
+        #LightGreen:ビルドOK;
+
+        :builtin登録を確認;
+        note right
+          grep "Register: sercon" build.log
+        end note
+
+        if (sercon登録あり?) then (yes)
+          #LightGreen:登録成功;
+
+          :ファームウェアを再書き込み;
+          note right
+            sudo -E PATH=$HOME/spresenseenv/usr/bin:$PATH \
+              ./tools/flash.sh -c /dev/ttyUSB0 ../nuttx/nuttx.spk
+          end note
+
+          :Spresenseリセット後、再テスト;
+          note right
+            minicom -D /dev/ttyUSB0
+
+            方式A/C: nsh> sercon
+            方式B: 自動的に有効化
+          end note
+
+          #LightGreen:問題解決;
+          stop
+
+        else (no)
+          #LightCoral:登録失敗;
+          :CONFIG設定を再確認;
+          note right
+            grep CONFIG_SYSTEM_CDCACM .config
+
+            確実に =y になっているか確認
+          end note
+          detach
+        endif
+
+      else (no)
+        #LightCoral:ビルドエラー;
+        :ビルドログを確認;
+        note right
+          less build.log
+
+          エラーメッセージを確認
+        end note
+        detach
+      endif
+
+    else (設定なし)
+      #Orange:CONFIG行自体がない;
+      :手動でCONFIG追加;
+      note right
+        解決策A/B/Cのいずれかを実行
+      end note
+      detach
+    endif
+  }
+endif
+
+legend right
+  |= 色 |= 意味 |
+  | 赤系 | エラー/問題 |
+  | 黄 | 警告/要確認 |
+  | 緑 | 成功/OK |
+
+  **所要時間**:
+  - CONFIG確認のみ: 1-2分
+  - 再ビルド必要: 5-10分
+  - 完全な再構築: 10-15分
+endlegend
+
+note right
+  **推奨解決策**:
+  解決策C（両方有効化）が最も柔軟
+
+  - CONFIG_SYSTEM_CDCACM=y
+  - CONFIG_NSH_USBCONSOLE=y
+
+  **メリット**:
+  1. 通常は自動起動で便利
+  2. トラブル時にsercon/serdisで手動制御可能
+  3. 最も互換性が高い
+
+  **関連ドキュメント**:
+  - usb_console_troubleshooting.md
+  - 04_TEST_PROCEDURE_FLOW.md
+end note
+
+@enduml

@@ -1,0 +1,170 @@
+@startuml CONFIG依存関係図
+!theme plain
+skinparam packageStyle rectangle
+skinparam linetype ortho
+
+title Spresense NuttX CONFIG依存関係マップ\n(Phase 1.5 VGAビルド環境移行)
+
+package "チップ選択" <<Rectangle>> #LightBlue {
+  [CONFIG_ARCH="arm"] as ARCH
+  [CONFIG_ARCH_CHIP="cxd56xx"] as CHIP
+  [CONFIG_ARCH_CHIP_CXD56XX=y] as CXD56XX
+}
+
+package "プロセッサアーキテクチャ" <<Rectangle>> #LightGreen {
+  [CONFIG_ARCH_CORTEXM4=y] as CORTEXM4
+  [CONFIG_ARCH_ARMV7M=y] as ARMV7M
+  [CONFIG_ARCH_FPU=y] as FPU
+}
+
+package "ツールチェーン設定" <<Rectangle>> #LightYellow {
+  [CROSSDEV=arm-none-eabi-] as CROSSDEV
+  [ARCH_SUBDIR=armv7-m] as SUBDIR
+  [march=armv7e-m] as MARCH
+  [mtune=cortex-m4] as MTUNE
+}
+
+package "システムサービス" <<Rectangle>> #LightCoral {
+  [CONFIG_SCHED_WORKQUEUE=y] as WORKQUEUE
+  [CONFIG_SCHED_HPWORK=y] as HPWORK
+  [CONFIG_SCHED_LPNTHREADS=3] as LPWORK
+}
+
+package "ファイルシステム" <<Rectangle>> #Lavender {
+  [CONFIG_FS_AUTOMOUNTER=y] as AUTOMOUNT
+  [CONFIG_FS_FAT=y] as FAT
+  [CONFIG_FS_SMARTFS=y] as SMARTFS
+  [CONFIG_FS_ROMFS=y] as ROMFS
+}
+
+package "SDカードサポート" <<Rectangle>> #LightSalmon {
+  [CONFIG_CXD56_SDIO=y] as SDIO
+  [CONFIG_CXD56_SDCARD_AUTOMOUNT=y] as SD_AUTO
+  [CONFIG_SDIO_BLOCKSETUP=y] as BLOCKSETUP
+  [CONFIG_MMCSD] as MMCSD
+}
+
+package "カメラサポート" <<Rectangle>> #LightCyan {
+  [CONFIG_VIDEO=y] as VIDEO
+  [CONFIG_VIDEO_STREAM=y] as VIDEO_STREAM
+  [CONFIG_VIDEO_ISX012=y] as ISX012
+  [CONFIG_VIDEO_ISX019=y] as ISX019
+  [CONFIG_CXD56_CISIF=y] as CISIF
+  [CONFIG_CXD56_I2C2=y] as I2C2
+}
+
+package "LCDサポート" <<Rectangle>> #Wheat {
+  [CONFIG_LCD=y] as LCD
+  [CONFIG_LCD_ILI9340=y] as ILI9340
+  [CONFIG_LCD_ILI9340_IFACE0=y] as LCD_IFACE
+  [CONFIG_NX=y] as NX
+}
+
+package "ライブラリ設定" <<Rectangle>> #PaleGreen {
+  [CONFIG_LIBC_MAX_EXITFUNS=0] as EXITFUNS
+  [CONFIG_TLS_NELEM=0] as TLS
+  [CONFIG_STACK_USAGE_WARNING=0] as STACK_WARN
+}
+
+package "アプリケーション" <<Rectangle>> #Pink {
+  [CONFIG_EXAMPLES_SECURITY_CAMERA=y] as SECURITY_CAM
+  [CONFIG_EXAMPLES_SECURITY_CAMERA_PROGNAME] as PROGNAME
+  [CONFIG_EXAMPLES_SECURITY_CAMERA_PRIORITY] as PRIORITY
+  [CONFIG_EXAMPLES_SECURITY_CAMERA_STACKSIZE] as STACKSIZE
+}
+
+' チップ選択の依存関係
+ARCH --> CHIP
+CHIP --> CXD56XX
+
+' CXD56XXから自動選択される設定
+CXD56XX -down-> CORTEXM4 : "自動選択\n(Kconfig)"
+CXD56XX -down-> FPU : "自動選択"
+
+' アーキテクチャ依存
+CORTEXM4 --> ARMV7M : "必須"
+ARMV7M --> SUBDIR : "決定する"
+CORTEXM4 --> MARCH : "決定する"
+CORTEXM4 --> MTUNE : "決定する"
+
+' ツールチェーン
+CROSSDEV .up.> CORTEXM4 : "使用"
+CROSSDEV .up.> ARMV7M : "使用"
+
+' Work Queue依存
+WORKQUEUE --> HPWORK : "高優先度\nワークキュー"
+WORKQUEUE --> LPWORK : "低優先度\nワークキュー"
+
+' SDカード依存
+SDIO --> BLOCKSETUP : "必須"
+SDIO --> WORKQUEUE : "必須\n(コールバック)"
+SDIO --> HPWORK : "必須"
+SD_AUTO --> SDIO : "必須"
+SD_AUTO --> AUTOMOUNT : "必須"
+SD_AUTO --> WORKQUEUE : "必須"
+MMCSD --> SDIO : "使用"
+
+' ファイルシステム依存
+AUTOMOUNT --> WORKQUEUE : "必須"
+FAT --> MMCSD : "SDカード用"
+SMARTFS --> MMCSD : "フラッシュ用"
+
+' カメラ依存
+VIDEO --> VIDEO_STREAM : "ストリーミング"
+ISX012 --> VIDEO : "必須"
+ISX012 --> CISIF : "必須"
+ISX012 --> I2C2 : "必須"
+ISX019 --> VIDEO : "必須"
+ISX019 --> CISIF : "必須"
+ISX019 --> I2C2 : "必須"
+
+' LCD依存
+ILI9340 --> LCD : "必須"
+LCD_IFACE --> ILI9340 : "必須"
+NX --> LCD : "使用"
+
+' アプリケーション依存
+SECURITY_CAM --> VIDEO : "必須"
+SECURITY_CAM --> VIDEO_STREAM : "必須"
+SECURITY_CAM -down-> PROGNAME : "設定"
+SECURITY_CAM -down-> PRIORITY : "設定"
+SECURITY_CAM -down-> STACKSIZE : "設定"
+
+' オプション: LCDやSDカード
+SECURITY_CAM ..> LCD : "オプション\n(表示用)"
+SECURITY_CAM ..> SD_AUTO : "オプション\n(保存用)"
+
+' ライブラリ設定（独立）
+note right of EXITFUNS
+  基本ライブラリ設定
+  defconfigから
+  自動的に設定される
+end note
+
+legend right
+  |= 線の種類 |= 意味 |
+  | —→ | 必須依存 |
+  | ..> | オプション依存 |
+  | 自動選択 | Kconfigで自動設定 |
+endlegend
+
+note bottom
+  **重要なポイント**:
+  1. CONFIG_ARCH_CHIP_CXD56XX=y を設定すると、
+     CONFIG_ARCH_CORTEXM4=y が自動選択される（Kconfig）
+  2. しかし、CONFIG_ARCH_ARMV7M=y は手動設定が必要
+  3. ARCH_SUBDIR は CONFIG_ARCH_ARMV7M から決定される
+  4. SDカードとファイルシステム自動マウントの両方が
+     CONFIG_SCHED_WORKQUEUE に依存
+  5. defconfig を使用すると、これらの依存関係が
+     自動的に解決される
+
+  **関連フローチャート**:
+  - phase1_environment_setup_flow.puml - 環境構築の手順
+  - phase2_builtin_registration_flow.puml - CONFIG設定の実践
+  - phase3_application_development_flow.puml - アプリ開発での利用
+  - camera_application_flow.puml - カメラ設定の実例
+  - troubleshooting_flow.puml - CONFIG関連エラーの診断
+end note
+
+@enduml

@@ -1,0 +1,193 @@
+@startuml トラブルシューティングフロー
+!theme plain
+skinparam ActivityBackgroundColor Wheat
+skinparam ActivityBorderColor DarkOrange
+
+title Spresense ビルドエラー トラブルシューティングフロー
+
+start
+
+#LightCoral:ビルドエラー発生;
+
+:エラーメッセージを確認;
+note right
+  grep -i "error:" build.log
+end note
+
+if (エラータイプは?) then (kconfig-conf not found)
+  #LightYellow:**エラー1**\nkconfig-conf コマンドが見つからない;
+
+  :defconfigを使用;
+  note right
+    ./tools/config.py examples/camera
+  end note
+
+  #LightGreen:解決;
+  stop
+
+elseif (gcc: unrecognized option) then (クロスコンパイラ)
+  #LightYellow:**エラー2**\nシステムgccが使用されている;
+
+  if (PATHに問題?) then (yes)
+    :PATH環境変数を設定;
+    note right
+      export PATH=$HOME/spresenseenv/usr/bin:
+                    /usr/bin:/bin
+    end note
+  else (no)
+    :Make.defsにCROSSDEVを追加;
+    note right
+      echo "CROSSDEV = arm-none-eabi-" >>
+        nuttx/Make.defs
+    end note
+  endif
+
+  #LightGreen:解決;
+  stop
+
+elseif (arm_exception.S not found) then (アーキテクチャ)
+  #LightYellow:**エラー3**\nアーキテクチャ固有ファイルが見つからない;
+
+  :アーキテクチャ設定を追加;
+  note right
+    cat >> nuttx/.config <<'EOF'
+    CONFIG_ARCH_CORTEXM4=y
+    CONFIG_ARCH_ARMV7M=y
+    EOF
+  end note
+
+  #LightGreen:解決;
+  stop
+
+elseif (CONFIG_* undeclared) then (ライブラリ設定)
+  #LightYellow:**エラー4**\nライブラリ設定の欠落;
+
+  if (CONFIG_LIBC_MAX_EXITFUNS?) then (yes)
+    :ライブラリ設定を追加;
+    note right
+      cat >> nuttx/.config <<'EOF'
+      CONFIG_LIBC_MAX_EXITFUNS=0
+      CONFIG_TLS_NELEM=0
+      EOF
+    end note
+  endif
+
+  #LightGreen:解決;
+  stop
+
+elseif (This driver requires CONFIG_SDIO_BLOCKSETUP) then (SDIO/WorkQueue)
+  #LightYellow:**エラー5**\nSDIO/Work Queue設定の欠落;
+
+  :SDIO/Work Queue設定を追加;
+  note right
+    cat >> nuttx/.config <<'EOF'
+    CONFIG_SCHED_WORKQUEUE=y
+    CONFIG_SCHED_HPWORK=y
+    CONFIG_SDIO_BLOCKSETUP=y
+    EOF
+  end note
+
+  #LightGreen:解決;
+  stop
+
+elseif (missing argument to '-Wstack-usage=') then (スタック警告)
+  #LightYellow:**エラー6**\nスタックサイズ警告オプションの値が空;
+
+  :スタック警告設定を追加;
+  note right
+    echo "CONFIG_STACK_USAGE_WARNING=0" >>
+      nuttx/.config
+  end note
+
+  #LightGreen:解決;
+  stop
+
+else (その他のエラー)
+  #Orange:**複雑なエラー**;
+
+  if (依存関係が複雑?) then (yes)
+    #LightPink:**緊急対処**\ndefconfigから再開;
+
+    :完全リセット;
+    note right
+      make distclean
+      ./tools/config.py examples/camera
+    end note
+
+    :必要最小限のカスタマイズ;
+    note right
+      標準カメラを無効化
+      ↓
+      security_cameraを有効化
+    end note
+
+    #LightGreen:解決;
+    stop
+
+  else (no)
+    #LightSalmon:詳細調査が必要;
+
+    :ビルドログ全文を確認;
+    note right
+      less build.log
+
+      エラーの前後文脈を確認
+    end note
+
+    :設定差分を確認;
+    note right
+      diff -u /working/.config /new/.config
+
+      作業環境との差分を確認
+    end note
+
+    :Kconfig依存関係を確認;
+    note right
+      grep -r "CONFIG_問題の設定" nuttx/
+
+      依存関係を手動で追跡
+    end note
+
+    :チートシートまたは\n詳細ガイドを参照;
+    note right
+      build_troubleshooting_cheatsheet.md
+      build_environment_migration_
+        troubleshooting.md
+    end note
+
+    stop
+  endif
+endif
+
+legend right
+  **所要時間**:
+  - よくあるエラー: 1-5分
+  - 複雑なエラー: 10-30分
+  - 緊急対処（defconfig再設定）: 5-10分
+
+  **推奨アプローチ**:
+  1. まずチートシートで即座に解決を試みる
+  2. 解決しない場合は詳細ガイドを参照
+  3. それでも解決しない場合はdefconfigから再開
+endlegend
+
+note right
+  **関連フローチャート**:
+  - config_dependencies.puml - CONFIGエラーの依存関係を理解
+  - build_system_components.puml - ビルドシステム全体像の理解
+  - build_flow.puml - 正しいビルド手順の確認
+  - phase1_environment_setup_flow.puml - PATH/ツールチェーンエラーの文脈
+  - phase2_builtin_registration_flow.puml - builtin登録エラーの文脈
+  - phase3_application_development_flow.puml - アプリ開発時エラーの文脈
+
+  **エラーが発生する主なフェーズ**:
+  - Phase 1: PATH/ツールチェーン関連（エラー2）
+  - Phase 2: CONFIG/builtin登録関連（エラー1, 3, 4, 5, 6）
+  - Phase 3: リンク/ライブラリ関連
+
+  **診断のコツ**:
+  各Phaseフローチャートでエラー発生箇所の文脈を理解してから、
+  このフローで具体的な解決策を適用すると効率的
+end note
+
+@enduml

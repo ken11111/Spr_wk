@@ -1,0 +1,243 @@
+@startuml Phase1環境構築フロー
+!theme plain
+skinparam ActivityBackgroundColor LightCyan
+skinparam ActivityBorderColor DarkBlue
+
+title Phase 1: Spresense開発環境の確認と構築
+
+start
+
+partition "現状確認" {
+  :現在のSDKバージョン確認;
+  note right
+    cd ~/Spr_ws/spresense
+    cat sdk/package.json
+    または
+    cat sdk/.version
+  end note
+
+  :git describe でバージョン確認;
+  note right
+    cd ~/Spr_ws/spresense
+    git describe
+  end note
+
+  if (最新版?) then (yes)
+    #LightGreen:最新環境;
+  else (no)
+    #LightYellow:アップデート必要;
+  endif
+}
+
+partition "環境診断" {
+  :ツールチェーン確認;
+  note right
+    which arm-none-eabi-gcc
+    arm-none-eabi-gcc --version
+  end note
+
+  if (ツールチェーン存在?) then (yes)
+    #LightGreen:OK;
+  else (no)
+    #Orange:インストール必要;
+
+    :install-tools.shを実行;
+    note right
+      cd ~/Spr_ws/spresense
+      bash install-tools.sh
+
+      または
+
+      手動インストール:
+      sudo apt-get update
+      sudo apt-get install gcc-arm-none-eabi
+    end note
+  endif
+
+  :ビルド依存パッケージ確認;
+  note right
+    dpkg -l | grep -E "git|gperf|libncurses|flex|bison"
+  end note
+
+  if (必要パッケージすべて存在?) then (yes)
+    #LightGreen:OK;
+  else (no)
+    #Orange:インストール必要;
+
+    :依存パッケージをインストール;
+    note right
+      sudo apt-get install git gperf \
+        libncurses5-dev flex bison \
+        genromfs libssl-dev
+    end note
+  endif
+}
+
+partition "PATH設定" {
+  :PATH環境変数を確認;
+  note right
+    echo $PATH | grep spresenseenv
+  end note
+
+  if (spresenseenv が含まれる?) then (yes)
+    #LightGreen:PATH設定済み;
+  else (no)
+    #LightYellow:PATH設定が必要;
+
+    :PATHを設定;
+    note right
+      export PATH=$HOME/spresenseenv/usr/bin:$PATH
+
+      永続化する場合:
+      echo 'export PATH=$HOME/spresenseenv/usr/bin:$PATH' \
+        >> ~/.bashrc
+      source ~/.bashrc
+    end note
+  endif
+}
+
+partition "ビルドテスト" {
+  :デフォルト設定でビルド;
+  note right
+    cd ~/Spr_ws/spresense/sdk
+    ./tools/config.py examples/hello
+    cd ..
+    make
+  end note
+
+  if (ビルド成功?) then (yes)
+    #LightGreen:環境構築完了;
+
+    :nuttx.spk生成確認;
+    note right
+      ls -lh nuttx/nuttx.spk
+
+      期待サイズ: 100-200KB程度
+    end note
+
+  else (no)
+    #LightCoral:ビルドエラー;
+
+    if (エラータイプは?) then (PATH問題)
+      :PATH設定を再確認;
+      note right
+        which arm-none-eabi-gcc が
+        $HOME/spresenseenv/usr/bin を
+        指していることを確認
+      end note
+
+    elseif (権限エラー) then (権限)
+      :ディレクトリ権限を確認;
+      note right
+        ls -la ~/Spr_ws/spresense
+        必要なら chmod で修正
+      end note
+
+    else (その他)
+      :詳細エラーログを確認;
+      note right
+        make 2>&1 | tee build_error.log
+        less build_error.log
+      end note
+    endif
+
+    :トラブルシューティングドキュメント参照;
+    note right
+      build_troubleshooting_cheatsheet.md
+      を参照
+    end note
+
+    detach
+  endif
+}
+
+partition "デバイス接続確認（オプション）" {
+  :Spresenseデバイスを接続;
+
+  :デバイス認識確認;
+  note right
+    dmesg | tail
+    lsusb | grep -i sony
+    ls /dev/ttyUSB*
+  end note
+
+  if (デバイス認識?) then (yes)
+    #LightGreen:接続OK;
+
+    :書き込み権限確認;
+    note right
+      groups | grep dialout
+    end note
+
+    if (dialoutグループに所属?) then (yes)
+      #LightGreen:権限OK;
+    else (no)
+      #LightYellow:権限設定必要;
+
+      :ユーザーをdialoutグループに追加;
+      note right
+        sudo usermod -aG dialout $USER
+
+        ログアウト/ログインが必要
+      end note
+    endif
+
+  else (no)
+    #Orange:デバイス未認識;
+
+    :ドライバー確認;
+    note right
+      lsmod | grep cdc_acm
+
+      必要なら:
+      sudo modprobe cdc_acm
+    end note
+  endif
+}
+
+:Phase 1 完了;
+#LightGreen:次のPhase（ビルドシステム統合）へ;
+
+stop
+
+legend right
+  |= 色 |= 意味 |
+  | 水色 | 通常処理 |
+  | 緑 | 成功/OK |
+  | 黄 | 警告/設定必要 |
+  | オレンジ | インストール必要 |
+  | 赤 | エラー |
+
+  **所要時間**: 1-2時間
+  （インストールが必要な場合）
+endlegend
+
+note right
+  **Phase 1のゴール**:
+  1. 最新のSpresense SDK環境
+  2. ARM GCC ツールチェーン動作
+  3. デフォルト設定でビルド成功
+  4. デバイス接続確認（オプション）
+
+  **次のステップ**:
+  Phase 2でカスタムアプリケーションを
+  ビルドシステムに統合
+end note
+
+note right
+  **関連構成図**:
+  - build_system_components.puml - PATH/CROSSDEVの役割を理解
+  - directory_structure.puml - $HOME/spresenseenv/の構造
+  - build_flow.puml - 環境構築後のビルド手順
+  - phase2_builtin_registration_flow.puml - 次のフェーズ
+
+  **このPhaseで設定する重要な要素**:
+  1. PATH環境変数 - ツールチェーンへのパス
+  2. arm-none-eabi-gcc - クロスコンパイラ
+  3. ビルド依存パッケージ - gperf, flex, bison等
+
+  これらの要素は build_system_components.puml で
+  ビルドシステム全体の中でどう使われるかを確認できます
+end note
+
+@enduml

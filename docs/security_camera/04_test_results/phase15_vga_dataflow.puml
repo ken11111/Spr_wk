@@ -1,0 +1,155 @@
+@startuml Phase 1.5 VGA データフロー図
+!theme plain
+
+title Phase 1.5 VGA セキュリティカメラ - データフロー & 性能分析
+
+skinparam componentStyle rectangle
+skinparam component {
+  BackgroundColor<<camera>> LightBlue
+  BackgroundColor<<processing>> LightYellow
+  BackgroundColor<<transport>> LightCoral
+  BackgroundColor<<system>> LightGray
+  BorderColor Black
+}
+
+package "Spresense (NuttX)" {
+
+  component "カメラセンサー" as sensor <<camera>> #LightBlue
+  note right of sensor
+    解像度: 640×480 (VGA)
+    フォーマット: YUV → JPEG
+    目標: 30 fps
+  end note
+
+  component "カメラドライバー" as cam_driver <<camera>> #LightBlue
+  note right of cam_driver
+    **バッファ管理**
+    ・バッファ数: 3 (トリプル)
+    ・サイズ: 65536バイト/個
+    ・総容量: 196608バイト
+
+    **平均レイテンシ**
+    ・ウィンドウ1: 6.38 ms
+    ・ウィンドウ2: 8.97 ms
+    ・ウィンドウ3: 27.70 ms ⚠️
+    ・平均: 14.35 ms (13.4%)
+  end note
+
+  component "JPEGエンコーダー" as jpeg_enc <<camera>> #LightBlue
+  note right of jpeg_enc
+    出力サイズ: 約64 KB
+    変動: ±3.2%
+    最小: 60 KB
+    最大: 64 KB
+  end note
+
+  component "MJPEGパケット化" as packer <<processing>> #LightYellow
+  note right of packer
+    **処理内容**
+    ・MJPEGヘッダ作成
+    ・CRC16チェックサム計算
+    ・パケット構造化
+    ・メモリコピー
+
+    **平均レイテンシ**
+    ・全ウィンドウ安定: 38.41 ms
+    ・総時間比率: 35.9%
+
+    **ボトルネック要因**
+    ・CRC16ソフトウェア計算
+    ・メモリコピー操作
+  end note
+
+  component "USB CDC-ACM\nドライバー" as usb_driver <<transport>> #LightCoral
+  note right of usb_driver
+    **USB設定**
+    ・デバイス: /dev/ttyACM0
+    ・速度: フルスピード (12 Mbps)
+    ・転送モード: バルク転送
+
+    **平均レイテンシ**
+    ・ウィンドウ1: 60.12 ms
+    ・ウィンドウ2: 62.02 ms
+    ・ウィンドウ3: 61.54 ms
+    ・平均: 61.23 ms (57.2%) ⚠️
+
+    **主要ボトルネック**
+    ・理論帯域: 12 Mbps (1.5 MB/s)
+    ・実効帯域: ~8.5 Mbps (70%)
+    ・使用率: 27-30%のみ
+    ・64 KB転送に60 ms要求
+      → 期待値42.7 msより40%遅い
+  end note
+
+  component "NuttX\nスケジューラー" as scheduler <<system>> #LightGray
+  note right of scheduler
+    **オーバーヘッド分析**
+    ・フレーム間隔: 152 ms
+    ・処理時間: 107 ms
+    ・未計上時間: 45 ms (30%)
+
+    **原因候補**
+    ・タスクスケジューリング遅延
+    ・バッファ取得/解放
+    ・Mutexロック/アンロック
+    ・割り込み処理
+  end note
+
+  sensor -down-> cam_driver: "Raw画像\nデータ"
+  cam_driver -down-> jpeg_enc: "YUV\nデータ"
+  jpeg_enc -down-> packer: "JPEG\n~64 KB"
+  packer -down-> usb_driver: "MJPEGパケット\n~64 KB"
+  scheduler .down.> cam_driver: "バッファ\n割り当て"
+  scheduler .down.> packer: "タスク\nスケジュール"
+  scheduler .down.> usb_driver: "割り込み\n処理"
+}
+
+cloud "USB接続" as usb_link {
+  note as usb_note
+    **USB Full Speed**
+    理論最大: 12 Mbps
+    実測使用: 3.31-3.65 Mbps
+    使用率: 27.6-30.4%
+
+    **信頼性**
+    ・リトライ: 0
+    ・エラー: 0
+    ・タイムアウト: 0
+    ・成功率: 100%
+  end note
+}
+
+package "PC (Linux/WSL2)" {
+  component "/dev/ttyACM0\nデバイス" as ttyACM0 <<system>> #LightGray
+  component "cdc-acm\nドライバー" as cdc_acm <<system>> #LightGray
+  storage "受信データ\n5.89 MB\n(90フレーム)" as storage
+
+  ttyACM0 -down-> cdc_acm
+  cdc_acm -down-> storage
+}
+
+usb_driver -right-> usb_link: "バルク転送\n12 Mbps"
+usb_link -right-> ttyACM0: "USB\nパケット"
+
+legend bottom left
+  |= ステージ |= 平均時間 |= 比率 |= ボトルネック度 |= 最適化優先度 |
+  | カメラキャプチャ | 14.35 ms | 13.4% | 低 (但し増加傾向) | 中 |
+  | パケット化処理 | 38.41 ms | 35.9% | 中 | 高 |
+  | USB書き込み | 61.23 ms | **57.2%** | **高** | **最高** |
+  | スケジューラー | ~45 ms | 30%* | 中 | 中 |
+
+  * フレーム間隔(152ms)と処理時間(107ms)の差分
+
+  **総フレーム処理時間**: 106.82 ms (目標33.33 msの3.2倍)
+  **実測FPS**: 6.61 fps (目標30 fpsの22.0%)
+
+  **最適化戦略**:
+  1. USB: DMA有効化、転送サイズ調整 → -15~25 ms
+  2. パック: ハードウェアCRC16、ゼロコピー → -10~15 ms
+  3. カメラ: レイテンシ増加原因調査 → -2~3 ms
+  4. スケジューラー: 優先度調整 → -10~20 ms
+
+  **期待改善**: 12-15 fps (保守的) ～ 22 fps (楽観的)
+endlegend
+
+@enduml

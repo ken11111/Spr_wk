@@ -58,7 +58,7 @@
  ****************************************************************************/
 
 #define VIDEO_DEVICE_PATH  "/dev/video"
-#define CAMERA_BUFFER_NUM  5  /* 5-buffer design (Phase 1.5: buffer starvation mitigation) */
+#define CAMERA_BUFFER_NUM  3  /* Triple buffering (V4L2 driver limitation) */
 
 /****************************************************************************
  * Private Types

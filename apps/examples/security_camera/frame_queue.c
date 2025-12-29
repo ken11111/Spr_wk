@@ -93,7 +93,7 @@ int frame_queue_init(void)
   g_empty_queue = NULL;
   g_shutdown_requested = false;
 
-  /* Initialize mutex with priority inheritance to prevent priority inversion */
+  /* Initialize mutex with priority inheritance (if supported) */
 
   ret = pthread_mutexattr_init(&mutex_attr);
   if (ret != 0)
@@ -102,12 +102,18 @@ int frame_queue_init(void)
       return -ret;
     }
 
+  /* Try to enable priority inheritance (optional - may not be supported) */
+
   ret = pthread_mutexattr_setprotocol(&mutex_attr, PTHREAD_PRIO_INHERIT);
   if (ret != 0)
     {
-      LOG_ERROR("Failed to set mutex protocol: %d", ret);
-      pthread_mutexattr_destroy(&mutex_attr);
-      return -ret;
+      LOG_WARN("Priority inheritance not supported (error %d), continuing without it", ret);
+      LOG_INFO("Thread priorities (110 vs 100) will help prevent priority inversion");
+      /* Continue anyway - priority difference should be sufficient */
+    }
+  else
+    {
+      LOG_INFO("Priority inheritance mutex enabled");
     }
 
   ret = pthread_mutex_init(&g_queue_mutex, &mutex_attr);

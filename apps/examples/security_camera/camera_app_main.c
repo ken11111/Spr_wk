@@ -50,6 +50,8 @@
 #include "mjpeg_protocol.h"
 #include "perf_logger.h"
 #include "config.h"
+#include "camera_threads.h"  /* Step 1: Threading support */
+#include "frame_queue.h"     /* Step 1: Frame queue */
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -104,8 +106,7 @@ int main(int argc, FAR char *argv[])
 {
   int ret;
   camera_config_t camera_config;
-  camera_frame_t frame;
-  packet_t handshake_packet;
+  camera_frame_t frame;  /* Used in sequential mode fallback */
   uint32_t frame_count = 0;
   uint32_t error_count = 0;
   uint32_t sequence = 0;
@@ -113,6 +114,8 @@ int main(int argc, FAR char *argv[])
   int packet_size;
   perf_frame_metrics_t perf_metrics;
   uint64_t last_frame_ts = 0;
+  thread_context_t thread_ctx;  /* Step 1: Thread context */
+  bool use_threading = true;    /* Step 2: Enable threading */
 
   LOG_INFO("=================================================");
   LOG_INFO("Security Camera Application Starting (MJPEG)");
@@ -174,132 +177,266 @@ int main(int argc, FAR char *argv[])
 
   perf_logger_init();
 
-  LOG_INFO("Starting main loop (will capture 90 frames for testing)...");
-  LOG_INFO("=================================================");
+  /* Step 1: Initialize threading (disabled for Step 1) */
 
-  /* Main loop - capture 90 frames (3 seconds at 30fps) for testing */
-
-  while (g_running && frame_count < 90)
+  if (use_threading)
     {
-      /* Initialize performance metrics for this frame */
+      memset(&thread_ctx, 0, sizeof(thread_context_t));
+      thread_ctx.packet_buffer = packet_buffer;
+      thread_ctx.packet_buffer_size = MJPEG_MAX_PACKET_SIZE;
+      thread_ctx.sequence = &sequence;
 
-      memset(&perf_metrics, 0, sizeof(perf_frame_metrics_t));
-      perf_metrics.ts_frame_start = perf_logger_get_timestamp_us();
-      perf_metrics.frame_num = frame_count + 1;
-
-      /* Calculate inter-frame interval */
-
-      if (last_frame_ts > 0)
-        {
-          perf_metrics.interval_us =
-            perf_metrics.ts_frame_start - last_frame_ts;
-        }
-
-      last_frame_ts = perf_metrics.ts_frame_start;
-
-      /* Get JPEG frame from camera */
-
-      perf_metrics.ts_camera_poll_start = perf_logger_get_timestamp_us();
-      ret = camera_get_frame(&frame);
-      perf_metrics.ts_camera_dqbuf_end = perf_logger_get_timestamp_us();
+      ret = camera_threads_init(&thread_ctx);
       if (ret < 0)
         {
-          if (ret == ERR_TIMEOUT)
-            {
-              LOG_WARN("Camera frame timeout");
-              continue;
-            }
-
-          LOG_ERROR("Failed to get camera frame: %d", ret);
-          error_count++;
-
-          if (error_count >= 10)
-            {
-              LOG_ERROR("Too many camera errors, exiting");
-              break;
-            }
-
-          usleep(100000);  /* 100ms delay */
-          continue;
-        }
-
-      error_count = 0;  /* Reset error count on success */
-
-      /* We now have a JPEG frame directly from camera */
-
-      frame_count++;
-
-      /* Calculate camera latency */
-
-      perf_metrics.latency_camera_poll =
-        perf_metrics.ts_camera_dqbuf_end - perf_metrics.ts_camera_poll_start;
-      perf_metrics.latency_camera_dqbuf = perf_metrics.latency_camera_poll;
-      perf_metrics.jpeg_size = frame.size;
-
-      /* Pack JPEG frame using MJPEG protocol */
-
-      perf_metrics.ts_pack_start = perf_logger_get_timestamp_us();
-      packet_size = mjpeg_pack_frame(frame.buf, frame.size, &sequence,
-                                      packet_buffer, MJPEG_MAX_PACKET_SIZE);
-      perf_metrics.ts_pack_end = perf_logger_get_timestamp_us();
-
-      if (packet_size < 0)
-        {
-          LOG_ERROR("Failed to pack frame: %d", packet_size);
-          continue;
-        }
-
-      perf_metrics.latency_pack =
-        perf_metrics.ts_pack_end - perf_metrics.ts_pack_start;
-      perf_metrics.packet_size = packet_size;
-
-      /* Send packet via USB CDC */
-
-      perf_metrics.ts_usb_write_start = perf_logger_get_timestamp_us();
-      ret = usb_transport_send_bytes(packet_buffer, packet_size);
-      perf_metrics.ts_usb_write_end = perf_logger_get_timestamp_us();
-      if (ret < 0)
-        {
-          LOG_ERROR("Failed to send packet via USB: %d", ret);
-          error_count++;
-
-          if (error_count >= 10)
-            {
-              LOG_ERROR("Too many USB errors, exiting");
-              break;
-            }
+          LOG_ERROR("Failed to initialize threading: %d", ret);
+          LOG_INFO("Falling back to sequential mode");
+          use_threading = false;
         }
       else
         {
-          error_count = 0;  /* Reset error count on success */
-          perf_metrics.usb_written = ret;
+          LOG_INFO("Threading initialized (stub threads running)");
         }
+    }
 
-      /* Calculate final metrics */
+  LOG_INFO("Starting main loop (will capture 90 frames for testing)...");
+  LOG_INFO("=================================================");
 
-      perf_metrics.latency_usb_write =
-        perf_metrics.ts_usb_write_end - perf_metrics.ts_usb_write_start;
-      perf_metrics.ts_frame_end = perf_logger_get_timestamp_us();
-      perf_metrics.latency_total =
-        perf_metrics.ts_frame_end - perf_metrics.ts_frame_start;
+  /* Main loop - Step 2: Pull from action queue and send via USB */
 
-      /* Record performance metrics */
+  if (use_threading)
+    {
+      /* Step 2: Threaded mode - pull from action queue */
 
-      perf_logger_record_frame(&perf_metrics);
+      frame_buffer_t *buffer;
 
-      /* Maintain frame rate (30 fps = 33333 us per frame) */
+      while (g_running && frame_count < 90)
+        {
+          /* Initialize performance metrics for this frame */
 
-      usleep(FRAME_INTERVAL_US);
+          memset(&perf_metrics, 0, sizeof(perf_frame_metrics_t));
+          perf_metrics.ts_frame_start = perf_logger_get_timestamp_us();
+          perf_metrics.frame_num = frame_count + 1;
+
+          /* Calculate inter-frame interval */
+
+          if (last_frame_ts > 0)
+            {
+              perf_metrics.interval_us =
+                perf_metrics.ts_frame_start - last_frame_ts;
+            }
+
+          last_frame_ts = perf_metrics.ts_frame_start;
+
+          /* Pull buffer from action queue (camera thread produced it) */
+
+          pthread_mutex_lock(&g_queue_mutex);
+          while (frame_queue_is_empty(g_action_queue) && !g_shutdown_requested)
+            {
+              pthread_cond_wait(&g_queue_cond, &g_queue_mutex);
+            }
+
+          if (g_shutdown_requested)
+            {
+              pthread_mutex_unlock(&g_queue_mutex);
+              break;
+            }
+
+          buffer = frame_queue_pull(&g_action_queue);
+          pthread_mutex_unlock(&g_queue_mutex);
+
+          if (buffer == NULL)
+            {
+              LOG_WARN("Main loop: Failed to pull buffer from action queue");
+              usleep(10000);  /* 10ms */
+              continue;
+            }
+
+          frame_count++;
+
+          /* Camera and pack latency already happened in camera thread */
+
+          perf_metrics.packet_size = buffer->used;
+
+          /* Send packet via USB CDC */
+
+          perf_metrics.ts_usb_write_start = perf_logger_get_timestamp_us();
+          ret = usb_transport_send_bytes((uint8_t *)buffer->data, buffer->used);
+          perf_metrics.ts_usb_write_end = perf_logger_get_timestamp_us();
+          if (ret < 0)
+            {
+              LOG_ERROR("Failed to send packet via USB: %d", ret);
+              error_count++;
+
+              if (error_count >= 10)
+                {
+                  LOG_ERROR("Too many USB errors, exiting");
+                  pthread_mutex_lock(&g_queue_mutex);
+                  g_shutdown_requested = true;
+                  pthread_cond_broadcast(&g_queue_cond);
+                  pthread_mutex_unlock(&g_queue_mutex);
+                  break;
+                }
+            }
+          else
+            {
+              error_count = 0;  /* Reset error count on success */
+              perf_metrics.usb_written = ret;
+            }
+
+          /* Return buffer to empty queue for camera thread to reuse */
+
+          pthread_mutex_lock(&g_queue_mutex);
+          frame_queue_push(&g_empty_queue, buffer);
+          pthread_cond_signal(&g_queue_cond);  /* Wake camera thread */
+          pthread_mutex_unlock(&g_queue_mutex);
+
+          /* Calculate final metrics */
+
+          perf_metrics.latency_usb_write =
+            perf_metrics.ts_usb_write_end - perf_metrics.ts_usb_write_start;
+          perf_metrics.ts_frame_end = perf_logger_get_timestamp_us();
+          perf_metrics.latency_total =
+            perf_metrics.ts_frame_end - perf_metrics.ts_frame_start;
+
+          /* Record performance metrics (USB write time only in Step 2) */
+
+          perf_logger_record_frame(&perf_metrics);
+
+          /* No sleep needed - camera thread controls frame rate */
+        }
+    }
+  else
+    {
+      /* Sequential mode (fallback) - original implementation */
+
+      while (g_running && frame_count < 90)
+        {
+          /* Initialize performance metrics for this frame */
+
+          memset(&perf_metrics, 0, sizeof(perf_frame_metrics_t));
+          perf_metrics.ts_frame_start = perf_logger_get_timestamp_us();
+          perf_metrics.frame_num = frame_count + 1;
+
+          /* Calculate inter-frame interval */
+
+          if (last_frame_ts > 0)
+            {
+              perf_metrics.interval_us =
+                perf_metrics.ts_frame_start - last_frame_ts;
+            }
+
+          last_frame_ts = perf_metrics.ts_frame_start;
+
+          /* Get JPEG frame from camera */
+
+          perf_metrics.ts_camera_poll_start = perf_logger_get_timestamp_us();
+          ret = camera_get_frame(&frame);
+          perf_metrics.ts_camera_dqbuf_end = perf_logger_get_timestamp_us();
+          if (ret < 0)
+            {
+              if (ret == ERR_TIMEOUT)
+                {
+                  LOG_WARN("Camera frame timeout");
+                  continue;
+                }
+
+              LOG_ERROR("Failed to get camera frame: %d", ret);
+              error_count++;
+
+              if (error_count >= 10)
+                {
+                  LOG_ERROR("Too many camera errors, exiting");
+                  break;
+                }
+
+              usleep(100000);  /* 100ms delay */
+              continue;
+            }
+
+          error_count = 0;  /* Reset error count on success */
+
+          /* We now have a JPEG frame directly from camera */
+
+          frame_count++;
+
+          /* Calculate camera latency */
+
+          perf_metrics.latency_camera_poll =
+            perf_metrics.ts_camera_dqbuf_end - perf_metrics.ts_camera_poll_start;
+          perf_metrics.latency_camera_dqbuf = perf_metrics.latency_camera_poll;
+          perf_metrics.jpeg_size = frame.size;
+
+          /* Pack JPEG frame using MJPEG protocol */
+
+          perf_metrics.ts_pack_start = perf_logger_get_timestamp_us();
+          packet_size = mjpeg_pack_frame(frame.buf, frame.size, &sequence,
+                                          packet_buffer, MJPEG_MAX_PACKET_SIZE);
+          perf_metrics.ts_pack_end = perf_logger_get_timestamp_us();
+
+          if (packet_size < 0)
+            {
+              LOG_ERROR("Failed to pack frame: %d", packet_size);
+              continue;
+            }
+
+          perf_metrics.latency_pack =
+            perf_metrics.ts_pack_end - perf_metrics.ts_pack_start;
+          perf_metrics.packet_size = packet_size;
+
+          /* Send packet via USB CDC */
+
+          perf_metrics.ts_usb_write_start = perf_logger_get_timestamp_us();
+          ret = usb_transport_send_bytes(packet_buffer, packet_size);
+          perf_metrics.ts_usb_write_end = perf_logger_get_timestamp_us();
+          if (ret < 0)
+            {
+              LOG_ERROR("Failed to send packet via USB: %d", ret);
+              error_count++;
+
+              if (error_count >= 10)
+                {
+                  LOG_ERROR("Too many USB errors, exiting");
+                  break;
+                }
+            }
+          else
+            {
+              error_count = 0;  /* Reset error count on success */
+              perf_metrics.usb_written = ret;
+            }
+
+          /* Calculate final metrics */
+
+          perf_metrics.latency_usb_write =
+            perf_metrics.ts_usb_write_end - perf_metrics.ts_usb_write_start;
+          perf_metrics.ts_frame_end = perf_logger_get_timestamp_us();
+          perf_metrics.latency_total =
+            perf_metrics.ts_frame_end - perf_metrics.ts_frame_start;
+
+          /* Record performance metrics */
+
+          perf_logger_record_frame(&perf_metrics);
+
+          /* Maintain frame rate (30 fps = 33333 us per frame) */
+
+          usleep(FRAME_INTERVAL_US);
+        }
     }
 
   LOG_INFO("=================================================");
   LOG_INFO("Main loop ended, total frames: %u", frame_count);
 
-cleanup:
-
   /* Cleanup */
 
   LOG_INFO("Cleaning up...");
+
+  /* Step 1: Cleanup threading */
+
+  if (use_threading)
+    {
+      camera_threads_cleanup();
+    }
 
   perf_logger_cleanup();
 

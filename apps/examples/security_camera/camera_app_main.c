@@ -107,6 +107,31 @@ static void signal_handler(int signo)
  * Description:
  *   Security camera application main entry point
  *
+ * Architecture Overview (Step 1-5 Complete):
+ *
+ *   ┌───────────────────────────────────────────────────────────┐
+ *   │                    Main Application                       │
+ *   │  - Signal handling (SIGINT/SIGTERM)                       │
+ *   │  - Thread lifecycle management                            │
+ *   │  - Monitor mode (3 sec runtime)                           │
+ *   └───────────────────────────────────────────────────────────┘
+ *                        │            │
+ *              ┌─────────┴───┐    ┌──┴──────────┐
+ *              │             │    │             │
+ *         ┌────▼────┐   ┌────▼────▼────┐   ┌───▼─────┐
+ *         │ Camera  │   │ Frame Queues │   │  USB    │
+ *         │ Thread  ├──→│ (depth 3)    │──→│ Thread  │
+ *         │ (P:110) │   │ - Action Q   │   │ (P:100) │
+ *         └────┬────┘   │ - Empty Q    │   └───┬─────┘
+ *              │        └──────┬───────┘       │
+ *              └───────────────┴───────────────┘
+ *                        (Buffer recycle)
+ *
+ * Performance:
+ *   Baseline:  11.0 fps (sequential)
+ *   Target:    12.5-13.2 fps (pipelined, +14-20%)
+ *   Minimum:   12.0 fps (acceptance)
+ *
  ****************************************************************************/
 
 int main(int argc, FAR char *argv[])

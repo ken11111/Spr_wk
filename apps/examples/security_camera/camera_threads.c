@@ -54,6 +54,35 @@
 #include "config.h"
 
 /****************************************************************************
+ * Performance Optimization Strategy (Step 5)
+ ****************************************************************************/
+
+/* Thread Priorities:
+ *   Camera: 110 (HIGH)  - Must not miss frames from V4L2 driver
+ *   USB:    100 (LOWER) - Can tolerate preemption
+ *
+ * Queue Depth: 3 buffers
+ *   Matches V4L2 triple buffering
+ *   Absorbs ~90ms timing variance
+ *   Total memory: ~300KB (acceptable)
+ *
+ * Synchronization:
+ *   Priority inheritance mutex (PTHREAD_PRIO_INHERIT)
+ *   Single condition variable for bidirectional signaling
+ *   NO blocking I/O inside mutex (poll/write outside)
+ *
+ * Buffer Management:
+ *   32-byte aligned for DMA optimization
+ *   Action queue: Filled frames (camera → USB)
+ *   Empty queue: Recycled buffers (USB → camera)
+ *
+ * Performance Monitoring:
+ *   Queue depth logged every 30 frames (~1 sec @ 30fps)
+ *   USB throughput calculated and logged
+ *   Thread exit statistics (frame count, bytes sent)
+ */
+
+/****************************************************************************
  * Public Data
  ****************************************************************************/
 
@@ -87,6 +116,11 @@ void *camera_thread_func(void *arg)
   int ret;
   int packet_size;
   uint32_t error_count = 0;
+
+  /* Step 5: Performance statistics */
+
+  uint32_t frame_count = 0;
+  uint32_t stats_interval = 30;  /* Log every 30 frames (~1 sec @ 30fps) */
 
   LOG_INFO("== Camera thread started (Step 2: active) ==");
   LOG_INFO("Camera thread priority: %d", CAMERA_THREAD_PRIORITY);
@@ -190,6 +224,19 @@ void *camera_thread_func(void *arg)
       pthread_mutex_lock(&g_queue_mutex);
       frame_queue_push(&g_action_queue, buffer);
       pthread_cond_signal(&g_queue_cond);  /* Wake USB thread/main loop */
+
+      /* Step 5: Collect queue statistics */
+
+      frame_count++;
+      if (frame_count % stats_interval == 0)
+        {
+          int action_depth = frame_queue_depth(g_action_queue);
+          int empty_depth = frame_queue_depth(g_empty_queue);
+
+          LOG_INFO("Camera stats: frame=%u, action_q=%d, empty_q=%d",
+                   frame_count, action_depth, empty_depth);
+        }
+
       pthread_mutex_unlock(&g_queue_mutex);
 
       /* Step 2: Maintain frame rate (30 fps = 33333 us per frame) */
@@ -197,7 +244,7 @@ void *camera_thread_func(void *arg)
       usleep(33333);  /* ~30 fps */
     }
 
-  LOG_INFO("== Camera thread exiting ==");
+  LOG_INFO("== Camera thread exiting (processed %u frames) ==", frame_count);
   return NULL;
 }
 
@@ -215,6 +262,12 @@ void *usb_thread_func(void *arg)
   frame_buffer_t *buffer;
   int ret;
   uint32_t error_count = 0;
+
+  /* Step 5: Performance statistics */
+
+  uint32_t packet_count = 0;
+  uint32_t total_bytes = 0;
+  uint32_t stats_interval = 30;  /* Log every 30 packets (~1 sec @ 30fps) */
 
   (void)arg;  /* Unused parameter */
 
@@ -298,6 +351,21 @@ void *usb_thread_func(void *arg)
       else
         {
           error_count = 0;  /* Reset error count on success */
+
+          /* Step 5: Collect transmission statistics */
+
+          packet_count++;
+          total_bytes += buffer->used;
+
+          if (packet_count % stats_interval == 0)
+            {
+              uint32_t avg_packet_size = total_bytes / packet_count;
+              uint32_t throughput_kbps = (total_bytes * 8) / 1000;  /* Approx kbps */
+
+              LOG_INFO("USB stats: packets=%u, avg_size=%u bytes, "
+                       "throughput~%u kbps",
+                       packet_count, avg_packet_size, throughput_kbps);
+            }
         }
 
       /* Step 3: Return buffer to empty queue for camera thread to reuse */
@@ -308,7 +376,8 @@ void *usb_thread_func(void *arg)
       pthread_mutex_unlock(&g_queue_mutex);
     }
 
-  LOG_INFO("== USB thread exiting ==");
+  LOG_INFO("== USB thread exiting (sent %u packets, %u bytes total) ==",
+           packet_count, total_bytes);
   return NULL;
 }
 

@@ -202,109 +202,36 @@ int main(int argc, FAR char *argv[])
   LOG_INFO("Starting main loop (will capture 90 frames for testing)...");
   LOG_INFO("=================================================");
 
-  /* Main loop - Step 2: Pull from action queue and send via USB */
+  /* Main loop - Step 3: Monitor mode (threads handle everything) */
 
   if (use_threading)
     {
-      /* Step 2: Threaded mode - pull from action queue */
+      /* Step 3: Fully threaded mode - threads handle capture and USB */
 
-      frame_buffer_t *buffer;
+      LOG_INFO("Fully threaded mode: Camera and USB threads active");
+      LOG_INFO("Main thread will wait for 3 seconds (90 frames @ 30fps)...");
 
-      while (g_running && frame_count < 90)
+      /* Run for 3 seconds to capture approximately 90 frames at 30fps */
+
+      int elapsed_ms = 0;
+      int target_ms = 3000;  /* 3 seconds */
+
+      while (g_running && elapsed_ms < target_ms)
         {
-          /* Initialize performance metrics for this frame */
+          usleep(100000);  /* 100ms */
+          elapsed_ms += 100;
 
-          memset(&perf_metrics, 0, sizeof(perf_frame_metrics_t));
-          perf_metrics.ts_frame_start = perf_logger_get_timestamp_us();
-          perf_metrics.frame_num = frame_count + 1;
-
-          /* Calculate inter-frame interval */
-
-          if (last_frame_ts > 0)
-            {
-              perf_metrics.interval_us =
-                perf_metrics.ts_frame_start - last_frame_ts;
-            }
-
-          last_frame_ts = perf_metrics.ts_frame_start;
-
-          /* Pull buffer from action queue (camera thread produced it) */
-
-          pthread_mutex_lock(&g_queue_mutex);
-          while (frame_queue_is_empty(g_action_queue) && !g_shutdown_requested)
-            {
-              pthread_cond_wait(&g_queue_cond, &g_queue_mutex);
-            }
+          /* Check for shutdown condition */
 
           if (g_shutdown_requested)
             {
-              pthread_mutex_unlock(&g_queue_mutex);
+              LOG_INFO("Shutdown requested, exiting main loop");
               break;
             }
-
-          buffer = frame_queue_pull(&g_action_queue);
-          pthread_mutex_unlock(&g_queue_mutex);
-
-          if (buffer == NULL)
-            {
-              LOG_WARN("Main loop: Failed to pull buffer from action queue");
-              usleep(10000);  /* 10ms */
-              continue;
-            }
-
-          frame_count++;
-
-          /* Camera and pack latency already happened in camera thread */
-
-          perf_metrics.packet_size = buffer->used;
-
-          /* Send packet via USB CDC */
-
-          perf_metrics.ts_usb_write_start = perf_logger_get_timestamp_us();
-          ret = usb_transport_send_bytes((uint8_t *)buffer->data, buffer->used);
-          perf_metrics.ts_usb_write_end = perf_logger_get_timestamp_us();
-          if (ret < 0)
-            {
-              LOG_ERROR("Failed to send packet via USB: %d", ret);
-              error_count++;
-
-              if (error_count >= 10)
-                {
-                  LOG_ERROR("Too many USB errors, exiting");
-                  pthread_mutex_lock(&g_queue_mutex);
-                  g_shutdown_requested = true;
-                  pthread_cond_broadcast(&g_queue_cond);
-                  pthread_mutex_unlock(&g_queue_mutex);
-                  break;
-                }
-            }
-          else
-            {
-              error_count = 0;  /* Reset error count on success */
-              perf_metrics.usb_written = ret;
-            }
-
-          /* Return buffer to empty queue for camera thread to reuse */
-
-          pthread_mutex_lock(&g_queue_mutex);
-          frame_queue_push(&g_empty_queue, buffer);
-          pthread_cond_signal(&g_queue_cond);  /* Wake camera thread */
-          pthread_mutex_unlock(&g_queue_mutex);
-
-          /* Calculate final metrics */
-
-          perf_metrics.latency_usb_write =
-            perf_metrics.ts_usb_write_end - perf_metrics.ts_usb_write_start;
-          perf_metrics.ts_frame_end = perf_logger_get_timestamp_us();
-          perf_metrics.latency_total =
-            perf_metrics.ts_frame_end - perf_metrics.ts_frame_start;
-
-          /* Record performance metrics (USB write time only in Step 2) */
-
-          perf_logger_record_frame(&perf_metrics);
-
-          /* No sleep needed - camera thread controls frame rate */
         }
+
+      LOG_INFO("Main loop completed after %d ms", elapsed_ms);
+      LOG_INFO("Threads processed frames in parallel (camera + USB)");
     }
   else
     {
@@ -425,7 +352,14 @@ int main(int argc, FAR char *argv[])
     }
 
   LOG_INFO("=================================================");
-  LOG_INFO("Main loop ended, total frames: %u", frame_count);
+  if (use_threading)
+    {
+      LOG_INFO("Main loop ended (threaded mode: ~90 frames expected @ 30fps)");
+    }
+  else
+    {
+      LOG_INFO("Main loop ended, total frames: %u", frame_count);
+    }
 
   /* Cleanup */
 

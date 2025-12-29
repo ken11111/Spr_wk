@@ -194,22 +194,84 @@ void *camera_thread_func(void *arg)
  *
  * Description:
  *   USB thread function (consumer)
- *   Step 1: Stub implementation
+ *   Step 3: Send packets via USB
  *
  ****************************************************************************/
 
 void *usb_thread_func(void *arg)
 {
-  thread_context_t *ctx = (thread_context_t *)arg;
+  frame_buffer_t *buffer;
+  int ret;
+  uint32_t error_count = 0;
 
-  LOG_INFO("== USB thread started (STUB) ==");
+  (void)arg;  /* Unused parameter */
+
+  LOG_INFO("== USB thread started (Step 3: active) ==");
   LOG_INFO("USB thread priority: %d", USB_THREAD_PRIORITY);
-
-  /* Step 1: Just sleep and log */
 
   while (!g_shutdown_requested)
     {
-      usleep(100000);  /* 100ms */
+      /* Step 1: Pull buffer from action queue (blocking if none available) */
+
+      pthread_mutex_lock(&g_queue_mutex);
+      while (frame_queue_is_empty(g_action_queue) && !g_shutdown_requested)
+        {
+          pthread_cond_wait(&g_queue_cond, &g_queue_mutex);
+        }
+
+      if (g_shutdown_requested)
+        {
+          pthread_mutex_unlock(&g_queue_mutex);
+          break;
+        }
+
+      buffer = frame_queue_pull(&g_action_queue);
+      pthread_mutex_unlock(&g_queue_mutex);
+
+      if (buffer == NULL)
+        {
+          /* Should not happen, but handle gracefully */
+
+          LOG_WARN("USB thread: Failed to pull buffer from action queue");
+          usleep(10000);  /* 10ms */
+          continue;
+        }
+
+      /* Step 2: Send packet via USB (outside mutex - blocking I/O) */
+
+      ret = usb_transport_send_bytes((uint8_t *)buffer->data, buffer->used);
+      if (ret < 0)
+        {
+          LOG_ERROR("USB thread: Failed to send packet: %d", ret);
+          error_count++;
+
+          if (error_count >= 10)
+            {
+              LOG_ERROR("Too many USB errors, shutting down");
+              pthread_mutex_lock(&g_queue_mutex);
+              g_shutdown_requested = true;
+              pthread_cond_broadcast(&g_queue_cond);
+              pthread_mutex_unlock(&g_queue_mutex);
+
+              /* Return buffer before exiting */
+
+              pthread_mutex_lock(&g_queue_mutex);
+              frame_queue_push(&g_empty_queue, buffer);
+              pthread_mutex_unlock(&g_queue_mutex);
+              break;
+            }
+        }
+      else
+        {
+          error_count = 0;  /* Reset error count on success */
+        }
+
+      /* Step 3: Return buffer to empty queue for camera thread to reuse */
+
+      pthread_mutex_lock(&g_queue_mutex);
+      frame_queue_push(&g_empty_queue, buffer);
+      pthread_cond_signal(&g_queue_cond);  /* Wake camera thread */
+      pthread_mutex_unlock(&g_queue_mutex);
     }
 
   LOG_INFO("== USB thread exiting ==");

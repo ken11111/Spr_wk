@@ -75,7 +75,7 @@ static volatile bool g_running = true;
  * Name: signal_handler
  *
  * Description:
- *   Handle signals for graceful shutdown
+ *   Handle signals for graceful shutdown (Step 4: Enhanced)
  *
  ****************************************************************************/
 
@@ -85,6 +85,13 @@ static void signal_handler(int signo)
     {
       LOG_INFO("Received signal %d, shutting down...", signo);
       g_running = false;
+
+      /* Step 4: Signal threads to shutdown if threading is enabled */
+
+      pthread_mutex_lock(&g_queue_mutex);
+      g_shutdown_requested = true;
+      pthread_cond_broadcast(&g_queue_cond);  /* Wake all waiting threads */
+      pthread_mutex_unlock(&g_queue_mutex);
     }
 }
 
@@ -221,17 +228,35 @@ int main(int argc, FAR char *argv[])
           usleep(100000);  /* 100ms */
           elapsed_ms += 100;
 
-          /* Check for shutdown condition */
+          /* Step 4: Check for shutdown conditions */
 
           if (g_shutdown_requested)
             {
-              LOG_INFO("Shutdown requested, exiting main loop");
+              LOG_INFO("Shutdown requested by threads, exiting main loop");
+              g_running = false;
+              break;
+            }
+
+          if (!g_running)
+            {
+              LOG_INFO("Signal received, exiting main loop");
               break;
             }
         }
 
       LOG_INFO("Main loop completed after %d ms", elapsed_ms);
       LOG_INFO("Threads processed frames in parallel (camera + USB)");
+
+      /* Step 4: Ensure clean shutdown */
+
+      if (elapsed_ms >= target_ms)
+        {
+          LOG_INFO("Target duration reached, signaling shutdown");
+          pthread_mutex_lock(&g_queue_mutex);
+          g_shutdown_requested = true;
+          pthread_cond_broadcast(&g_queue_cond);
+          pthread_mutex_unlock(&g_queue_mutex);
+        }
     }
   else
     {

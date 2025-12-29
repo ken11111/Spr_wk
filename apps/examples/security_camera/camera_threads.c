@@ -124,21 +124,33 @@ void *camera_thread_func(void *arg)
       ret = camera_get_frame(&frame);
       if (ret < 0)
         {
+          /* Step 4: Enhanced camera error detection */
+
           if (ret == ERR_TIMEOUT)
             {
-              LOG_WARN("Camera frame timeout");
+              LOG_WARN("Camera thread: Frame timeout (may be transient)");
+
+              /* Timeout is less critical - don't increment error count */
+              /* Just return buffer and retry */
             }
           else
             {
-              LOG_ERROR("Failed to get camera frame: %d", ret);
+              LOG_ERROR("Camera thread: Failed to get frame: %d", ret);
               error_count++;
 
-              if (error_count >= 10)
+              if (error_count >= 3)
                 {
-                  LOG_ERROR("Too many camera errors, shutting down");
+                  LOG_ERROR("Camera thread: Too many errors (%u consecutive), "
+                            "shutting down", error_count);
                   pthread_mutex_lock(&g_queue_mutex);
                   g_shutdown_requested = true;
                   pthread_cond_broadcast(&g_queue_cond);
+                  pthread_mutex_unlock(&g_queue_mutex);
+
+                  /* Return buffer before exiting */
+
+                  pthread_mutex_lock(&g_queue_mutex);
+                  frame_queue_push(&g_empty_queue, buffer);
                   pthread_mutex_unlock(&g_queue_mutex);
                   break;
                 }
@@ -149,7 +161,7 @@ void *camera_thread_func(void *arg)
           pthread_mutex_lock(&g_queue_mutex);
           frame_queue_push(&g_empty_queue, buffer);
           pthread_mutex_unlock(&g_queue_mutex);
-          usleep(100000);  /* 100ms delay */
+          usleep(100000);  /* 100ms delay before retry */
           continue;
         }
 
@@ -242,12 +254,34 @@ void *usb_thread_func(void *arg)
       ret = usb_transport_send_bytes((uint8_t *)buffer->data, buffer->used);
       if (ret < 0)
         {
+          /* Step 4: Enhanced USB error detection */
+
+          if (ret == -ENXIO || ret == -EIO || ret == ERR_USB_DISCONNECTED)
+            {
+              LOG_ERROR("USB thread: USB device disconnected (error %d)", ret);
+
+              /* Immediate shutdown on USB disconnect */
+
+              pthread_mutex_lock(&g_queue_mutex);
+              g_shutdown_requested = true;
+              pthread_cond_broadcast(&g_queue_cond);
+              pthread_mutex_unlock(&g_queue_mutex);
+
+              /* Return buffer before exiting */
+
+              pthread_mutex_lock(&g_queue_mutex);
+              frame_queue_push(&g_empty_queue, buffer);
+              pthread_mutex_unlock(&g_queue_mutex);
+              break;
+            }
+
           LOG_ERROR("USB thread: Failed to send packet: %d", ret);
           error_count++;
 
           if (error_count >= 10)
             {
-              LOG_ERROR("Too many USB errors, shutting down");
+              LOG_ERROR("Too many USB errors (%u consecutive), shutting down",
+                        error_count);
               pthread_mutex_lock(&g_queue_mutex);
               g_shutdown_requested = true;
               pthread_cond_broadcast(&g_queue_cond);
@@ -384,35 +418,46 @@ void camera_threads_cleanup(void)
 
   LOG_INFO("Cleaning up threading system...");
 
-  /* Signal threads to exit */
+  /* Step 4: Enhanced shutdown - signal threads to exit */
 
   pthread_mutex_lock(&g_queue_mutex);
-  g_shutdown_requested = true;
-  pthread_cond_broadcast(&g_queue_cond);
+  if (!g_shutdown_requested)
+    {
+      g_shutdown_requested = true;
+      LOG_INFO("Setting shutdown flag for threads");
+    }
+
+  pthread_cond_broadcast(&g_queue_cond);  /* Wake all waiting threads */
   pthread_mutex_unlock(&g_queue_mutex);
+
+  /* Give threads a moment to process shutdown signal */
+
+  usleep(50000);  /* 50ms */
 
   /* Join camera thread */
 
+  LOG_INFO("Waiting for camera thread to exit...");
   ret = pthread_join(g_camera_thread, NULL);
   if (ret != 0)
     {
-      LOG_WARN("Camera thread join error: %d", ret);
+      LOG_ERROR("Camera thread join failed: %d", ret);
     }
   else
     {
-      LOG_INFO("Camera thread joined");
+      LOG_INFO("Camera thread joined successfully");
     }
 
   /* Join USB thread */
 
+  LOG_INFO("Waiting for USB thread to exit...");
   ret = pthread_join(g_usb_thread, NULL);
   if (ret != 0)
     {
-      LOG_WARN("USB thread join error: %d", ret);
+      LOG_ERROR("USB thread join failed: %d", ret);
     }
   else
     {
-      LOG_INFO("USB thread joined");
+      LOG_INFO("USB thread joined successfully");
     }
 
   /* Cleanup frame queue system */
@@ -421,5 +466,5 @@ void camera_threads_cleanup(void)
 
   g_thread_ctx = NULL;
 
-  LOG_INFO("Threading system cleaned up");
+  LOG_INFO("Threading system cleaned up successfully");
 }

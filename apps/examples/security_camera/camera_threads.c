@@ -174,8 +174,8 @@ void *camera_thread_func(void *arg)
 
               if (error_count >= 3)
                 {
-                  LOG_ERROR("Camera thread: Too many errors (%u consecutive), "
-                            "shutting down", error_count);
+                  LOG_ERROR("Camera thread: Too many errors (%lu consecutive), "
+                            "shutting down", (unsigned long)error_count);
                   pthread_mutex_lock(&g_queue_mutex);
                   g_shutdown_requested = true;
                   pthread_cond_broadcast(&g_queue_cond);
@@ -233,8 +233,8 @@ void *camera_thread_func(void *arg)
           int action_depth = frame_queue_depth(g_action_queue);
           int empty_depth = frame_queue_depth(g_empty_queue);
 
-          LOG_INFO("Camera stats: frame=%u, action_q=%d, empty_q=%d",
-                   frame_count, action_depth, empty_depth);
+          LOG_INFO("Camera stats: frame=%lu, action_q=%d, empty_q=%d",
+                   (unsigned long)frame_count, action_depth, empty_depth);
         }
 
       pthread_mutex_unlock(&g_queue_mutex);
@@ -244,7 +244,8 @@ void *camera_thread_func(void *arg)
       usleep(33333);  /* ~30 fps */
     }
 
-  LOG_INFO("== Camera thread exiting (processed %u frames) ==", frame_count);
+  LOG_INFO("== Camera thread exiting (processed %lu frames) ==",
+           (unsigned long)frame_count);
   return NULL;
 }
 
@@ -333,8 +334,8 @@ void *usb_thread_func(void *arg)
 
           if (error_count >= 10)
             {
-              LOG_ERROR("Too many USB errors (%u consecutive), shutting down",
-                        error_count);
+              LOG_ERROR("Too many USB errors (%lu consecutive), shutting down",
+                        (unsigned long)error_count);
               pthread_mutex_lock(&g_queue_mutex);
               g_shutdown_requested = true;
               pthread_cond_broadcast(&g_queue_cond);
@@ -362,9 +363,10 @@ void *usb_thread_func(void *arg)
               uint32_t avg_packet_size = total_bytes / packet_count;
               uint32_t throughput_kbps = (total_bytes * 8) / 1000;  /* Approx kbps */
 
-              LOG_INFO("USB stats: packets=%u, avg_size=%u bytes, "
-                       "throughput~%u kbps",
-                       packet_count, avg_packet_size, throughput_kbps);
+              LOG_INFO("USB stats: packets=%lu, avg_size=%lu bytes, "
+                       "throughput~%lu kbps",
+                       (unsigned long)packet_count, (unsigned long)avg_packet_size,
+                       (unsigned long)throughput_kbps);
             }
         }
 
@@ -376,8 +378,8 @@ void *usb_thread_func(void *arg)
       pthread_mutex_unlock(&g_queue_mutex);
     }
 
-  LOG_INFO("== USB thread exiting (sent %u packets, %u bytes total) ==",
-           packet_count, total_bytes);
+  LOG_INFO("== USB thread exiting (sent %lu packets, %lu bytes total) ==",
+           (unsigned long)packet_count, (unsigned long)total_bytes);
   return NULL;
 }
 

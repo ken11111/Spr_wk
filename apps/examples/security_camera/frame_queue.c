@@ -290,8 +290,8 @@ int frame_queue_allocate_buffers(uint32_t buffer_size, int buffer_count)
 
   if (buffer_count <= 0 || buffer_size == 0)
     {
-      LOG_ERROR("Invalid buffer parameters: count=%d, size=%u",
-                buffer_count, buffer_size);
+      LOG_ERROR("Invalid buffer parameters: count=%d, size=%lu",
+                buffer_count, (unsigned long)buffer_size);
       return -EINVAL;
     }
 
@@ -347,8 +347,9 @@ int frame_queue_allocate_buffers(uint32_t buffer_size, int buffer_count)
 
   pthread_mutex_unlock(&g_queue_mutex);
 
-  LOG_INFO("Allocated %d buffers (%u bytes each, total %u KB)",
-           buffer_count, buffer_size, (buffer_count * buffer_size) / 1024);
+  LOG_INFO("Allocated %d buffers (%lu bytes each, total %lu KB)",
+           buffer_count, (unsigned long)buffer_size,
+           (unsigned long)(buffer_count * buffer_size) / 1024);
 
   return 0;
 }

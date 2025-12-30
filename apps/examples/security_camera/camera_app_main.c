@@ -408,7 +408,8 @@ int main(int argc, FAR char *argv[])
     }
   else
     {
-      LOG_INFO("Main loop ended, total frames: %u", frame_count);
+      LOG_INFO("Main loop ended, total frames: %lu",
+               (unsigned long)frame_count);
     }
 
   /* Cleanup */

@@ -1,10 +1,23 @@
 # テスト手順フローチャート
 
 **作成日**: 2025-12-21
-**最終更新**: 2025-12-25 (Phase 1.5追加)
+**最終更新**: 2025-12-28 (USBコンソール自動起動対応)
 **対象**: Phase 1B USB CDC データ転送テスト / Phase 1.5 VGA性能検証テスト
 
 このドキュメントでは、Phase 1B/1.5 テストにおける Windows/Ubuntu の操作手順と、複数の Ubuntu 端末での操作の流れを視覚化します。
+
+## 重要な変更点（2025-12-28）
+
+**USB シリアルコンソールの設定変更**:
+- `CONFIG_SYSTEM_CDCACM=y` - sercon/serdisコマンドを有効化
+- `CONFIG_NSH_USBCONSOLE=y` - NuttShell起動時に自動的にUSBコンソールを有効化
+
+**影響**:
+- **Phase 1.5以降**: NuttShell起動時に自動的に`/dev/ttyACM0`が有効化されます
+- **serconコマンド**: 引き続き利用可能（手動制御が必要な場合）
+- **互換性**: 従来の手動sercon方式も引き続きサポート
+
+詳細は「[USB シリアルコンソール接続の変更点](#usb-シリアルコンソール接続の変更点-2025-12-28)」を参照してください。
 
 ---
 
@@ -121,9 +134,19 @@ note over Term2, Spresense #LIGHTYELLOW
   - クリア: Ctrl+L
 end note
 
-Term2 -> Spresense: sercon (NuttX NSH コマンド)
-Spresense --> Term2: CDC/ACM serial driver registered
-note right: 🔴 **重要!**\nSpresense側で\n/dev/ttyACM0 を準備\n(Linux側接続前)
+alt CONFIG_NSH_USBCONSOLE=y (Phase 1.5以降)
+    note over Spresense #LIGHTGREEN
+      **自動起動**
+      NuttShell起動時に自動的に
+      /dev/ttyACM0 が有効化される
+      sercon コマンド不要
+    end note
+    Spresense --> Spresense: CDC/ACM自動有効化
+else 従来の手動方式
+    Term2 -> Spresense: sercon (NuttX NSH コマンド)
+    Spresense --> Term2: CDC/ACM serial driver registered
+    note right: 🔴 **重要!**\nSpresense側で\n/dev/ttyACM0 を準備\n(Linux側接続前)
+end
 
 == Phase 3: USB CDC セットアップ (CXD5602) ==
 
@@ -855,5 +878,71 @@ stty -F /dev/ttyACM0 -a | grep -E "raw|echo"
 
 ---
 
+## USB シリアルコンソール接続の変更点 (2025-12-28)
+
+### 従来の方式 (Phase 1B)
+
+**手動sercon実行**:
+```
+nsh> sercon
+CDC/ACM serial driver registered
+```
+
+**必要なCONFIG**:
+```bash
+CONFIG_CDCACM=y
+CONFIG_SYSTEM_CDCACM=y
+```
+
+### 新しい方式 (Phase 1.5以降)
+
+**自動起動 + 手動sercon両対応**:
+
+**必要なCONFIG**:
+```bash
+CONFIG_CDCACM=y
+CONFIG_SYSTEM_CDCACM=y       # sercon/serdisコマンド
+CONFIG_NSH_USBCONSOLE=y      # 自動起動
+```
+
+**動作**:
+1. NuttShell起動時に自動的に`/dev/ttyACM0`が有効化される
+2. `sercon`コマンドも引き続き使用可能（手動制御が必要な場合）
+
+### テスト手順への影響
+
+#### Phase 1B（従来）
+```
+1. minicom起動
+2. nsh> sercon ← 必須
+3. /dev/ttyACM0セットアップ
+4. データ受信
+```
+
+#### Phase 1.5以降（自動起動）
+```
+1. ファームウェア書き込み
+2. Spresenseリセット（自動的に/dev/ttyACM0有効化）
+3. /dev/ttyACM0セットアップ（数秒待つ）
+4. データ受信
+```
+
+**注意点**:
+- `/dev/ttyACM0`の出現には数秒かかる場合があります
+- `ls /dev/ttyACM0`で存在確認してから操作を開始してください
+- トラブル時は従来通り`sercon`コマンドで手動制御可能
+
+### トラブルシューティング
+
+**問題**: `sercon: command not found`
+
+**原因**: `CONFIG_SYSTEM_CDCACM`が無効
+
+**解決策**: [USB シリアルコンソール接続トラブルシューティングガイド](../../../case_study/prompts/usb_console_troubleshooting.md)を参照
+
+**関連PlantUML図**: [usb_console_troubleshooting_flow.puml](../../../case_study/diagrams/usb_console_troubleshooting_flow.puml)
+
+---
+
 **作成者**: Claude Code (Sonnet 4.5)
-**最終更新**: 2025-12-21
+**最終更新**: 2025-12-28

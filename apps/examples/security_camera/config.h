@@ -97,7 +97,7 @@
 
 #define CONFIG_USB_DEVICE_PATH       "/dev/ttyACM0"
 #define CONFIG_USB_TX_BUFFER_COUNT   4
-#define CONFIG_USB_TX_BUFFER_SIZE    8192
+#define CONFIG_USB_TX_BUFFER_SIZE    8192   /* 8KB - Optimal (confirmed by testing) */
 #define CONFIG_USB_WRITE_TIMEOUT_MS  1000
 
 /* Application Configuration */

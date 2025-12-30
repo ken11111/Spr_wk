@@ -12,7 +12,7 @@ config EXAMPLES_SECURITY_CAMERA
 	select USBDEV
 	select CDCACM
 	---help---
-		Enable the security camera example with H.264 streaming
+		Enable the security camera example with MJPEG streaming (Phase 1.5: VGA)
 
 if EXAMPLES_SECURITY_CAMERA
 
@@ -29,12 +29,12 @@ config EXAMPLES_SECURITY_CAMERA_STACKSIZE
 	default 8192
 
 config EXAMPLES_SECURITY_CAMERA_CAMERA_WIDTH
-	int "Camera width"
-	default 320
+	int "Camera width (VGA)"
+	default 640
 
 config EXAMPLES_SECURITY_CAMERA_CAMERA_HEIGHT
-	int "Camera height"
-	default 240
+	int "Camera height (VGA)"
+	default 480
 
 config EXAMPLES_SECURITY_CAMERA_FPS
 	int "Frame rate (fps)"

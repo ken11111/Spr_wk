@@ -1,0 +1,154 @@
+@startuml ビルドシステムコンポーネント図
+!theme plain
+
+title Spresense NuttX ビルドシステム コンポーネント図
+
+package "設定ファイル" <<Folder>> {
+  file ".config\n(nuttx/.config)" as NUTTX_CONFIG #LightBlue
+  file ".config\n(sdk/.config)" as SDK_CONFIG #LightCyan
+  file "Make.defs\n(nuttx/Make.defs)" as MAKE_DEFS #LightGreen
+  file "defconfig\n(sdk/configs/*/defconfig)" as DEFCONFIG #Wheat
+}
+
+package "ビルドツール" <<Folder>> {
+  component "config.py" as CONFIG_PY #LightYellow
+  component "kconfig-conf" as KCONFIG #LightYellow
+  component "mkspk" as MKSPK #LightYellow
+}
+
+package "アプリケーション" <<Folder>> {
+  folder "apps/examples/security_camera" as APP_DIR #Pink {
+    file "Kconfig" as APP_KCONFIG
+    file "Make.defs" as APP_MAKE_DEFS
+    file "Makefile" as APP_MAKEFILE
+    file "*.c, *.h" as APP_SOURCE
+  }
+
+  file "builtin_list.c\n(自動生成)" as BUILTIN_LIST #LightCoral
+}
+
+package "NuttXコア" <<Folder>> {
+  folder "nuttx/arch/arm/src" as ARCH_SRC #Lavender {
+    file "Makefile" as ARCH_MAKEFILE
+    file "armv7-m/*.c" as ARMV7M_SRC
+    file "cxd56xx/*.c" as CHIP_SRC
+  }
+
+  folder "nuttx/boards/arm/cxd56xx/spresense" as BOARD #PaleGreen {
+    file "board/*.c" as BOARD_SRC
+    file "scripts/*.ld" as LINKER_SCRIPT
+  }
+}
+
+package "ビルド成果物" <<Folder>> {
+  file "nuttx (ELF)" as NUTTX_ELF #LightSalmon
+  file "nuttx.spk\n(フラッシュ用)" as NUTTX_SPK #Salmon
+}
+
+package "環境変数" <<Database>> {
+  storage "PATH\n$HOME/spresenseenv/usr/bin" as PATH_VAR #LightGray
+  storage "CROSSDEV\narm-none-eabi-" as CROSSDEV_VAR #LightGray
+}
+
+' 設定ファイルの生成フロー
+DEFCONFIG -down-> CONFIG_PY : "入力"
+CONFIG_PY -down-> KCONFIG : "実行"
+KCONFIG -down-> NUTTX_CONFIG : "生成"
+KCONFIG -down-> SDK_CONFIG : "生成"
+
+' 設定ファイルの依存関係
+NUTTX_CONFIG ..> SDK_CONFIG : "参照"
+MAKE_DEFS ..> NUTTX_CONFIG : "読込"
+
+' アプリケーション登録の流れ
+APP_KCONFIG -down-> NUTTX_CONFIG : "CONFIG_EXAMPLES_\nSECURITY_CAMERA=y"
+NUTTX_CONFIG -down-> BUILTIN_LIST : "自動生成"
+APP_MAKE_DEFS ..> SDK_CONFIG : "参照"
+
+' ビルドプロセス
+MAKE_DEFS -down-> ARCH_MAKEFILE : "include"
+NUTTX_CONFIG -down-> ARCH_MAKEFILE : "include"
+PATH_VAR -down-> MAKE_DEFS : "使用"
+CROSSDEV_VAR -down-> MAKE_DEFS : "定義"
+
+' ソースからビルド
+APP_SOURCE -down-> APP_MAKEFILE : "コンパイル"
+ARMV7M_SRC -down-> ARCH_MAKEFILE : "コンパイル"
+CHIP_SRC -down-> ARCH_MAKEFILE : "コンパイル"
+BOARD_SRC -down-> ARCH_MAKEFILE : "コンパイル"
+
+' リンク
+APP_MAKEFILE -down-> NUTTX_ELF : "リンク"
+ARCH_MAKEFILE -down-> NUTTX_ELF : "リンク"
+LINKER_SCRIPT -down-> NUTTX_ELF : "使用"
+BUILTIN_LIST -down-> NUTTX_ELF : "リンク"
+
+' 最終成果物
+NUTTX_ELF -down-> MKSPK : "入力"
+MKSPK -down-> NUTTX_SPK : "生成"
+
+' 重要な関係を強調
+note top of NUTTX_CONFIG
+  **最重要ファイル**
+
+  ここにCONFIG_EXAMPLES_*
+  を設定しないと
+  builtin登録されない
+end note
+
+note top of MAKE_DEFS
+  **CROSSDEV設定**
+
+  CROSSDEV = arm-none-eabi-
+
+  これがないとシステムgccが
+  使われてエラーになる
+end note
+
+note bottom of PATH_VAR
+  **必須環境変数**
+
+  PATH=$HOME/spresenseenv/usr/bin:
+       /usr/bin:/bin
+
+  arm-none-eabi-gcc が
+  見つかる必要がある
+end note
+
+note right of BUILTIN_LIST
+  **自動生成ファイル**
+
+  nuttx/.configの
+  CONFIG_EXAMPLES_*=y
+  から自動生成される
+
+  手動編集不要
+end note
+
+legend right
+  |= ファイルタイプ |= 説明 |
+  | .config | Kconfig設定ファイル |
+  | Make.defs | Makeシステム定義 |
+  | Makefile | ビルドルール |
+  | defconfig | デフォルト設定 |
+
+  |= 矢印 |= 意味 |
+  | —→ | 生成・実行フロー |
+  | ..> | 参照・include |
+endlegend
+
+note bottom
+  **関連フローチャート**:
+  - phase1_environment_setup_flow.puml - 環境変数(PATH, CROSSDEV)の設定手順
+  - phase2_builtin_registration_flow.puml - builtin_list生成の実践フロー
+  - build_flow.puml - このコンポーネント図を使った実際のビルド手順
+  - troubleshooting_flow.puml - コンポーネント関連エラーの診断方法
+
+  **学習の順序**:
+  1. このコンポーネント図でシステム全体を理解
+  2. phase1でツールチェーン環境を構築
+  3. phase2でアプリケーションをビルドシステムに統合
+  4. エラー発生時はtroubleshootingフローで診断
+end note
+
+@enduml

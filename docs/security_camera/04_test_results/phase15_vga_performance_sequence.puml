@@ -1,0 +1,218 @@
+@startuml Phase 1.5 VGA 性能テスト - フレーム処理シーケンス
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+title Phase 1.5 VGA 性能テスト結果 - フレーム処理タイムライン\n(平均レイテンシ: 106.82 ms, 目標フレーム間隔: 33.33 ms)
+
+actor "NuttShell" as nsh
+participant "security_camera\nアプリケーション" as app
+participant "カメラ\nドライバー" as camera
+participant "JPEGエンコーダー" as jpeg
+participant "パケット化\n処理" as packer
+participant "USB CDC-ACM\nドライバー" as usb
+participant "PC\n(/dev/ttyACM0)" as pc
+
+== システム初期化 ==
+
+nsh -> app: security_camera起動
+activate app
+
+app -> camera: カメラ初期化\n640x480 JPEG 30fps
+activate camera
+camera --> app: OK (3バッファ確保)
+deactivate camera
+
+app -> usb: USB CDC-ACM初期化\n/dev/ttyACM0
+activate usb
+usb --> app: ドライバー登録完了
+deactivate usb
+
+app -> pc: USB接続確立
+activate pc
+pc --> app: 接続OK
+deactivate pc
+
+== フレームキャプチャループ (90フレーム) ==
+
+group ウィンドウ1: フレーム1 (初期フレーム - 最速)
+
+    note over app: **フレーム1開始**\n期待フレーム間隔: 33.33 ms\n実測総レイテンシ: 101.75 ms
+
+    app -> camera: フレームキャプチャ要求
+    activate camera
+    note right of camera: **カメラレイテンシ**\n6.38 ms (最小値)
+    camera -> jpeg: JPEG圧縮
+    activate jpeg
+    jpeg --> camera: 64 KB JPEG
+    deactivate jpeg
+    camera --> app: JPEGデータ準備完了
+    deactivate camera
+
+    app -> packer: MJPEGパケット化\n(ヘッダ+CRC16)
+    activate packer
+    note right of packer: **パック処理レイテンシ**\n38.43 ms (35.9%)\n・MJPEGヘッダ作成\n・CRC16計算\n・メモリコピー
+    packer --> app: 64.01 KB パケット
+    deactivate packer
+
+    app -> usb: USB書き込み\n64 KB
+    activate usb
+    note right of usb: **USB書き込みレイテンシ**\n60.12 ms (57.2%)\n実効レート: 8.5 Mbps\n(理論値12 Mbpsの70%)
+    usb -> pc: バルク転送
+    activate pc
+    pc --> usb: ACK
+    deactivate pc
+    usb --> app: 送信完了
+    deactivate usb
+
+    note over app: **総レイテンシ: 101.75 ms**\n目標33.33 msの3.05倍\n\n実測フレーム間隔: 139.70 ms\n未計上オーバーヘッド: 37.95 ms (27%)
+
+end
+
+group ウィンドウ1: フレーム2～30 (安定動作)
+
+    note over app: フレーム2～30を繰り返し\n平均FPS: 6.95 fps\n実行時間: 4.32秒
+
+    loop 29回
+        app -> camera: キャプチャ
+        activate camera
+        camera --> app: 64 KB
+        deactivate camera
+
+        app -> packer: パケット化
+        activate packer
+        packer --> app: パケット
+        deactivate packer
+
+        app -> usb: USB送信
+        activate usb
+        usb -> pc: 転送
+        usb --> app: 完了
+        deactivate usb
+    end
+
+    note over app: **ウィンドウ1完了**\n総フレーム: 30\n総データ量: 1.92 MB\nUSB使用率: 30.4%\nエラー: 0
+
+end
+
+group ウィンドウ2: フレーム31～60 (性能低下開始)
+
+    note over app: **フレーム31開始**\n総レイテンシ増加: 104.95 ms\n(+3.20 ms vs ウィンドウ1)
+
+    app -> camera: フレームキャプチャ要求
+    activate camera
+    note right of camera: **カメラレイテンシ増加**\n8.97 ms (+40% vs ウィンドウ1)
+    camera -> jpeg: JPEG圧縮
+    activate jpeg
+    jpeg --> camera: 63.96 KB
+    deactivate jpeg
+    camera --> app: JPEGデータ
+    deactivate camera
+
+    app -> packer: パケット化
+    activate packer
+    note right of packer: **パック処理安定**\n38.44 ms (変化なし)
+    packer --> app: パケット
+    deactivate packer
+
+    app -> usb: USB書き込み
+    activate usb
+    note right of usb: **USB書き込み微増**\n62.02 ms (+3.2%)\n依然として主要ボトルネック
+    usb -> pc: 転送
+    activate pc
+    pc --> usb: ACK
+    deactivate pc
+    usb --> app: 完了
+    deactivate usb
+
+    note over app: **フレーム間隔増加: 155.01 ms**\n(+11% vs ウィンドウ1)\nFPS低下: 6.60 fps (-5%)
+
+    loop フレーム32～60 (29回)
+        app -> camera: キャプチャ
+        camera --> app: JPEG
+        app -> packer: パケット化
+        packer --> app: パケット
+        app -> usb: 送信
+        usb -> pc: 転送
+        usb --> app: 完了
+    end
+
+    note over app: **ウィンドウ2完了**\n総フレーム: 30\nUSB使用率: 28.8%\nエラー: 0
+
+end
+
+group ウィンドウ3: フレーム61～90 (性能劣化顕著)
+
+    note over app: **フレーム61開始**\n総レイテンシ: 113.77 ms\n(+12 ms vs ウィンドウ1)
+
+    app -> camera: フレームキャプチャ要求
+    activate camera
+    note right of camera: **カメラレイテンシ大幅増加**\n27.70 ms (+335% vs ウィンドウ1)\n⚠️ 可能性:\n・サーマルスロットリング\n・バッファ管理問題\n・メモリ断片化
+    camera -> jpeg: JPEG圧縮
+    activate jpeg
+    jpeg --> camera: 63.83 KB
+    deactivate jpeg
+    camera --> app: JPEGデータ
+    deactivate camera
+
+    app -> packer: パケット化
+    activate packer
+    note right of packer: **パック処理依然安定**\n38.37 ms (変化なし)
+    packer --> app: パケット
+    deactivate packer
+
+    app -> usb: USB書き込み
+    activate usb
+    note right of usb: **USB書き込み安定**\n61.54 ms\n実効帯域幅: 8.3 Mbps
+    usb -> pc: 転送
+    activate pc
+    pc --> usb: ACK
+    deactivate pc
+    usb --> app: 完了
+    deactivate usb
+
+    note over app: **フレーム間隔最大: 161.67 ms**\n(+16% vs ウィンドウ1)\nFPS最低: 6.32 fps
+
+    loop フレーム62～90 (29回)
+        app -> camera: キャプチャ
+        camera --> app: JPEG
+        app -> packer: パケット化
+        packer --> app: パケット
+        app -> usb: 送信
+        usb -> pc: 転送
+        usb --> app: 完了
+    end
+
+    note over app: **ウィンドウ3完了**\n総フレーム: 30\nUSB使用率: 27.6%\nエラー: 0
+
+end
+
+== テスト完了 ==
+
+app -> app: 統計計算
+note over app: **最終結果**\n総フレーム: 90\n総データ量: 5.89 MB\n平均FPS: 6.61 fps (目標の22%)\n成功率: 100%\nエラー: 0
+
+app --> nsh: テスト完了
+deactivate app
+
+legend right
+  |= コンポーネント |= 平均レイテンシ |= 比率 |
+  | カメラキャプチャ | 14.35 ms | 13.4% |
+  | パケット化処理 | 38.41 ms | 35.9% |
+  | USB書き込み | 61.23 ms | **57.2%** ← 主要ボトルネック |
+  | **総レイテンシ** | **106.82 ms** | **100%** |
+  | 未計上オーバーヘッド | ~45 ms | - |
+  | **実測フレーム間隔** | **152.13 ms** | - |
+
+  **目標フレーム間隔**: 33.33 ms (30 fps)
+  **達成率**: 22% (6.61 fps)
+
+  **性能推移**:
+  - ウィンドウ1: 6.95 fps (最速)
+  - ウィンドウ2: 6.60 fps (-5%)
+  - ウィンドウ3: 6.32 fps (-9%)
+
+  **信頼性**: 100% (エラー0、ドロップ0)
+endlegend
+
+@enduml

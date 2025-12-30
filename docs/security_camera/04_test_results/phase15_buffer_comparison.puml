@@ -1,0 +1,161 @@
+@startuml
+title Phase 1.5 バッファ設計比較\n3バッファ vs 5バッファ
+
+scale 1.5
+
+|現状: 3バッファ設計|
+
+start
+
+:時刻 t=0ms\nフレーム1開始;
+
+note right
+  **バッファ状態**
+  ┌────────┬────────┬────────┐
+  │ Buf #1 │ Buf #2 │ Buf #3 │
+  │  Free  │  Free  │  Free  │
+  └────────┴────────┴────────┘
+
+  空き: **3個**
+end note
+
+:t=6ms\nBuf#1: Capture完了;
+
+:t=45ms\nBuf#1: Pack完了\nBuf#2: Capture開始;
+
+note right
+  ┌────────┬────────┬────────┐
+  │ Buf #1 │ Buf #2 │ Buf #3 │
+  │  USB   │Capture │  Free  │
+  └────────┴────────┴────────┘
+
+  空き: **1個**
+end note
+
+:t=83ms\nBuf#2: Pack完了\nBuf#3: Capture開始;
+
+note right
+  ┌────────┬────────┬────────┐
+  │ Buf #1 │ Buf #2 │ Buf #3 │
+  │  USB   │  USB   │Capture │
+  └────────┴────────┴────────┘
+
+  空き: **0個** ⚠️
+end note
+
+:t=106ms\nBuf#1: USB完了（解放）;
+
+:t=122ms\n**バッファ待機 22ms** ⚠️\nBuf#2: USB完了;
+
+note right #LightCoral
+  **問題発生**
+
+  フレーム4はBuf#2解放まで
+  22ms待機が必要
+
+  → カメラレイテンシ劣化
+  → FPS低下
+end note
+
+stop
+
+|推奨: 5バッファ設計|
+
+start
+
+:時刻 t=0ms\nフレーム1開始;
+
+note right
+  **バッファ状態**
+  ┌───┬───┬───┬───┬───┐
+  │#1 │#2 │#3 │#4 │#5 │
+  │ F │ F │ F │ F │ F │
+  └───┴───┴───┴───┴───┘
+
+  空き: **5個**
+  (F=Free)
+end note
+
+:t=6ms\nBuf#1: Capture完了;
+
+:t=45ms\nBuf#1: Pack完了\nBuf#2: Capture開始;
+
+note right
+  ┌───┬───┬───┬───┬───┐
+  │#1 │#2 │#3 │#4 │#5 │
+  │ U │ C │ F │ F │ F │
+  └───┴───┴───┴───┴───┘
+
+  空き: **3個**
+  (U=USB, C=Capture)
+end note
+
+:t=83ms\nBuf#2: Pack完了\nBuf#3: Capture開始;
+
+note right
+  ┌───┬───┬───┬───┬───┐
+  │#1 │#2 │#3 │#4 │#5 │
+  │ U │ U │ C │ F │ F │
+  └───┴───┴───┴───┴───┘
+
+  空き: **2個** ✅
+end note
+
+:t=106ms\nBuf#1: USB完了\nBuf#3: Pack完了\nBuf#4: Capture開始;
+
+note right
+  ┌───┬───┬───┬───┬───┐
+  │#1 │#2 │#3 │#4 │#5 │
+  │ F │ U │ U │ C │ F │
+  └───┴───┴───┴───┴───┘
+
+  空き: **2個** ✅
+end note
+
+:t=144ms\nBuf#2: USB完了\nBuf#4: Pack完了\nBuf#5: Capture開始;
+
+note right #PaleGreen
+  ┌───┬───┬───┬───┬───┐
+  │#1 │#2 │#3 │#4 │#5 │
+  │ F │ F │ U │ U │ C │
+  └───┴───┴───┴───┴───┘
+
+  空き: **2個** ✅
+
+  **常に2個以上の空きを維持**
+  → バッファ待機なし
+  → カメラレイテンシ安定
+end note
+
+:安定動作継続;
+
+stop
+
+legend right
+  |= 記号 |= 意味 |= 処理時間 |
+  | F | Free（空き） | - |
+  | C | Capture中 | 6～28 ms |
+  | P | Pack中 | 38 ms |
+  | U | USB転送中 | 61 ms |
+
+  **メモリ使用量比較**:
+
+  3バッファ: 192 KB
+  5バッファ: 320 KB
+  増加: **+128 KB (+67%)**
+
+  **効果**:
+  ✅ バッファ待機時間: 22ms → 0ms
+  ✅ カメラレイテンシ: 27.70ms → 6.38ms
+  ✅ FPS向上: 6.32 → 7.50 fps (+18%)
+  ✅ システム安定性向上
+
+  **理論計算**:
+  必要バッファ数 = ⌈総処理時間 / 目標フレーム間隔⌉
+                = ⌈106.82ms / 33.33ms⌉
+                = 4個（最低）
+
+  安全マージン込み: **5個（推奨）**
+endlegend
+
+@enduml

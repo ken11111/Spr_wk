@@ -1,0 +1,175 @@
+@startuml
+title Phase 1.5 VGA 性能ボトルネック分析\nフレーム処理時間の内訳と最適化ポテンシャル
+
+scale 2.0
+
+|目標 (30fps)|
+start
+:目標\n33.33ms;
+note right
+  30 fps達成のための
+  目標フレーム間隔
+end note
+stop
+
+|ウィンドウ1\n(フレーム1-30)|
+start
+:カメラ\n6.38ms;
+note right #LightBlue
+  初期性能 - 最速
+end note
+:パック\n38.43ms;
+note right #LightYellow
+  MJPEGパケット化
+  総時間の35.9%
+end note
+:USB\n60.12ms;
+note right #LightCoral
+  USB書き込み
+  総時間の57.2%
+  **主要ボトルネック**
+end note
+:オーバーヘッド\n34.77ms;
+note right #LightGray
+  スケジューリング等
+end note
+:完了\n139.70ms;
+note right
+  実測: 139.70 ms
+  達成FPS: 6.95 fps (23.2%)
+  目標超過: +106.37 ms
+end note
+stop
+
+|ウィンドウ2\n(フレーム31-60)|
+start
+:カメラ\n8.97ms;
+note right #LightBlue
+  +40% vs ウィンドウ1
+end note
+:パック\n38.44ms;
+note right #LightYellow
+  安定動作
+end note
+:USB\n62.02ms;
+note right #LightCoral
+  +3.2% vs ウィンドウ1
+end note
+:オーバーヘッド\n45.58ms;
+note right #LightGray
+  増加傾向
+end note
+:完了\n155.01ms;
+note right
+  実測: 155.01 ms
+  達成FPS: 6.60 fps (22.0%)
+  目標超過: +121.68 ms
+  性能低下: -5%
+end note
+stop
+
+|ウィンドウ3\n(フレーム61-90)|
+start
+:カメラ\n27.70ms;
+note right #Orange
+  **+335% vs ウィンドウ1**
+  ⚠️ 深刻な劣化
+  - サーマルスロットリング?
+  - バッファ管理問題?
+  - メモリ断片化?
+end note
+:パック\n38.37ms;
+note right #LightYellow
+  依然安定
+end note
+:USB\n61.54ms;
+note right #LightCoral
+  安定動作
+end note
+:オーバーヘッド\n34.06ms;
+note right #LightGray
+  正常範囲
+end note
+:完了\n161.67ms;
+note right
+  実測: 161.67 ms
+  達成FPS: 6.32 fps (21.1%)
+  目標超過: +128.34 ms
+  性能低下: -9%
+end note
+stop
+
+|最適化後\n(保守的)|
+start
+:カメラ\n8ms;
+:パック\n28ms;
+note right
+  -10 ms削減
+  (ハードウェアCRC16等)
+end note
+:USB\n46ms;
+note right
+  -15 ms削減
+  (DMA有効化等)
+end note
+:オーバーヘッド\n35ms;
+:完了\n117ms;
+note right #PaleGreen
+  **保守的最適化**
+  期待: 117 ms
+  達成FPS: 約14 fps (47%)
+  改善率: +112%
+end note
+stop
+
+|最適化後\n(楽観的)|
+start
+:カメラ\n6ms;
+:パック\n23ms;
+note right
+  -15 ms削減
+  (ゼロコピー等)
+end note
+:USB\n36ms;
+note right
+  -25 ms削減
+  (完全最適化)
+end note
+:オーバーヘッド\n25ms;
+:完了\n90ms;
+note right #LightGreen
+  **楽観的最適化**
+  期待: 90 ms
+  達成FPS: 約22 fps (73%)
+  改善率: +233%
+
+  ※ただしUSB Full Speedの
+  理論限界は15 fps程度
+end note
+stop
+
+legend right
+  |= 色 |= 意味 |
+  | <back:LightBlue>　　</back> | カメラキャプチャ |
+  | <back:LightYellow>　　</back> | パケット化処理 |
+  | <back:LightCoral>　　</back> | USB書き込み |
+  | <back:LightGray>　　</back> | システムオーバーヘッド |
+  | <back:Orange>　　</back> | 問題箇所 |
+  | <back:LightGreen>　　</back> | 目標/最適化 |
+
+  **ボトルネック優先度**:
+  1. パケット化処理 (期待4ms vs 実測38ms)
+     改善余地: -28～-38 ms ⭐最優先
+  2. USB書き込み (期待51ms vs 実測61ms)
+     改善余地: -10～-13 ms
+  3. カメラレイテンシ (時間で劣化)
+     安定化必要: 6-8 msで維持
+
+  **USB Full Speedの限界**:
+  64 KB転送の理論時間: 51.4 ms
+  目標フレーム間隔: 33.33 ms
+  → **物理的に30 fps不可能**
+  → 理論最大: 約15 fps
+endlegend
+
+@enduml

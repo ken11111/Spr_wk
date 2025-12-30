@@ -1,13 +1,38 @@
-# Phase 1B テスト手順フローチャート
+# テスト手順フローチャート
 
 **作成日**: 2025-12-21
-**対象**: Phase 1B USB CDC データ転送テスト
+**最終更新**: 2025-12-28 (USBコンソール自動起動対応)
+**対象**: Phase 1B USB CDC データ転送テスト / Phase 1.5 VGA性能検証テスト
 
-このドキュメントでは、Phase 1B テストにおける Windows/Ubuntu の操作手順と、複数の Ubuntu 端末での操作の流れを視覚化します。
+このドキュメントでは、Phase 1B/1.5 テストにおける Windows/Ubuntu の操作手順と、複数の Ubuntu 端末での操作の流れを視覚化します。
+
+## 重要な変更点（2025-12-28）
+
+**USB シリアルコンソールの設定変更**:
+- `CONFIG_SYSTEM_CDCACM=y` - sercon/serdisコマンドを有効化
+- `CONFIG_NSH_USBCONSOLE=y` - NuttShell起動時に自動的にUSBコンソールを有効化
+
+**影響**:
+- **Phase 1.5以降**: NuttShell起動時に自動的に`/dev/ttyACM0`が有効化されます
+- **serconコマンド**: 引き続き利用可能（手動制御が必要な場合）
+- **互換性**: 従来の手動sercon方式も引き続きサポート
+
+詳細は「[USB シリアルコンソール接続の変更点](#usb-シリアルコンソール接続の変更点-2025-12-28)」を参照してください。
 
 ---
 
-## 全体フローシーケンス図
+## 目次
+
+- [Phase 1B: USB CDC データ転送テスト](#phase-1b-全体フローシーケンス図)
+- [Phase 1.5: VGA性能検証テスト（ログ取得あり/なし）](#phase-15-全体フローシーケンス図)
+- [Phase 0: 初回セットアップ](#phase-0-初回セットアップ-初回のみ必要)
+- [端末の役割まとめ](#端末の役割まとめ)
+- [USB デバイス構成](#usb-デバイス構成)
+- [トラブルシューティング早見表](#トラブルシューティング早見表)
+
+---
+
+## Phase 1B: 全体フローシーケンス図
 
 ```plantuml
 @startuml
@@ -109,9 +134,19 @@ note over Term2, Spresense #LIGHTYELLOW
   - クリア: Ctrl+L
 end note
 
-Term2 -> Spresense: sercon (NuttX NSH コマンド)
-Spresense --> Term2: CDC/ACM serial driver registered
-note right: 🔴 **重要!**\nSpresense側で\n/dev/ttyACM0 を準備\n(Linux側接続前)
+alt CONFIG_NSH_USBCONSOLE=y (Phase 1.5以降)
+    note over Spresense #LIGHTGREEN
+      **自動起動**
+      NuttShell起動時に自動的に
+      /dev/ttyACM0 が有効化される
+      sercon コマンド不要
+    end note
+    Spresense --> Spresense: CDC/ACM自動有効化
+else 従来の手動方式
+    Term2 -> Spresense: sercon (NuttX NSH コマンド)
+    Spresense --> Term2: CDC/ACM serial driver registered
+    note right: 🔴 **重要!**\nSpresense側で\n/dev/ttyACM0 を準備\n(Linux側接続前)
+end
 
 == Phase 3: USB CDC セットアップ (CXD5602) ==
 
@@ -198,6 +233,372 @@ note right: ✅ 成功!\n90個のJPEG SOI検出
 
 @enduml
 ```
+
+---
+
+## Phase 1.5: 全体フローシーケンス図
+
+### Phase 1.5-A: 性能ログ取得あり（推奨）
+
+```plantuml
+@startuml
+title Phase 1.5 VGA性能検証テスト（ログ取得あり）
+
+participant "Ubuntu\nTerminal A\n(フラッシュ\n性能ログ取得)" as TermA #LightGreen
+participant "Ubuntu\nTerminal B\n(PC側Rust\nMJPEG受信)" as TermB #LightCyan
+participant "Spresense\nデバイス" as Spresense #LightSkyBlue
+
+note over TermA, TermB #FFCCCC
+  **前提条件**:
+  - Phase 1.5 VGA実装ビルド済み (nuttx.spk)
+  - USB 3ポート接続:
+    * /dev/ttyUSB0 (フラッシュ用)
+    * /dev/ttyUSB1 (シリアルコンソール・ログ出力)
+    * /dev/ttyACM0 (MJPEGデータ通信)
+  - PC側Rustアプリケーションビルド済み
+end note
+
+== Phase 1: ファームウェアフラッシュ ==
+
+TermA -> TermA: cd ~/Spr_ws/spresense/sdk
+TermA -> TermA: sudo -E PATH=$HOME/spresenseenv/usr/bin:$PATH\n./tools/flash.sh -c /dev/ttyUSB0 nuttx.spk
+TermA -> Spresense: VGA対応ファームウェア書き込み
+Spresense --> TermA: フラッシュ完了
+note right: Spresenseリセット\nアプリ自動起動
+
+== Phase 2: 性能ログ取得開始（Terminal A） ==
+
+TermA -> TermA: cd ~/Spr_ws/GH_wk_test/docs/security_camera/02_test_results/
+TermA -> TermA: picocom -b 115200 /dev/ttyUSB1 |\ntee spresense_vga_perf_$(date +%Y%m%d_%H%M%S).log
+note left: 🔴 重要!\n/dev/ttyUSB1で性能ログ取得\nファイルに自動保存
+
+TermA -> Spresense: シリアルコンソール接続 (/dev/ttyUSB1)
+Spresense --> TermA: [CAM] Security Camera Application Starting (MJPEG)
+Spresense --> TermA: [CAM] Camera config: 640x480 @ 30 fps, Format=JPEG
+Spresense --> TermA: [CAM] Camera streaming started
+Spresense --> TermA: [CAM] USB transport initialized (/dev/ttyACM0)
+Spresense --> TermA: [CAM] Performance logging initialized (interval=30 frames)
+note right: アプリケーション起動確認\n⚠️ この時点で/dev/ttyACM0が出現
+
+== Phase 3: PC側Rustアプリ起動（Terminal B） ==
+
+note over TermB #LIGHTYELLOW
+  **タイミング重要**:
+  - Terminal Aでアプリ起動を確認後
+  - /dev/ttyACM0出現を確認してから起動
+  - ls /dev/ttyACM0 で存在確認
+end note
+
+TermB -> TermB: cd ~/Rust_ws/security_camera_viewer
+TermB -> TermB: cargo run --release
+TermB -> TermB: シリアルポート /dev/ttyACM0 オープン
+TermB --> TermB: Waiting for MJPEG packets...
+
+== Phase 4: データ送受信と性能測定 ==
+
+loop 90 フレーム送信（VGA 640x480 JPEG）
+    Spresense -> Spresense: [測定] ts_camera_poll_start
+    Spresense -> Spresense: カメラキャプチャ (JPEG)
+    Spresense -> Spresense: [測定] ts_camera_dqbuf_end
+
+    Spresense -> Spresense: [測定] ts_pack_start
+    Spresense -> Spresense: MJPEG パケット作成\n[SYNC|SEQ|SIZE|JPEG|CRC16]
+    Spresense -> Spresense: [測定] ts_pack_end
+
+    Spresense -> Spresense: [測定] ts_usb_write_start
+    Spresense -> TermB: USB CDC送信 (/dev/ttyACM0)
+    Spresense -> Spresense: [測定] ts_usb_write_end
+
+    TermB -> TermB: MJPEGパケット受信
+    TermB -> TermB: CRC検証
+    TermB -> TermB: JPEG表示更新
+
+    alt 30フレーム毎（1秒毎 @ 30fps）
+        Spresense --> TermA: [PERF STATS] Window: 30 frames in 1.00 sec (30.00 fps)
+        Spresense --> TermA: [SIZE] JPEG: avg=59.45 KB, min=52341 B, max=68923 B
+        Spresense --> TermA: [THROUGHPUT] JPEG data: 14.27 Mbps
+        Spresense --> TermA: [THROUGHPUT] USB (w/overhead): 14.30 Mbps
+        Spresense --> TermA: [USB] Utilization: 119.2% of 12 Mbps Full Speed
+
+        alt USB帯域超過
+            Spresense --> TermA: ⚠️  BANDWIDTH EXCEEDED! Target: <100%, Actual: 119.2%
+            note right #FFCCCC: 帯域超過警告\nFPS調整またはJPEG品質調整が必要
+        end
+
+        Spresense --> TermA: [LATENCY] Camera: avg=8234 us
+        Spresense --> TermA: [LATENCY] Pack: avg=156 us
+        Spresense --> TermA: [LATENCY] USB Write: avg=2345 us
+        Spresense --> TermA: [INTERVAL] Frame: avg=33333 us, min=32987 us, max=34012 us
+    end
+end
+
+Spresense --> TermA: [CAM] Main loop ended, total frames: 90
+Spresense --> TermA: [PERF STATS] Final statistics (force print)
+Spresense --> TermA: [CAM] Performance logging cleanup
+Spresense --> TermA: [CAM] USB transport cleaned up
+
+== Phase 5: ログ保存とクリーンアップ ==
+
+TermA -> TermA: Ctrl+A → X (picocom終了)
+note left: ログファイル保存完了\nspresense_vga_perf_YYYYMMDD_HHMMSS.log
+
+TermB -> TermB: Ctrl+C (Rustアプリ終了)
+note right: MJPEG受信統計表示
+
+== Phase 6: 性能ログ分析 ==
+
+TermA -> TermA: grep "USB.*Utilization" spresense_vga_perf_*.log
+note left: USB帯域使用率確認
+
+TermA -> TermA: grep "⚠️" spresense_vga_perf_*.log
+note left: 警告メッセージ抽出
+
+TermA -> TermA: grep "SIZE.*JPEG:" spresense_vga_perf_*.log
+note left: 平均JPEGサイズ確認
+
+@enduml
+```
+
+### Phase 1.5-B: 性能ログ取得なし（映像確認のみ）
+
+```plantuml
+@startuml
+title Phase 1.5 VGA性能検証テスト（ログ取得なし）
+
+participant "Ubuntu\nTerminal A\n(フラッシュのみ)" as TermA #LightGreen
+participant "Ubuntu\nTerminal B\n(PC側Rust\nMJPEG受信)" as TermB #LightCyan
+participant "Spresense\nデバイス" as Spresense #LightSkyBlue
+
+note over TermA, TermB #CCFFFF
+  **用途**:
+  - 簡易的な動作確認
+  - MJPEG映像の目視確認のみ
+  - 性能データは記録されない（Spresense内部では測定されるが保存されない）
+end note
+
+== Phase 1: ファームウェアフラッシュ ==
+
+TermA -> TermA: cd ~/Spr_ws/spresense/sdk
+TermA -> TermA: sudo -E PATH=$HOME/spresenseenv/usr/bin:$PATH\n./tools/flash.sh -c /dev/ttyUSB0 nuttx.spk
+TermA -> Spresense: VGA対応ファームウェア書き込み
+Spresense --> TermA: フラッシュ完了
+note right: Spresenseリセット\nアプリ自動起動\n⚠️ ログは取得しない
+
+note over TermA #LIGHTYELLOW
+  **Terminal Aはここで終了**
+  - /dev/ttyUSB1は使用しない
+  - ログは記録されない
+  - 性能統計は見えない
+end note
+
+== Phase 2: PC側Rustアプリ起動（Terminal B） ==
+
+TermB -> TermB: # /dev/ttyACM0出現を待つ（数秒）
+TermB -> TermB: ls /dev/ttyACM0
+note right: デバイス存在確認
+
+TermB -> TermB: cd ~/Rust_ws/security_camera_viewer
+TermB -> TermB: cargo run --release
+TermB -> TermB: シリアルポート /dev/ttyACM0 オープン
+TermB --> TermB: Waiting for MJPEG packets...
+
+== Phase 3: データ送受信（Spresense内部で性能測定は実行中） ==
+
+loop 90 フレーム送信
+    Spresense -> Spresense: カメラキャプチャ (JPEG)
+    Spresense -> Spresense: MJPEG パケット作成
+    Spresense -> Spresense: 性能測定実行中\n(Terminal Aがないため表示されない)
+
+    Spresense -> TermB: USB CDC送信 (/dev/ttyACM0)
+
+    TermB -> TermB: MJPEGパケット受信
+    TermB -> TermB: CRC検証
+    TermB -> TermB: JPEG表示更新
+
+    note over Spresense #FFCCCC
+      性能ログは内部で生成されるが
+      /dev/ttyUSB1が開かれていないため
+      ログ出力は破棄される
+    end note
+end
+
+Spresense -> Spresense: アプリ終了（ログは記録されない）
+
+== Phase 4: クリーンアップ ==
+
+TermB -> TermB: Ctrl+C (Rustアプリ終了)
+note right: 映像確認のみ完了\n性能データなし
+
+@enduml
+```
+
+---
+
+## Phase 1.5: 操作手順詳細
+
+### 方式A: 性能ログ取得あり（推奨）
+
+**用途**:
+- USB帯域使用率の測定
+- JPEGサイズの統計取得
+- レイテンシ分析
+- 帯域超過の検出
+
+**必要な端末**: 2端末
+
+#### Terminal A: フラッシュ + 性能ログ取得
+
+```bash
+# ステップ1: ファームウェアフラッシュ
+cd ~/Spr_ws/spresense/sdk
+sudo -E PATH=$HOME/spresenseenv/usr/bin:$PATH ./tools/flash.sh -c /dev/ttyUSB0 nuttx.spk
+
+# Spresenseリセット後、数秒待つ
+
+# ステップ2: 性能ログ取得開始
+cd ~/Spr_ws/GH_wk_test/docs/security_camera/02_test_results/
+picocom -b 115200 /dev/ttyUSB1 | tee spresense_vga_perf_$(date +%Y%m%d_%H%M%S).log
+
+# 以下のログが表示される:
+# [CAM] Security Camera Application Starting (MJPEG)
+# [CAM] Camera config: 640x480 @ 30 fps, Format=JPEG
+# [CAM] Performance logging initialized (interval=30 frames)
+# ...
+# [PERF STATS] Window: 30 frames in 1.00 sec (30.00 fps)
+# [USB] Utilization: 119.2% of 12 Mbps Full Speed
+# ⚠️  BANDWIDTH EXCEEDED! ...
+
+# picocom終了: Ctrl+A → X
+```
+
+**使用デバイス**:
+- `/dev/ttyUSB0`: フラッシュ専用
+- `/dev/ttyUSB1`: シリアルコンソール（性能ログ出力）
+
+#### Terminal B: PC側Rustアプリ
+
+```bash
+# Terminal Aでアプリ起動を確認後に実行
+# /dev/ttyACM0が出現するまで待つ（数秒）
+
+ls /dev/ttyACM0  # 存在確認
+
+cd ~/Rust_ws/security_camera_viewer
+cargo run --release
+
+# MJPEG映像がリアルタイム表示される
+# Ctrl+C で終了
+```
+
+**使用デバイス**:
+- `/dev/ttyACM0`: MJPEGデータ通信
+
+#### ログ分析
+
+```bash
+# Terminal A（picocom終了後）
+
+# USB帯域使用率確認
+grep "USB.*Utilization" spresense_vga_perf_*.log
+
+# 警告抽出
+grep "⚠️" spresense_vga_perf_*.log
+
+# 平均JPEGサイズ
+grep "SIZE.*JPEG:" spresense_vga_perf_*.log | awk '{print $6}'
+
+# レイテンシ確認
+grep "LATENCY" spresense_vga_perf_*.log
+```
+
+---
+
+### 方式B: 性能ログ取得なし（簡易確認）
+
+**用途**:
+- 映像表示の目視確認のみ
+- 性能データは不要
+- 迅速なテスト実行
+
+**必要な端末**: 1端末（Terminal Bのみ）
+
+**注意**: Spresense内部では性能測定は実行されますが、`/dev/ttyUSB1`を開いていないため、ログ出力は破棄されます。
+
+#### Terminal A: フラッシュのみ（その後閉じてOK）
+
+```bash
+cd ~/Spr_ws/spresense/sdk
+sudo -E PATH=$HOME/spresenseenv/usr/bin:$PATH ./tools/flash.sh -c /dev/ttyUSB0 nuttx.spk
+
+# フラッシュ完了後、Terminal Aは閉じてOK
+```
+
+#### Terminal B: PC側Rustアプリのみ
+
+```bash
+# /dev/ttyACM0出現を待つ（数秒）
+ls /dev/ttyACM0
+
+cd ~/Rust_ws/security_camera_viewer
+cargo run --release
+
+# MJPEG映像表示のみ確認
+# Ctrl+C で終了
+```
+
+---
+
+## Phase 1.5: USB デバイス構成
+
+### Spresense 3ポート接続
+
+| デバイス | 用途 | Terminal A（ログあり） | Terminal B | Terminal A（ログなし） |
+|---------|------|---------------------|-----------|---------------------|
+| `/dev/ttyUSB0` | フラッシュ専用 | ✅ 使用 | - | ✅ 使用 |
+| `/dev/ttyUSB1` | シリアルコンソール（性能ログ） | ✅ 使用 | - | ❌ 不使用 |
+| `/dev/ttyACM0` | MJPEGデータ通信 | - | ✅ 使用 | ✅ 使用（Terminal B） |
+
+### 物理接続図
+
+```
+Spresense ─┬─ /dev/ttyUSB0  (CP2102 Boot Loader)
+           │   └→ tools/flash.sh でフラッシュ
+           │
+           ├─ /dev/ttyUSB1  (CP2102 Serial Console)
+           │   └→ picocom で性能ログ取得（方式Aのみ）
+           │
+           └─ /dev/ttyACM0  (CXD5602 USB CDC-ACM)
+               └→ Rustアプリケーションでデータ受信
+```
+
+---
+
+## Phase 1.5: 性能検証項目
+
+### 測定メトリクス（方式Aのみ取得可能）
+
+| メトリクス | 目標値 | 測定タイミング |
+|-----------|-------|--------------|
+| 平均JPEGサイズ | 50-80 KB | 30フレーム毎 |
+| USB帯域使用率 | <100% (12 Mbps以下) | 30フレーム毎 |
+| 実測FPS | 30 fps | 30フレーム毎 |
+| フレーム間隔 | 33.3 ± 1 ms | 30フレーム毎 |
+| カメラ取得時間 | <10 ms | 30フレーム毎（平均） |
+| USB送信時間 | <3 ms | 30フレーム毎（平均） |
+
+### 警告の見方
+
+**USB帯域超過警告**:
+```
+[USB] Utilization: 119.2% of 12 Mbps Full Speed
+⚠️  BANDWIDTH EXCEEDED! Target: <100%, Actual: 119.2%
+⚠️  Recommend: Reduce FPS or JPEG quality
+```
+
+**対策**:
+1. フレームレート調整（30fps → 20fps）
+2. JPEG品質調整（サイズ削減）
+3. 一時的にQVGAへ戻す
 
 ---
 
@@ -477,5 +878,71 @@ stty -F /dev/ttyACM0 -a | grep -E "raw|echo"
 
 ---
 
+## USB シリアルコンソール接続の変更点 (2025-12-28)
+
+### 従来の方式 (Phase 1B)
+
+**手動sercon実行**:
+```
+nsh> sercon
+CDC/ACM serial driver registered
+```
+
+**必要なCONFIG**:
+```bash
+CONFIG_CDCACM=y
+CONFIG_SYSTEM_CDCACM=y
+```
+
+### 新しい方式 (Phase 1.5以降)
+
+**自動起動 + 手動sercon両対応**:
+
+**必要なCONFIG**:
+```bash
+CONFIG_CDCACM=y
+CONFIG_SYSTEM_CDCACM=y       # sercon/serdisコマンド
+CONFIG_NSH_USBCONSOLE=y      # 自動起動
+```
+
+**動作**:
+1. NuttShell起動時に自動的に`/dev/ttyACM0`が有効化される
+2. `sercon`コマンドも引き続き使用可能（手動制御が必要な場合）
+
+### テスト手順への影響
+
+#### Phase 1B（従来）
+```
+1. minicom起動
+2. nsh> sercon ← 必須
+3. /dev/ttyACM0セットアップ
+4. データ受信
+```
+
+#### Phase 1.5以降（自動起動）
+```
+1. ファームウェア書き込み
+2. Spresenseリセット（自動的に/dev/ttyACM0有効化）
+3. /dev/ttyACM0セットアップ（数秒待つ）
+4. データ受信
+```
+
+**注意点**:
+- `/dev/ttyACM0`の出現には数秒かかる場合があります
+- `ls /dev/ttyACM0`で存在確認してから操作を開始してください
+- トラブル時は従来通り`sercon`コマンドで手動制御可能
+
+### トラブルシューティング
+
+**問題**: `sercon: command not found`
+
+**原因**: `CONFIG_SYSTEM_CDCACM`が無効
+
+**解決策**: [USB シリアルコンソール接続トラブルシューティングガイド](../../../case_study/prompts/usb_console_troubleshooting.md)を参照
+
+**関連PlantUML図**: [usb_console_troubleshooting_flow.puml](../../../case_study/diagrams/usb_console_troubleshooting_flow.puml)
+
+---
+
 **作成者**: Claude Code (Sonnet 4.5)
-**最終更新**: 2025-12-21
+**最終更新**: 2025-12-28

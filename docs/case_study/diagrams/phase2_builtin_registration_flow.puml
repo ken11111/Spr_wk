@@ -1,0 +1,318 @@
+@startuml Phase2 builtin登録フロー
+!theme plain
+skinparam ActivityBackgroundColor Wheat
+skinparam ActivityBorderColor DarkOrange
+
+title Phase 2: NuttXビルドシステムへのアプリケーション統合\n(builtin登録の完全フロー)
+
+start
+
+partition "準備: 既存アプリの分析" {
+  :既存アプリ（sixaxis等）を分析;
+  note right
+    参考アプリのディレクトリ構造を確認:
+    ls -la sdk/apps/examples/sixaxis/
+
+    必要なファイル:
+    - Kconfig
+    - Make.defs
+    - Makefile
+    - *.c, *.h
+  end note
+
+  :Kconfigの構造を理解;
+  note right
+    cat sdk/apps/examples/sixaxis/Kconfig
+
+    重要なポイント:
+    - CONFIG_EXAMPLES_プレフィックス
+    - PROGNAME, PRIORITY, STACKSIZE
+  end note
+
+  :Make.defsの構造を理解;
+  note right
+    cat sdk/apps/examples/sixaxis/Make.defs
+
+    重要なポイント:
+    - CONFIGURED_APPS への追加条件
+  end note
+}
+
+partition "アプリケーションディレクトリ作成" {
+  :アプリディレクトリを作成;
+  note right
+    mkdir -p sdk/apps/examples/my_app
+    cd sdk/apps/examples/my_app
+  end note
+
+  :Kconfigを作成;
+  note right
+    **最重要**: CONFIG名は必ず
+    CONFIG_EXAMPLES_プレフィックス
+
+    例:
+    config EXAMPLES_MY_APP
+        bool "My Application"
+        default n
+  end note
+
+  :Make.defsを作成;
+  note right
+    ifneq ($(CONFIG_EXAMPLES_MY_APP),)
+    CONFIGURED_APPS += \
+      $(APPDIR)/examples/my_app
+    endif
+  end note
+
+  :Makefileを作成;
+  note right
+    include $(APPDIR)/Make.defs
+
+    PROGNAME  = $(CONFIG_EXAMPLES_MY_APP_PROGNAME)
+    PRIORITY  = $(CONFIG_EXAMPLES_MY_APP_PRIORITY)
+    STACKSIZE = $(CONFIG_EXAMPLES_MY_APP_STACKSIZE)
+
+    MAINSRC = my_app_main.c
+
+    include $(APPDIR)/Application.mk
+  end note
+
+  :ソースコードを作成;
+  note right
+    my_app_main.c に
+    int main(int argc, char *argv[])
+    を実装
+  end note
+}
+
+partition "NuttX側の設定（最重要）" {
+  :nuttx/.configを編集;
+  note right
+    **ここが最も重要！**
+
+    cd ../../nuttx
+    vi .config
+
+    または
+
+    cat >> .config <<'EOF'
+    CONFIG_EXAMPLES_MY_APP=y
+    CONFIG_EXAMPLES_MY_APP_PROGNAME="my_app"
+    CONFIG_EXAMPLES_MY_APP_PRIORITY=100
+    CONFIG_EXAMPLES_MY_APP_STACKSIZE=2048
+    EOF
+  end note
+
+  if (CONFIG_EXAMPLES_*=y が設定された?) then (yes)
+    #LightGreen:設定OK;
+  else (no)
+    #LightCoral:**最大の落とし穴！**;
+    note right
+      nuttx/.config に設定しないと
+      builtin_list.h が生成されない！
+
+      sdk/.config ではなく
+      nuttx/.config に設定すること
+    end note
+    detach
+  endif
+}
+
+partition "ビルド実行" {
+  :クリーンビルド;
+  note right
+    cd ../sdk
+    make clean
+    make
+  end note
+
+  if (ビルド成功?) then (yes)
+    #LightGreen:ビルドOK;
+  else (no)
+    #LightCoral:ビルドエラー;
+
+    if (エラー内容は?) then (Kconfig not found)
+      :Kconfigパスを確認;
+      note right
+        sdk/apps/examples/Kconfig に
+        自分のアプリのKconfigが
+        source されているか確認
+      end note
+
+    elseif (undefined reference) then (リンクエラー)
+      :Makefileのソースリストを確認;
+      note right
+        CSRCS にすべての.cファイルが
+        含まれているか確認
+      end note
+
+    else (その他)
+      :トラブルシューティング;
+      note right
+        build_troubleshooting_cheatsheet.md
+        参照
+      end note
+    endif
+
+    detach
+  endif
+}
+
+partition "builtin登録の検証" {
+  :builtin_list.hを確認;
+  note right
+    cat nuttx/include/builtin_list.h
+
+    自分のアプリのエントリが
+    あるか確認:
+    {"my_app", ...}
+  end note
+
+  if (エントリ存在?) then (yes)
+    #LightGreen:builtin登録成功;
+  else (no)
+    #LightCoral:**登録失敗の原因特定**;
+
+    :nuttx/.configを再確認;
+    note right
+      grep "CONFIG_EXAMPLES_MY_APP" nuttx/.config
+
+      設定が存在しない場合:
+      → nuttx/.config に追加忘れ
+
+      "# CONFIG_EXAMPLES_MY_APP is not set"の場合:
+      → 無効化されている
+        =y に変更が必要
+    end note
+
+    :Make.defsを再確認;
+    note right
+      cat sdk/apps/examples/my_app/Make.defs
+
+      CONFIGURED_APPS への追加が
+      正しいか確認
+    end note
+
+    :再ビルドが必要;
+    note right
+      make clean
+      make
+    end note
+
+    detach
+  endif
+}
+
+partition "実機テスト" {
+  :ファームウェアを書き込み;
+  note right
+    cd sdk
+    sudo ./tools/flash.sh -c /dev/ttyUSB0 \
+      ../nuttx/nuttx.spk
+  end note
+
+  :NuttShellで確認;
+  note right
+    minicom -D /dev/ttyUSB0
+
+    NuttShell起動後:
+    nsh> ?
+
+    アプリ一覧に my_app が
+    表示されるか確認
+  end note
+
+  if (アプリ表示される?) then (yes)
+    #LightGreen:登録完全成功;
+
+    :アプリを実行;
+    note right
+      nsh> my_app
+
+      期待通り動作するか確認
+    end note
+
+    if (正常動作?) then (yes)
+      #LightGreen:Phase 2 完了;
+      :次のPhase（アプリ実装）へ;
+      stop
+    else (no)
+      #Orange:動作デバッグ;
+      note right
+        ログ出力を確認
+        syslog や printf で
+        デバッグ情報を追加
+      end note
+      detach
+    endif
+
+  else (no)
+    #LightCoral:**command not found**;
+
+    :トラブルシューティング;
+    note right
+      **よくある原因**:
+      1. nuttx/.config に設定がない
+      2. CONFIG名が間違っている
+      3. PROGNAME が正しくない
+      4. ビルドが不完全
+         （make clean してない）
+
+      詳細は:
+      02_build_system_integration.md
+      のトラブルシューティング参照
+    end note
+
+    detach
+  endif
+}
+
+legend right
+  |= 色 |= 意味 |
+  | 小麦色 | 通常処理 |
+  | 緑 | 成功 |
+  | 赤 | エラー/失敗 |
+  | オレンジ | 警告/デバッグ必要 |
+
+  **所要時間**: 2-4時間
+  （トラブルがない場合）
+
+  **最重要ポイント**:
+  nuttx/.config への
+  CONFIG_EXAMPLES_*=y 設定
+endlegend
+
+note right
+  **Phase 2のゴール**:
+  1. アプリがbuiltin_list.hに登録
+  2. NuttShellでアプリが実行可能
+  3. ビルドプロセスの理解
+
+  **よくある失敗**:
+  - sdk/.config に設定してしまう
+    （正しくは nuttx/.config）
+  - CONFIG名のプレフィックスミス
+    （EXAMPLES_ が必須）
+  - make clean を忘れる
+
+  **次のステップ**:
+  Phase 3で実際のアプリケーション
+  ロジックを実装
+end note
+
+note right
+  **関連構成図**:
+  - build_system_components.puml - builtin_list生成の仕組み
+  - config_dependencies.puml - CONFIG_EXAMPLES_*の依存関係
+  - directory_structure.puml - アプリディレクトリの配置場所
+  - build_flow.puml - このPhase完了後の標準ビルド手順
+
+  **最重要ポイント**:
+  nuttx/.config への CONFIG_EXAMPLES_*=y 設定が
+  builtin_list.h 生成の鍵
+
+  詳細は build_system_components.puml の
+  「builtin_list.c (自動生成)」を参照
+end note
+
+@enduml

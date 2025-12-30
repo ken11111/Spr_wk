@@ -51,13 +51,13 @@
 #ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_CAMERA_WIDTH
 #  define CONFIG_CAMERA_WIDTH          CONFIG_EXAMPLES_SECURITY_CAMERA_CAMERA_WIDTH
 #else
-#  define CONFIG_CAMERA_WIDTH          320  /* QVGA for testing */
+#  define CONFIG_CAMERA_WIDTH          640  /* VGA (Phase 1.5) */
 #endif
 
 #ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_CAMERA_HEIGHT
 #  define CONFIG_CAMERA_HEIGHT         CONFIG_EXAMPLES_SECURITY_CAMERA_CAMERA_HEIGHT
 #else
-#  define CONFIG_CAMERA_HEIGHT         240  /* QVGA for testing */
+#  define CONFIG_CAMERA_HEIGHT         480  /* VGA (Phase 1.5) */
 #endif
 
 #ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_FPS
@@ -97,7 +97,7 @@
 
 #define CONFIG_USB_DEVICE_PATH       "/dev/ttyACM0"
 #define CONFIG_USB_TX_BUFFER_COUNT   4
-#define CONFIG_USB_TX_BUFFER_SIZE    8192
+#define CONFIG_USB_TX_BUFFER_SIZE    8192   /* 8KB - Optimal (confirmed by testing) */
 #define CONFIG_USB_WRITE_TIMEOUT_MS  1000
 
 /* Application Configuration */

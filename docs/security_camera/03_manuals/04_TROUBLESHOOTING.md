@@ -148,6 +148,58 @@ grep "CONFIG_CXD56_CISIF\|CONFIG_CXD56_I2C2\|CONFIG_SPECIFIC_DRIVERS" \
 
 ---
 
+### エラー 5: `Failed to queue buffer X: 12 (ENOMEM)`
+
+**症状**:
+```
+[CAM] Camera buffers requested: 3
+[CAM] Allocating 5 buffers of 65536 bytes each
+[CAM] Failed to queue buffer 3: 12
+[CAM] Failed to initialize camera manager: -3
+```
+
+**原因**: V4L2ドライバーの制限
+
+SpresenseのISX012/ISX019カメラドライバーは、`V4L2_BUF_MODE_RING`モードで**最大3バッファ**しかサポートしていません。
+
+**詳細**:
+1. アプリケーションが `VIDIOC_REQBUFS` で5バッファを要求
+2. ドライバーが `req.count = 3` に変更して返す（ドライバーの最大値）
+3. アプリケーションが5個のバッファをキューイング（VIDIOC_QBUF）しようとする
+4. バッファ#3, #4のキューイングが失敗（ENOMEM エラー12）
+
+**解決策**:
+
+ドライバーが返す実際のバッファ数を使用するようにコードを修正：
+
+```c
+// ❌ 間違い: ハードコードされた定数を使用
+#define CAMERA_BUFFER_NUM 5
+for (i = 0; i < CAMERA_BUFFER_NUM; i++) {
+    // バッファをキューイング
+}
+
+// ✅ 正しい: ドライバーが返した実際の数を使用
+struct v4l2_requestbuffers req;
+req.count = 5;  // 希望する数を要求
+ioctl(fd, VIDIOC_REQBUFS, &req);
+
+// ドライバーが req.count を実際にサポートする数に変更
+uint32_t actual_buffer_count = req.count;  // 3が返される
+
+for (i = 0; i < actual_buffer_count; i++) {  // 3個のみキューイング
+    // バッファをキューイング
+}
+```
+
+**重要**: この制限により、5バッファ設計による性能向上は実現できません。ドライバーレベルの変更が必要です。
+
+**参考実装**: `camera_manager.c:246-254`
+
+**発見日**: 2025-12-29 (Phase 1.5)
+
+---
+
 ## 設定関連の問題
 
 ### 問題 1: defconfig に設定を追加したが反映されない
@@ -269,6 +321,38 @@ void *buf = malloc(size);  // アラインメント保証なし
 **設定**:
 - `CONFIG_VIDEO_ISX012=y` を使用
 - `CONFIG_VIDEO_ISX019=y` は不要（別のセンサー）
+
+---
+
+### 注意 4: V4L2バッファ数のネゴシエーション
+
+**重要**: `VIDIOC_REQBUFS` で要求したバッファ数は、必ずしもドライバーに受け入れられるとは限りません。
+
+**正しい実装パターン**:
+
+```c
+struct v4l2_requestbuffers req;
+req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+req.memory = V4L2_MEMORY_USERPTR;
+req.count = 5;  // 希望する数を要求
+req.mode = V4L2_BUF_MODE_RING;
+
+ret = ioctl(fd, VIDIOC_REQBUFS, &req);
+if (ret < 0) {
+    // エラー処理
+}
+
+// ✅ ドライバーが実際に許可したバッファ数を使用
+uint32_t actual_count = req.count;  // ドライバーが変更した値
+LOG_INFO("Requested: 5, Driver returned: %u", actual_count);
+
+// actual_count を使ってバッファを割り当て
+for (int i = 0; i < actual_count; i++) {
+    // バッファ処理
+}
+```
+
+**Spresense制限**: ISX012/ISX019ドライバーはRINGモードで最大3バッファまで
 
 ---
 

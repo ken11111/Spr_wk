@@ -1,0 +1,132 @@
+@startuml
+title Phase 1.5 バッファ枯渇メカニズム\n3バッファ設計の問題点
+
+participant "Camera\nDriver" as Camera
+participant "Buffer\nPool\n(3個)" as Pool
+participant "MJPEG\nPacketizer" as Pack
+participant "USB\nWriter" as USB
+participant "PC" as PC
+
+note over Pool
+  **バッファプール構成**
+  - 総数: 3個
+  - サイズ: 64 KB/個
+  - 管理: FIFO
+end note
+
+== フレーム1: 正常動作 ==
+
+Camera -> Pool: buffer_acquire()
+activate Pool
+Pool --> Camera: buffer #1\n(待機時間: 0.1 ms)
+deactivate Pool
+
+Camera -> Camera: JPEG capture\n(6.38 ms)
+Camera -> Pack: buffer #1 + JPEG data
+activate Pack
+
+Pack -> Pack: packetize\n(38.41 ms)
+Pack -> USB: packet buffer
+activate USB
+deactivate Pack
+
+USB -> PC: USB write\n(61.23 ms)
+USB -> Pool: buffer_release(#1)
+deactivate USB
+
+note right of Pool
+  **バッファ状態**
+  #1: ✅ Free
+  #2: ✅ Free
+  #3: ✅ Free
+
+  空き: 3個
+end note
+
+== フレーム2: バッファ圧迫開始 ==
+
+Camera -> Pool: buffer_acquire()
+activate Pool
+Pool --> Camera: buffer #2\n(待機時間: 0.1 ms)
+deactivate Pool
+
+Camera -> Camera: JPEG capture\n(6.38 ms)
+Camera -> Pack: buffer #2 + JPEG data
+activate Pack
+
+note over USB
+  **前フレームのUSB転送**
+  まだ継続中...
+  (61.23 ms の内 20 ms経過)
+end note
+
+Pack -> Pack: packetize\n(38.41 ms)
+Pack -> USB: packet buffer
+note right of USB: USB転送キューに追加
+
+note right of Pool
+  **バッファ状態**
+  #1: ⏳ USB転送中
+  #2: 🔄 Packetize中
+  #3: ✅ Free
+
+  空き: 1個のみ
+end note
+
+== フレーム3: バッファ枯渇発生 ==
+
+Camera -> Pool: buffer_acquire()
+activate Pool
+
+note over Pool #LightCoral
+  **バッファ枯渇検出**
+
+  空きバッファなし:
+  #1: USB転送中 (残り40ms)
+  #2: USB転送中 (残り10ms)
+  #3: Packetize中
+
+  → **待機が必要**
+end note
+
+Pool -> Pool: wait for release\n(22.14 ms)
+
+USB -> Pool: buffer_release(#2)
+
+Pool --> Camera: buffer #2\n(待機時間: 22.14 ms ⚠️)
+deactivate Pool
+
+Camera -> Camera: JPEG capture\n(27.70 ms)\n⚠️ レイテンシ増加
+
+note right of Camera #Orange
+  **カメラレイテンシ劣化**
+
+  バッファ待機により:
+  - カメラドライバーが遅延
+  - 内部バッファ圧迫
+  - 処理時間増加
+
+  6.38 ms → 27.70 ms
+  **4.3倍の劣化**
+end note
+
+== 問題の本質 ==
+
+note over Camera, PC #LightYellow
+  **3バッファ設計の限界**
+
+  1フレーム処理時間: 106.82 ms
+  ├─ Camera: 6.38 ms
+  ├─ Pack: 38.41 ms
+  └─ USB: 61.23 ms (最長処理)
+
+  **USB転送時間 (61.23ms) の間に**
+  **2フレーム分の処理が進行可能**
+
+  必要バッファ数:
+  ⌈106.82 / 33.33⌉ = 4バッファ (最低)
+
+  **安全動作には5バッファが必要**
+end note
+
+@enduml

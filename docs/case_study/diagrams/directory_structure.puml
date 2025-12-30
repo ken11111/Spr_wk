@@ -1,0 +1,207 @@
+@startuml ディレクトリ構造
+!theme plain
+skinparam folderBackgroundColor LightYellow
+skinparam fileBackgroundColor White
+
+title Spresense ビルド環境 ディレクトリ構造\n(GH_wk_test)
+
+folder "GH_wk_test/" {
+  folder "spresense/" #LightBlue {
+    folder "sdk/" #LightCyan {
+      file ".config" as SDK_CONFIG
+      file "Makefile" as SDK_MAKEFILE
+
+      folder "configs/" {
+        folder "examples/" {
+          folder "camera/" #Wheat {
+            file "defconfig" as CAMERA_DEFCONFIG
+          }
+        }
+      }
+
+      folder "tools/" {
+        file "config.py" as CONFIG_PY
+        file "flash.sh" as FLASH_SH
+        folder "cxd56/" {
+          file "mkspk" as MKSPK
+          file "Config.mk" as CXD56_CONFIG
+        }
+      }
+
+      folder "apps/" #Pink {
+        folder "examples/" {
+          folder "security_camera/" #LightPink {
+            file "Kconfig" as APP_KCONFIG
+            file "Make.defs" as APP_MAKE_DEFS
+            file "Makefile" as APP_MAKEFILE
+            file "camera_app_main.c"
+            file "camera_manager.c"
+            file "perf_logger.c"
+            file "config.h"
+            file "mjpeg_protocol.h"
+          }
+        }
+
+        folder "platform/dummy/" {
+          file "dummy.c"
+        }
+
+        file "builtin_list.c" as BUILTIN_C #LightCoral
+      }
+    }
+
+    folder "nuttx/" #LightGreen {
+      file ".config" as NUTTX_CONFIG #Gold
+      file "Make.defs" as MAKE_DEFS #Gold
+      file "Makefile" as NUTTX_MAKEFILE
+
+      folder "arch/arm/" {
+        folder "src/" {
+          file "Makefile" as ARCH_MAKEFILE
+
+          folder "armv7-m/" #Lavender {
+            file "arm_exception.S"
+            file "Toolchain.defs"
+            file "*.c"
+          }
+
+          folder "cxd56xx/" #PaleGreen {
+            file "chip/*.c"
+            file "Kconfig"
+          }
+        }
+      }
+
+      folder "boards/arm/cxd56xx/spresense/" {
+        folder "src/" {
+          file "board/*.c"
+        }
+        folder "scripts/" {
+          file "ramconfig-new.ld"
+        }
+      }
+
+      folder "libs/libm/" {
+        file "Makefile" as LIBM_MAKEFILE
+      }
+
+      folder "include/" {
+        file "builtin_list.h" as BUILTIN_H #LightCoral
+      }
+
+      file "nuttx" as NUTTX_ELF #LightSalmon
+      file "nuttx.spk" as NUTTX_SPK #Salmon
+    }
+  }
+
+  folder "apps/" #LightGray {
+    folder "examples/" {
+      folder "security_camera/" #Gray {
+        note right
+          **実際のソースコード**
+          sdk/apps/examples/security_camera
+          からシンボリックリンク
+        end note
+      }
+    }
+  }
+
+  folder "docs/case_study/" {
+    folder "diagrams/" #LightCyan {
+      file "config_dependencies.puml" #Cyan
+      file "build_system_components.puml" #Cyan
+      file "build_flow.puml" #Cyan
+      file "troubleshooting_flow.puml" #Cyan
+      file "directory_structure.puml" #Cyan
+    }
+    folder "prompts/" {
+      file "build_environment_migration_troubleshooting.md"
+      file "build_troubleshooting_cheatsheet.md"
+    }
+  }
+}
+
+folder "$HOME/spresenseenv/" #LightGray {
+  folder "usr/bin/" {
+    file "arm-none-eabi-gcc" #Orange
+    file "arm-none-eabi-ld" #Orange
+    file "arm-none-eabi-nm" #Orange
+    note right
+      **ツールチェーン**
+      PATHに追加必要
+    end note
+  }
+}
+
+' 重要ファイルの注釈
+note right of NUTTX_CONFIG
+  **最重要設定ファイル**
+
+  CONFIG_EXAMPLES_*=y
+  をここに設定
+
+  このファイルの設定が
+  builtin_list.hの生成を制御
+end note
+
+note right of MAKE_DEFS
+  **ツールチェーン設定**
+
+  CROSSDEV = arm-none-eabi-
+
+  この設定がないと
+  システムgccが使われる
+end note
+
+note right of BUILTIN_H
+  **自動生成ファイル**
+
+  nuttx/.configから
+  自動生成される
+
+  手動編集不可
+end note
+
+note bottom of CAMERA_DEFCONFIG
+  **推奨開始点**
+
+  ./tools/config.py examples/camera
+
+  このdefconfigから始めると
+  依存関係が自動解決される
+end note
+
+legend right
+  |= 色 |= 意味 |
+  | 金色 | 最重要ファイル（手動編集） |
+  | 赤系 | 自動生成ファイル |
+  | 青系 | NuttXコア |
+  | ピンク | アプリケーション |
+  | 緑系 | アーキテクチャ固有 |
+  | 灰色 | 外部ツール |
+
+  **ファイル数**: 約1000+
+  **主要設定ファイル**: 4つ
+  (.config x2, Make.defs, defconfig)
+endlegend
+
+note right
+  **関連フローチャート**:
+  - phase1_environment_setup_flow.puml - $HOME/spresenseenv/の構築手順
+  - phase2_builtin_registration_flow.puml - sdk/apps/examples/配下へのアプリ配置
+  - phase3_application_development_flow.puml - アプリソースコード実装
+  - camera_application_flow.puml - カメラアプリの実装例
+  - build_system_components.puml - このディレクトリ構造内のファイル間関連
+
+  **Phase別の重要ディレクトリ**:
+  - Phase 1: $HOME/spresenseenv/usr/bin/ (ツールチェーン)
+  - Phase 2: sdk/apps/examples/*, nuttx/.config (アプリ統合)
+  - Phase 3: sdk/apps/examples/security_camera/ (アプリ実装)
+
+  **よく編集するファイル**:
+  1. nuttx/.config - CONFIG設定（最頻繁）
+  2. sdk/apps/examples/*/Kconfig, Make.defs, Makefile
+  3. sdk/apps/examples/*/*.c, *.h
+end note
+
+@enduml

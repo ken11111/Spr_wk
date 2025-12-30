@@ -58,7 +58,7 @@
  ****************************************************************************/
 
 #define VIDEO_DEVICE_PATH  "/dev/video"
-#define CAMERA_BUFFER_NUM  2  /* Double buffering */
+#define CAMERA_BUFFER_NUM  3  /* Triple buffering (V4L2 driver limitation) */
 
 /****************************************************************************
  * Private Types
@@ -243,14 +243,15 @@ int camera_manager_init(const camera_config_t *config)
       return ERR_CAMERA_CONFIG;
     }
 
-  LOG_INFO("Camera buffers requested: %d", req.count);
+  LOG_INFO("Camera buffers requested: %d (driver returned: %d)", CAMERA_BUFFER_NUM, req.count);
 
-  /* Allocate and queue buffers */
+  /* Use actual buffer count returned by driver */
 
+  uint32_t actual_buffer_count = req.count;
   uint32_t bufsize = fmt.fmt.pix.sizeimage;
-  LOG_INFO("Allocating %d buffers of %u bytes each", CAMERA_BUFFER_NUM, bufsize);
+  LOG_INFO("Allocating %d buffers of %u bytes each", actual_buffer_count, bufsize);
 
-  for (i = 0; i < CAMERA_BUFFER_NUM; i++)
+  for (i = 0; i < actual_buffer_count; i++)
     {
       /* Allocate 32-byte aligned buffer */
 

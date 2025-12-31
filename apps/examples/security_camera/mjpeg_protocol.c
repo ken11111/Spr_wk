@@ -59,11 +59,13 @@ uint16_t mjpeg_crc16_ccitt(const uint8_t *data, size_t len)
  * Name: mjpeg_validate_jpeg_data
  *
  * Description:
- *   Validate JPEG data format (SOI/EOI markers)
+ *   Validate JPEG data format (SOI/EOI markers) and find actual JPEG size
+ *   by searching for EOI marker, removing trailing padding.
  *
  * Input Parameters:
- *   jpeg_data - Pointer to JPEG data
- *   jpeg_size - Size of JPEG data
+ *   jpeg_data      - Pointer to JPEG data
+ *   jpeg_size      - Size of JPEG data buffer (including padding)
+ *   actual_size    - Output: actual JPEG size (up to EOI marker)
  *
  * Returned Value:
  *   0 on success, negative errno on failure
@@ -71,8 +73,12 @@ uint16_t mjpeg_crc16_ccitt(const uint8_t *data, size_t len)
  ****************************************************************************/
 
 static int mjpeg_validate_jpeg_data(const uint8_t *jpeg_data,
-                                     uint32_t jpeg_size)
+                                     uint32_t jpeg_size,
+                                     uint32_t *actual_size)
 {
+  int32_t i;
+  uint32_t eoi_pos = 0;
+
   /* Size validation */
 
   if (jpeg_size < 4 || jpeg_size > MJPEG_MAX_JPEG_SIZE)
@@ -91,15 +97,43 @@ static int mjpeg_validate_jpeg_data(const uint8_t *jpeg_data,
       return -EBADMSG;
     }
 
-  /* EOI marker validation (0xFF 0xD9) */
+  /* Phase 4.1.1: Search for EOI marker (0xFF 0xD9) from the end
+   * to handle ISX012 camera padding */
 
-  if (jpeg_data[jpeg_size - 2] != 0xFF ||
-      jpeg_data[jpeg_size - 1] != 0xD9)
+  for (i = (int32_t)jpeg_size - 2; i >= 0; i--)
     {
-      LOG_ERROR("Missing JPEG EOI marker: [end-2]=%02X [end-1]=%02X "
-                "(expected FF D9)",
+      if (jpeg_data[i] == 0xFF && jpeg_data[i + 1] == 0xD9)
+        {
+          eoi_pos = i + 2;  /* Position after EOI marker */
+          break;
+        }
+    }
+
+  if (eoi_pos == 0)
+    {
+      LOG_ERROR("Missing JPEG EOI marker: searched %lu bytes, not found",
+                (unsigned long)jpeg_size);
+      LOG_ERROR("JPEG header: %02X %02X %02X %02X",
+                jpeg_data[0], jpeg_data[1], jpeg_data[2], jpeg_data[3]);
+      LOG_ERROR("JPEG footer: %02X %02X %02X %02X",
+                jpeg_data[jpeg_size - 4], jpeg_data[jpeg_size - 3],
                 jpeg_data[jpeg_size - 2], jpeg_data[jpeg_size - 1]);
       return -EBADMSG;
+    }
+
+  /* Set actual JPEG size (excluding padding) */
+
+  *actual_size = eoi_pos;
+
+  /* Log padding removal if detected */
+
+  if (eoi_pos < jpeg_size)
+    {
+      uint32_t padding_bytes = jpeg_size - eoi_pos;
+      LOG_DEBUG("JPEG padding removed: %lu bytes (size: %lu -> %lu)",
+                (unsigned long)padding_bytes,
+                (unsigned long)jpeg_size,
+                (unsigned long)eoi_pos);
     }
 
   /* Validation successful */
@@ -141,29 +175,22 @@ int mjpeg_pack_frame(const uint8_t *jpeg_data,
     }
 
   /* ============================================
-   * Phase 4.1.1: JPEG format validation
+   * Phase 4.1.1: JPEG format validation and padding removal
    * ============================================ */
 
-  ret = mjpeg_validate_jpeg_data(jpeg_data, jpeg_size);
+  uint32_t actual_jpeg_size = jpeg_size;
+
+  ret = mjpeg_validate_jpeg_data(jpeg_data, jpeg_size, &actual_jpeg_size);
   if (ret < 0)
     {
       LOG_ERROR("JPEG validation failed (seq=%lu, size=%lu)",
                 (unsigned long)*sequence, (unsigned long)jpeg_size);
-
-      /* Output diagnostic information */
-
-      if (jpeg_size >= 4)
-        {
-          LOG_ERROR("JPEG header: %02X %02X %02X %02X",
-                    jpeg_data[0], jpeg_data[1],
-                    jpeg_data[2], jpeg_data[3]);
-          LOG_ERROR("JPEG footer: %02X %02X %02X %02X",
-                    jpeg_data[jpeg_size - 4], jpeg_data[jpeg_size - 3],
-                    jpeg_data[jpeg_size - 2], jpeg_data[jpeg_size - 1]);
-        }
-
       return ret;  /* Return error to caller */
     }
+
+  /* Use actual JPEG size (padding removed) */
+
+  jpeg_size = actual_jpeg_size;
 
   /* Calculate total packet size */
 

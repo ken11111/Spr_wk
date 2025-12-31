@@ -1101,6 +1101,403 @@ include $(APPDIR)/Application.mk
 
 ---
 
+## 12. Phase 4 対応: JPEG圧縮診断機能 (Phase 4.1.1)
+
+### 12.1 背景と目的
+
+**問題**: PC側テスト（Phase 4.1）で以下の問題が判明:
+- 8分間の連続稼働中に29回のJPEGデコードエラー発生（0.45%のエラー率）
+- エラー発生時にJPEGマーカー（SOI/EOI）が欠落
+- 動的シーン（動きのある映像）で発生頻度が増加
+
+**根本原因**: Spresense側のISX012 JPEGエンコーダーが動的シーンで不正なJPEGデータを生成
+
+**対策**: JPEG圧縮後のデータ検証機能を `mjpeg_protocol.c` に追加し、不正なJPEGフレームをPC側に送信しない
+
+**関連ドキュメント**:
+- PC側対応: `/home/ken/Rust_ws/security_camera_viewer/PHASE4_SPEC.md` (Phase 4.1.1)
+- Spresense側対応: 本セクション
+
+---
+
+### 12.2 実装対象ファイル
+
+**修正ファイル**:
+- `mjpeg_protocol.c` - JPEG検証機能の追加
+- `mjpeg_protocol.h` - API定義の追加（必要に応じて）
+
+**変更内容**:
+- `mjpeg_pack_frame()` 関数内にJPEGマーカー検証ロジックを追加
+- 不正なJPEGフレームを検出した場合、エラーを返す
+
+---
+
+### 12.3 JPEG形式の基本構造
+
+JPEGファイルは以下のマーカーで構成されます:
+
+```
+┌────────────────────────────────────────────┐
+│ SOI (Start of Image)                       │
+│ 0xFF 0xD8                                   │
+├────────────────────────────────────────────┤
+│ APP0 (JFIF marker)                         │
+│ 0xFF 0xE0 ...                              │
+├────────────────────────────────────────────┤
+│ ... (JPEG segments)                        │
+├────────────────────────────────────────────┤
+│ SOS (Start of Scan)                        │
+│ 0xFF 0xDA                                   │
+├────────────────────────────────────────────┤
+│ ... (Compressed image data)                │
+├────────────────────────────────────────────┤
+│ EOI (End of Image)                         │
+│ 0xFF 0xD9                                   │
+└────────────────────────────────────────────┘
+```
+
+**検証ポイント**:
+1. **SOI (Start of Image)**: 先頭2バイトが `0xFF 0xD8` であること
+2. **EOI (End of Image)**: 末尾2バイトが `0xFF 0xD9` であること
+3. **サイズ妥当性**: `0 < jpeg_size <= MAX_JPEG_SIZE`
+
+---
+
+### 12.4 JPEG検証機能の仕様
+
+#### 12.4.1 検証関数の追加
+
+**新規関数**: `mjpeg_validate_jpeg_data()`
+
+```c
+/**
+ * @brief JPEG データの妥当性検証
+ * @param jpeg_data JPEG データポインタ
+ * @param jpeg_size JPEG データサイズ
+ * @return 0: 正常, <0: エラー
+ */
+static int mjpeg_validate_jpeg_data(const uint8_t *jpeg_data, uint32_t jpeg_size)
+{
+  /* サイズ検証 */
+  if (jpeg_size < 4 || jpeg_size > MJPEG_MAX_JPEG_SIZE)
+    {
+      LOG_ERROR("Invalid JPEG size: %u bytes", jpeg_size);
+      return -EINVAL;
+    }
+
+  /* SOI マーカー検証 (0xFF 0xD8) */
+  if (jpeg_data[0] != 0xFF || jpeg_data[1] != 0xD8)
+    {
+      LOG_ERROR("Missing JPEG SOI marker: [0]=%02X [1]=%02X (expected FF D8)",
+                jpeg_data[0], jpeg_data[1]);
+      return -EBADMSG;
+    }
+
+  /* EOI マーカー検証 (0xFF 0xD9) */
+  if (jpeg_data[jpeg_size - 2] != 0xFF || jpeg_data[jpeg_size - 1] != 0xD9)
+    {
+      LOG_ERROR("Missing JPEG EOI marker: [end-2]=%02X [end-1]=%02X (expected FF D9)",
+                jpeg_data[jpeg_size - 2], jpeg_data[jpeg_size - 1]);
+      return -EBADMSG;
+    }
+
+  /* 検証成功 */
+  return 0;
+}
+```
+
+#### 12.4.2 `mjpeg_pack_frame()` の変更
+
+**既存の実装** (`mjpeg_protocol.c:66-128`):
+```c
+int mjpeg_pack_frame(const uint8_t *jpeg_data,
+                     uint32_t jpeg_size,
+                     uint32_t *sequence,
+                     uint8_t *packet,
+                     size_t packet_max_size)
+{
+  mjpeg_packet_t *pkt;
+  uint16_t crc;
+  size_t total_size;
+
+  /* Validate inputs */
+  if (jpeg_data == NULL || sequence == NULL || packet == NULL)
+    {
+      LOG_ERROR("Invalid parameters");
+      return -EINVAL;
+    }
+
+  if (jpeg_size == 0 || jpeg_size > MJPEG_MAX_JPEG_SIZE)
+    {
+      LOG_ERROR("Invalid JPEG size: %u", jpeg_size);
+      return -EINVAL;
+    }
+
+  /* ... 以下、既存の処理 ... */
+}
+```
+
+**変更後**:
+```c
+int mjpeg_pack_frame(const uint8_t *jpeg_data,
+                     uint32_t jpeg_size,
+                     uint32_t *sequence,
+                     uint8_t *packet,
+                     size_t packet_max_size)
+{
+  mjpeg_packet_t *pkt;
+  uint16_t crc;
+  size_t total_size;
+  int ret;
+
+  /* Validate inputs */
+  if (jpeg_data == NULL || sequence == NULL || packet == NULL)
+    {
+      LOG_ERROR("Invalid parameters");
+      return -EINVAL;
+    }
+
+  if (jpeg_size == 0 || jpeg_size > MJPEG_MAX_JPEG_SIZE)
+    {
+      LOG_ERROR("Invalid JPEG size: %u", jpeg_size);
+      return -EINVAL;
+    }
+
+  /* ============================================
+   * Phase 4.1.1: JPEG形式の検証を追加
+   * ============================================ */
+  ret = mjpeg_validate_jpeg_data(jpeg_data, jpeg_size);
+  if (ret < 0)
+    {
+      LOG_ERROR("JPEG validation failed (seq=%u, size=%u)",
+                *sequence, jpeg_size);
+      /* 診断情報出力 */
+      if (jpeg_size >= 4)
+        {
+          LOG_ERROR("JPEG header: %02X %02X %02X %02X",
+                    jpeg_data[0], jpeg_data[1], jpeg_data[2], jpeg_data[3]);
+          LOG_ERROR("JPEG footer: %02X %02X %02X %02X",
+                    jpeg_data[jpeg_size-4], jpeg_data[jpeg_size-3],
+                    jpeg_data[jpeg_size-2], jpeg_data[jpeg_size-1]);
+        }
+      return ret;  /* エラーを呼び出し元に返す */
+    }
+
+  /* Calculate total packet size */
+  total_size = MJPEG_HEADER_SIZE + jpeg_size + MJPEG_CRC_SIZE;
+
+  if (total_size > packet_max_size)
+    {
+      LOG_ERROR("Packet buffer too small: need %zu, have %zu",
+                total_size, packet_max_size);
+      return -ENOMEM;
+    }
+
+  /* Build packet header */
+  pkt = (mjpeg_packet_t *)packet;
+  pkt->header.sync_word = MJPEG_SYNC_WORD;
+  pkt->header.sequence = *sequence;
+  pkt->header.size = jpeg_size;
+
+  /* Copy JPEG data */
+  memcpy(pkt->data, jpeg_data, jpeg_size);
+
+  /* Calculate CRC over header + JPEG data */
+  crc = mjpeg_crc16_ccitt(packet, MJPEG_HEADER_SIZE + jpeg_size);
+
+  /* Append CRC */
+  memcpy(pkt->data + jpeg_size, &crc, MJPEG_CRC_SIZE);
+
+  /* Increment sequence number */
+  (*sequence)++;
+
+  LOG_DEBUG("Packed frame: seq=%u, size=%u, crc=0x%04X, total=%zu",
+            pkt->header.sequence, jpeg_size, crc, total_size);
+
+  return total_size;
+}
+```
+
+---
+
+### 12.5 エラーハンドリング
+
+#### 12.5.1 JPEG検証エラーの処理フロー
+
+```
+camera_app_main.c メインループ:
+
+1. camera_get_jpeg_frame(&frame)
+   └─ 成功 → JPEGフレーム取得
+
+2. mjpeg_pack_frame(frame.data, frame.size, ...)
+   ├─ JPEG検証実行
+   │  ├─ SOI/EOIマーカー確認
+   │  └─ サイズ検証
+   │
+   ├─ 検証成功 → パケット作成
+   │  └─ return total_size (正の値)
+   │
+   └─ 検証失敗 → エラーログ出力
+      └─ return -EBADMSG (負の値)
+
+3. メインループでの処理
+   if (packet_size < 0)
+     {
+       LOG_WARN("Frame %u: JPEG validation failed, skipping frame", frame_count);
+       jpeg_error_count++;
+
+       /* このフレームをスキップ、次のフレームを取得 */
+       continue;
+     }
+
+4. USB送信 (正常なフレームのみ)
+   usb_transport_send(packet_buffer, packet_size);
+```
+
+#### 12.5.2 エラー統計の収集
+
+**追加する統計変数** (`camera_app_main.c`):
+```c
+static uint32_t jpeg_validation_error_count = 0;  /* JPEG検証エラー数 */
+static uint32_t consecutive_jpeg_errors = 0;      /* 連続JPEG検証エラー数 */
+```
+
+**30フレームごとの統計出力**:
+```c
+if (frame_count % 30 == 0)
+  {
+    LOG_INFO("[STATS] Frames=%u, JPEG_errors=%u, USB_errors=%u",
+             frame_count, jpeg_validation_error_count, usb_error_count);
+  }
+```
+
+---
+
+### 12.6 診断ログ出力例
+
+#### 12.6.1 正常動作時
+
+```
+[CAM] Packed frame: seq=100, size=58234, crc=0x2F3A, total=58248
+[CAM] Packed frame: seq=101, size=62103, crc=0x4A1E, total=62117
+```
+
+#### 12.6.2 JPEG検証エラー時
+
+```
+[CAM] [ERROR] Missing JPEG SOI marker: [0]=00 [1]=00 (expected FF D8)
+[CAM] [ERROR] JPEG validation failed (seq=102, size=58192)
+[CAM] [ERROR] JPEG header: 00 00 00 00
+[CAM] [ERROR] JPEG footer: 00 00 00 00
+[CAM] [WARN] Frame 102: JPEG validation failed, skipping frame
+[CAM] [INFO] [STATS] Frames=102, JPEG_errors=1, USB_errors=0
+```
+
+#### 12.6.3 連続エラー警告
+
+```
+[CAM] [ERROR] JPEG validation failed (seq=200, size=61234)
+[CAM] [WARN] 5 consecutive JPEG validation errors - check ISX012 camera
+[CAM] [ERROR] JPEG validation failed (seq=201, size=60123)
+[CAM] [ERROR] 10+ consecutive JPEG validation errors - possible camera malfunction
+```
+
+---
+
+### 12.7 期待される効果
+
+1. **不正なJPEGフレームをPC側に送信しない**
+   - PC側でのJPEGデコードエラーを防止
+   - ネットワーク帯域の無駄遣いを削減
+
+2. **問題の早期発見**
+   - Spresense側でJPEG生成エラーを検出
+   - カメラまたはエンコーダーの異常を早期発見
+
+3. **統計情報の収集**
+   - JPEG検証エラー率を記録
+   - カメラ動作の長期的な信頼性評価
+
+4. **デバッグの容易化**
+   - エラーログに診断情報を含める
+   - 問題の根本原因特定が容易
+
+---
+
+### 12.8 既存機能への影響
+
+**パフォーマンス影響**:
+- JPEG検証処理: 4バイト読み込み × 2回 = 極小（< 1μs）
+- 総処理時間への影響: 無視できるレベル
+
+**互換性**:
+- PC側の変更不要（既にPhase 4.1.1で対応済み）
+- プロトコル仕様変更なし
+
+**メモリ使用量**:
+- 追加メモリ: 統計変数のみ（8バイト程度）
+
+---
+
+### 12.9 テスト計画
+
+#### 12.9.1 単体テスト
+
+**正常系**:
+```c
+/* 正常なJPEGデータ */
+uint8_t valid_jpeg[] = {0xFF, 0xD8, ..., 0xFF, 0xD9};
+assert(mjpeg_validate_jpeg_data(valid_jpeg, sizeof(valid_jpeg)) == 0);
+```
+
+**異常系**:
+```c
+/* SOIマーカー欠落 */
+uint8_t no_soi[] = {0x00, 0x00, ..., 0xFF, 0xD9};
+assert(mjpeg_validate_jpeg_data(no_soi, sizeof(no_soi)) < 0);
+
+/* EOIマーカー欠落 */
+uint8_t no_eoi[] = {0xFF, 0xD8, ..., 0x00, 0x00};
+assert(mjpeg_validate_jpeg_data(no_eoi, sizeof(no_eoi)) < 0);
+```
+
+#### 12.9.2 統合テスト
+
+**シナリオ**: 8分間連続稼働テスト（Phase 4.1と同条件）
+- **期待結果**:
+  - JPEG検証エラー: 0回（カメラ正常動作時）
+  - PC側JPEGデコードエラー: 0回（Spresense側で不正フレームをフィルタ）
+
+**カメラ異常シミュレーション**:
+- 意図的に不正なJPEGデータを生成（テストコード）
+- Spresense側でエラーログが出力されることを確認
+- PC側にフレームが送信されないことを確認
+
+---
+
+### 12.10 実装の優先度
+
+| 項目 | 優先度 | 理由 |
+|------|--------|------|
+| JPEG SOI/EOI検証 | **高** | 現在のエラー原因に直接対応 |
+| エラーログ出力 | **高** | デバッグに必須 |
+| 統計収集 | 中 | 長期的な信頼性評価に有用 |
+| 連続エラー警告 | 中 | カメラ異常の早期検出 |
+
+---
+
+### 12.11 実装ステータス
+
+| 項目 | ステータス |
+|------|-----------|
+| 仕様策定 | ✅ 完了 |
+| コード実装 | ⏳ 未着手 |
+| 単体テスト | ⏳ 未着手 |
+| 統合テスト | ⏳ 未着手 |
+
+---
+
 ## 13. まとめ
 
 本仕様書では、Spresense側のMJPEG実装のソフトウェアアーキテクチャを詳細に定義した。
@@ -1159,8 +1556,14 @@ include $(APPDIR)/Application.mk
 - HD (1280×720) 対応・比較テスト
 - VGA vs HD 画質・帯域幅評価
 
+**Phase 4.1.1 追加機能** (2025-12-31):
+- JPEG圧縮データ検証機能（SOI/EOIマーカー検証）
+- 不正なJPEGフレームのフィルタリング
+- JPEG検証エラー統計収集
+- PC側エラーハンドリング強化と連携
+
 ---
 
-**文書バージョン**: 2.1 (Phase 1.5 安定性向上版)
-**最終更新**: 2025-12-25
-**ステータス**: ✅ Phase 1.5 仕様確定
+**文書バージョン**: 2.2 (Phase 4.1.1 JPEG診断機能追加)
+**最終更新**: 2025-12-31
+**ステータス**: ✅ Phase 1.5 仕様確定, 🚧 Phase 4.1.1 仕様完了・実装待ち

@@ -56,6 +56,58 @@ uint16_t mjpeg_crc16_ccitt(const uint8_t *data, size_t len)
 }
 
 /****************************************************************************
+ * Name: mjpeg_validate_jpeg_data
+ *
+ * Description:
+ *   Validate JPEG data format (SOI/EOI markers)
+ *
+ * Input Parameters:
+ *   jpeg_data - Pointer to JPEG data
+ *   jpeg_size - Size of JPEG data
+ *
+ * Returned Value:
+ *   0 on success, negative errno on failure
+ *
+ ****************************************************************************/
+
+static int mjpeg_validate_jpeg_data(const uint8_t *jpeg_data,
+                                     uint32_t jpeg_size)
+{
+  /* Size validation */
+
+  if (jpeg_size < 4 || jpeg_size > MJPEG_MAX_JPEG_SIZE)
+    {
+      LOG_ERROR("Invalid JPEG size: %lu bytes",
+                (unsigned long)jpeg_size);
+      return -EINVAL;
+    }
+
+  /* SOI marker validation (0xFF 0xD8) */
+
+  if (jpeg_data[0] != 0xFF || jpeg_data[1] != 0xD8)
+    {
+      LOG_ERROR("Missing JPEG SOI marker: [0]=%02X [1]=%02X (expected FF D8)",
+                jpeg_data[0], jpeg_data[1]);
+      return -EBADMSG;
+    }
+
+  /* EOI marker validation (0xFF 0xD9) */
+
+  if (jpeg_data[jpeg_size - 2] != 0xFF ||
+      jpeg_data[jpeg_size - 1] != 0xD9)
+    {
+      LOG_ERROR("Missing JPEG EOI marker: [end-2]=%02X [end-1]=%02X "
+                "(expected FF D9)",
+                jpeg_data[jpeg_size - 2], jpeg_data[jpeg_size - 1]);
+      return -EBADMSG;
+    }
+
+  /* Validation successful */
+
+  return 0;
+}
+
+/****************************************************************************
  * Name: mjpeg_pack_frame
  *
  * Description:
@@ -72,6 +124,7 @@ int mjpeg_pack_frame(const uint8_t *jpeg_data,
   mjpeg_packet_t *pkt;
   uint16_t crc;
   size_t total_size;
+  int ret;
 
   /* Validate inputs */
 
@@ -83,8 +136,33 @@ int mjpeg_pack_frame(const uint8_t *jpeg_data,
 
   if (jpeg_size == 0 || jpeg_size > MJPEG_MAX_JPEG_SIZE)
     {
-      LOG_ERROR("Invalid JPEG size: %u", jpeg_size);
+      LOG_ERROR("Invalid JPEG size: %lu", (unsigned long)jpeg_size);
       return -EINVAL;
+    }
+
+  /* ============================================
+   * Phase 4.1.1: JPEG format validation
+   * ============================================ */
+
+  ret = mjpeg_validate_jpeg_data(jpeg_data, jpeg_size);
+  if (ret < 0)
+    {
+      LOG_ERROR("JPEG validation failed (seq=%lu, size=%lu)",
+                (unsigned long)*sequence, (unsigned long)jpeg_size);
+
+      /* Output diagnostic information */
+
+      if (jpeg_size >= 4)
+        {
+          LOG_ERROR("JPEG header: %02X %02X %02X %02X",
+                    jpeg_data[0], jpeg_data[1],
+                    jpeg_data[2], jpeg_data[3]);
+          LOG_ERROR("JPEG footer: %02X %02X %02X %02X",
+                    jpeg_data[jpeg_size - 4], jpeg_data[jpeg_size - 3],
+                    jpeg_data[jpeg_size - 2], jpeg_data[jpeg_size - 1]);
+        }
+
+      return ret;  /* Return error to caller */
     }
 
   /* Calculate total packet size */
@@ -121,8 +199,9 @@ int mjpeg_pack_frame(const uint8_t *jpeg_data,
 
   (*sequence)++;
 
-  LOG_DEBUG("Packed frame: seq=%u, size=%u, crc=0x%04X, total=%zu",
-            pkt->header.sequence, jpeg_size, crc, total_size);
+  LOG_DEBUG("Packed frame: seq=%lu, size=%lu, crc=0x%04X, total=%zu",
+            (unsigned long)pkt->header.sequence, (unsigned long)jpeg_size,
+            crc, total_size);
 
   return total_size;
 }
@@ -146,8 +225,9 @@ int mjpeg_validate_header(const mjpeg_header_t *header)
 
   if (header->sync_word != MJPEG_SYNC_WORD)
     {
-      LOG_ERROR("Invalid sync word: 0x%08X (expected 0x%08X)",
-                header->sync_word, MJPEG_SYNC_WORD);
+      LOG_ERROR("Invalid sync word: 0x%08lX (expected 0x%08lX)",
+                (unsigned long)header->sync_word,
+                (unsigned long)MJPEG_SYNC_WORD);
       return -EBADMSG;
     }
 
@@ -155,7 +235,7 @@ int mjpeg_validate_header(const mjpeg_header_t *header)
 
   if (header->size == 0 || header->size > MJPEG_MAX_JPEG_SIZE)
     {
-      LOG_ERROR("Invalid JPEG size: %u", header->size);
+      LOG_ERROR("Invalid JPEG size: %lu", (unsigned long)header->size);
       return -EINVAL;
     }
 

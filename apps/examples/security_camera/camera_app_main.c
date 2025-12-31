@@ -149,6 +149,11 @@ int main(int argc, FAR char *argv[])
   thread_context_t thread_ctx;  /* Step 1: Thread context */
   bool use_threading = true;    /* Step 2: Enable threading */
 
+  /* Phase 4.1.1: JPEG validation error tracking */
+
+  uint32_t jpeg_validation_error_count = 0;
+  uint32_t consecutive_jpeg_errors = 0;
+
   LOG_INFO("=================================================");
   LOG_INFO("Security Camera Application Starting (MJPEG)");
   LOG_INFO("=================================================");
@@ -241,19 +246,15 @@ int main(int argc, FAR char *argv[])
       /* Step 3: Fully threaded mode - threads handle capture and USB */
 
       LOG_INFO("Fully threaded mode: Camera and USB threads active");
-      LOG_INFO("Main thread will wait for 3 seconds (90 frames @ 30fps)...");
+      LOG_INFO("Running continuously - press Ctrl+C to stop...");
 
-      /* Run for 3 seconds to capture approximately 90 frames at 30fps */
+      /* Run continuously until Ctrl+C (Phase 3.0 VGA testing) */
 
-      int elapsed_ms = 0;
-      int target_ms = 3000;  /* 3 seconds */
-
-      while (g_running && elapsed_ms < target_ms)
+      while (g_running)
         {
           usleep(100000);  /* 100ms */
-          elapsed_ms += 100;
 
-          /* Step 4: Check for shutdown conditions */
+          /* Check for shutdown conditions */
 
           if (g_shutdown_requested)
             {
@@ -264,24 +265,21 @@ int main(int argc, FAR char *argv[])
 
           if (!g_running)
             {
-              LOG_INFO("Signal received, exiting main loop");
+              LOG_INFO("Signal received (Ctrl+C), exiting main loop");
               break;
             }
         }
 
-      LOG_INFO("Main loop completed after %d ms", elapsed_ms);
+      LOG_INFO("Main loop ended");
       LOG_INFO("Threads processed frames in parallel (camera + USB)");
 
-      /* Step 4: Ensure clean shutdown */
+      /* Ensure clean shutdown */
 
-      if (elapsed_ms >= target_ms)
-        {
-          LOG_INFO("Target duration reached, signaling shutdown");
-          pthread_mutex_lock(&g_queue_mutex);
-          g_shutdown_requested = true;
-          pthread_cond_broadcast(&g_queue_cond);
-          pthread_mutex_unlock(&g_queue_mutex);
-        }
+      LOG_INFO("Signaling shutdown to threads...");
+      pthread_mutex_lock(&g_queue_mutex);
+      g_shutdown_requested = true;
+      pthread_cond_broadcast(&g_queue_cond);
+      pthread_mutex_unlock(&g_queue_mutex);
     }
   else
     {
@@ -353,9 +351,33 @@ int main(int argc, FAR char *argv[])
 
           if (packet_size < 0)
             {
-              LOG_ERROR("Failed to pack frame: %d", packet_size);
-              continue;
+              /* Phase 4.1.1: Enhanced JPEG validation error handling */
+
+              LOG_WARN("Frame %lu: JPEG validation failed, skipping frame",
+                       frame_count);
+
+              jpeg_validation_error_count++;
+              consecutive_jpeg_errors++;
+
+              /* Warn on consecutive errors */
+
+              if (consecutive_jpeg_errors == 5)
+                {
+                  LOG_WARN("5 consecutive JPEG validation errors - "
+                           "check ISX012 camera");
+                }
+              else if (consecutive_jpeg_errors >= 10)
+                {
+                  LOG_ERROR("10+ consecutive JPEG validation errors - "
+                            "possible camera malfunction");
+                }
+
+              continue;  /* Skip this frame, move to next */
             }
+
+          /* JPEG validation successful - reset consecutive error counter */
+
+          consecutive_jpeg_errors = 0;
 
           perf_metrics.latency_pack =
             perf_metrics.ts_pack_end - perf_metrics.ts_pack_start;
@@ -410,6 +432,20 @@ int main(int argc, FAR char *argv[])
     {
       LOG_INFO("Main loop ended, total frames: %lu",
                (unsigned long)frame_count);
+
+      /* Phase 4.1.1: JPEG validation error statistics */
+
+      if (jpeg_validation_error_count > 0)
+        {
+          float error_rate = (float)jpeg_validation_error_count /
+                             (float)frame_count * 100.0f;
+          LOG_WARN("JPEG validation errors: %lu (%.2f%%)",
+                   (unsigned long)jpeg_validation_error_count, error_rate);
+        }
+      else
+        {
+          LOG_INFO("JPEG validation errors: 0 (all frames valid)");
+        }
     }
 
   /* Cleanup */

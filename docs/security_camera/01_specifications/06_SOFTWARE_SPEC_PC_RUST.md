@@ -1071,7 +1071,87 @@ AppMessage::DecodedFrame { width, height, pixels } => {
 3. 1GB サイズ制限（自動停止）
 4. MP4形式への変換ツール
 
+#### アーキテクチャ概要
+
+```plantuml
+@startuml
+skinparam componentStyle rectangle
+
+actor User
+participant "GUI\nThread" as GUI
+participant "Capture\nThread" as CAP
+participant "Serial\nPort" as SERIAL
+participant "Recording\nFile" as FILE
+participant "Spresense" as SPR
+
+User -> GUI : Click "⏺ Start Rec"
+GUI -> GUI : start_recording()
+GUI -> GUI : is_recording.store(true)
+GUI -> FILE : Create MJPEG file
+
+loop Every Frame
+    SPR -> SERIAL : Send MJPEG packet
+    SERIAL -> CAP : read_packet()
+    CAP -> CAP : Check is_recording
+
+    alt Recording Active
+        CAP -> GUI : JpegFrame(jpeg_data)
+        GUI -> FILE : write_frame(jpeg_data)
+        FILE -> FILE : Append JPEG
+        GUI -> GUI : Update frame_count\ntotal_bytes
+    else Not Recording
+        CAP -> CAP : Skip JpegFrame
+        note right: メッセージキュー\n混雑を回避
+    end
+
+    CAP -> CAP : Decode JPEG to RGBA
+    CAP -> GUI : DecodedFrame(RGBA)
+    GUI -> GUI : Display on screen
+end
+
+User -> GUI : Click "⏺ Stop Rec"
+GUI -> GUI : stop_recording()
+GUI -> GUI : is_recording.store(false)
+GUI -> FILE : Close file
+GUI -> GUI : Log statistics
+
+@enduml
+```
+
 #### 録画状態管理
+
+**状態遷移図:**
+
+```plantuml
+@startuml
+[*] --> Idle : Application Start
+
+state Idle {
+    Idle : recording_state = Idle
+    Idle : is_recording = false
+    Idle : recording_file = None
+}
+
+state Recording {
+    Recording : recording_state = Recording { ... }
+    Recording : is_recording = true
+    Recording : recording_file = Some(file)
+    Recording : --
+    Recording : filepath: PathBuf
+    Recording : start_time: Instant
+    Recording : frame_count: u32
+    Recording : total_bytes: u64
+}
+
+Idle --> Recording : User clicks "⏺ Start Rec"\nstart_recording()
+Recording --> Idle : User clicks "⏺ Stop Rec"\nstop_recording()
+Recording --> Idle : Size limit reached (1GB)\nauto stop_recording()
+Recording --> Idle : Capture stopped\nauto stop_recording()
+
+@enduml
+```
+
+**データ構造:**
 
 ```rust
 #[derive(Debug, Clone)]
@@ -1185,7 +1265,95 @@ fn write_frame(&mut self, jpeg_data: &[u8]) -> io::Result<()> {
 **問題**: Phase 3初期実装では、JpegFrameメッセージを常に送信していたため、
 Metricsパケットが遅延（5-10秒）する問題が発生。
 
-**解決策**: 録画中のみJpegFrameを送信
+**Before (Phase 3 初期実装):**
+
+```plantuml
+@startuml
+participant "Capture\nThread" as CAP
+queue "Message\nQueue" as QUEUE
+participant "GUI\nThread" as GUI
+
+note over CAP
+常にJpegFrameを送信
+（録画の有無に関わらず）
+end note
+
+loop Every Frame (11 fps)
+    CAP -> QUEUE : JpegFrame(50-60KB)
+    note right: 660KB/秒のデータ
+    CAP -> QUEUE : DecodedFrame(1.2MB)
+end
+
+note over QUEUE
+キューが混雑
+Metricsパケットが
+埋もれる
+end note
+
+CAP -> QUEUE : Metrics (1回/秒)
+note right: 5-10秒遅延
+
+QUEUE -> GUI : process_messages()
+GUI -> GUI : write_frame()\nFile::flush() ← ブロック
+
+note over GUI
+flush()によるブロッキング
+→ メッセージ処理が遅延
+end note
+
+@enduml
+```
+
+**After (Phase 3 修正版):**
+
+```plantuml
+@startuml
+participant "Capture\nThread" as CAP
+participant "is_recording\n(AtomicBool)" as FLAG
+queue "Message\nQueue" as QUEUE
+participant "GUI\nThread" as GUI
+
+note over CAP
+録画中のみJpegFrameを送信
+is_recording をチェック
+end note
+
+loop Every Frame (11 fps)
+    CAP -> FLAG : load(Relaxed)
+
+    alt Recording Active
+        FLAG --> CAP : true
+        CAP -> QUEUE : JpegFrame(50-60KB)
+        note right: 録画中のみ
+    else Not Recording
+        FLAG --> CAP : false
+        CAP -> CAP : Skip JpegFrame
+        note right: データ転送なし
+    end
+
+    CAP -> QUEUE : DecodedFrame(1.2MB)
+end
+
+note over QUEUE
+非録画時は
+キューが空いている
+end note
+
+CAP -> QUEUE : Metrics (1回/秒)
+note right: <1秒遅延
+
+QUEUE -> GUI : process_messages()
+alt Recording
+    GUI -> GUI : write_frame()\n(flush削除)
+    note right: ブロッキング削減
+else Not Recording
+    GUI -> GUI : 処理なし
+end
+
+@enduml
+```
+
+**解決策コード:**
 ```rust
 // Capture thread内
 if is_recording.load(Ordering::Relaxed) {
@@ -1193,7 +1361,7 @@ if is_recording.load(Ordering::Relaxed) {
 }
 ```
 
-**効果**:
+**効果:**
 - 非録画時のデータ転送量: 100%削減（660KB/秒 → 0KB/秒）
 - Metricsパケット遅延: 90%改善（5-10秒 → <1秒）
 - GUIスレッドブロッキング削減
@@ -1244,6 +1412,57 @@ if is_recording.load(Ordering::Relaxed) {
 **提供スクリプト**:
 1. `convert_to_mp4.sh` (Linux/macOS)
 2. `convert_to_mp4.bat` (Windows)
+
+**変換ワークフロー:**
+
+```plantuml
+@startuml
+actor User
+participant "convert_to_mp4\nScript" as SCRIPT
+participant "ffmpeg" as FFMPEG
+database "MJPEG\nFile" as MJPEG
+database "MP4\nFile" as MP4
+
+User -> SCRIPT : ./convert_to_mp4.sh\nrecording.mjpeg
+
+SCRIPT -> SCRIPT : Check ffmpeg\ninstalled
+
+alt ffmpeg not found
+    SCRIPT -> User : Error: Install ffmpeg
+else ffmpeg found
+    SCRIPT -> MJPEG : Check file exists
+    MJPEG -> SCRIPT : File size: 6.2 MB
+
+    SCRIPT -> FFMPEG : ffmpeg -i input.mjpeg\n-c:v libx264\n-preset medium\n-crf 23\n-movflags +faststart\n-y output.mp4
+
+    note right of FFMPEG
+    H.264エンコード:
+    - フレーム解析
+    - 動き予測
+    - DCT変換
+    - エントロピー符号化
+    end note
+
+    FFMPEG -> MJPEG : Read JPEG frames
+    MJPEG -> FFMPEG : [JPEG1][JPEG2]...
+
+    FFMPEG -> FFMPEG : Decode JPEG
+    FFMPEG -> FFMPEG : Encode H.264
+    FFMPEG -> FFMPEG : Mux MP4 container
+
+    FFMPEG -> MP4 : Write MP4 file
+    FFMPEG -> SCRIPT : Conversion complete
+
+    SCRIPT -> MP4 : Get file size
+    MP4 -> SCRIPT : File size: 3.1 MB
+
+    SCRIPT -> SCRIPT : Calculate ratio:\n3.1MB / 6.2MB = 50%
+
+    SCRIPT -> User : ✓ Success!\nInput: 6.2 MB\nOutput: 3.1 MB (50%)
+end
+
+@enduml
+```
 
 **使用方法**:
 ```bash

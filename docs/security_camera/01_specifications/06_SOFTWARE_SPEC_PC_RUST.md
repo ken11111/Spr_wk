@@ -3,12 +3,13 @@
 ## 📋 ドキュメント情報
 
 - **作成日**: 2025-12-15
-- **最終更新**: 2025-12-25
-- **バージョン**: 2.1 (Phase 1.5 VGA対応版)
+- **最終更新**: 2026-01-01
+- **バージョン**: 4.0 (Phase 3 録画機能 + Phase 4.1 メトリクス最適化版)
 - **対象**: PC側ソフトウェア
 - **言語**: Rust
 - **最小Rustバージョン**: 1.70
-- **プロトコル**: MJPEG (ベアJPEG形式)
+- **プロトコル**: MJPEG (ベアJPEG形式) + Metricsパケット
+- **対応解像度**: QVGA (320×240) / VGA (640×480)
 
 ---
 
@@ -21,9 +22,17 @@ Spresense防犯カメラから送信されるMJPEGストリームを受信・表
 **提供機能**:
 - ✅ USB CDC-ACM経由のMJPEG受信
 - ✅ リアルタイム映像表示（GUI）
+- ✅ **GUI録画機能（MJPEG形式）** (Phase 3)
+- ✅ **MP4変換ツール** (Phase 3)
 - ✅ MJPEGストリーム録画（CLI）
 - ✅ 個別JPEGファイル保存
 - ✅ WSL2環境対応
+- ✅ **VGA (640×480) 対応** (Phase 1.5+)
+- ✅ **Option A パイプライン最適化** (Phase 2.0)
+- ✅ **Spresense側FPS測定** (Phase 4.0)
+- ✅ **CSV形式性能ログ出力** (Phase 4.0)
+- ✅ **デュアルパケットプロトコル** (Phase 4.1)
+- ✅ **メッセージキュー最適化** (Phase 3 修正版)
 
 ### 1.2 アプリケーション構成
 
@@ -43,6 +52,7 @@ package "security_camera_viewer" {
     component "Core Library" {
         [protocol.rs] as PROTO
         [serial.rs] as SERIAL
+        [metrics.rs] as METRICS
     }
 
     component "Utilities" {
@@ -60,6 +70,7 @@ CLI --> PROTO
 CLI --> SERIAL
 GUI --> PROTO
 GUI --> SERIAL
+GUI --> METRICS
 SPLIT --> PROTO
 
 note right of CLI
@@ -71,8 +82,10 @@ end note
 
 note right of GUI
   GUIアプリケーション:
-  - リアルタイム表示
-  - FPS統計
+  - リアルタイム表示 (VGA 640×480)
+  - Option A パイプライン (Phase 3.0)
+  - PC/Spresense FPS表示 (Phase 4)
+  - CSV性能ログ出力 (Phase 4)
   - egui/eframe使用
 end note
 
@@ -81,6 +94,13 @@ note bottom of PROTO
   - パケットパース
   - CRC-16-CCITT検証
   - ベアJPEG対応
+end note
+
+note right of METRICS
+  性能測定 (Phase 4):
+  - Spresense FPS計算
+  - CSV形式ログ出力
+  - リアルタイム統計
 end note
 
 @enduml
@@ -127,6 +147,9 @@ security_camera_viewer/
 ├── Cargo.toml                         # プロジェクト設定
 ├── Cargo.lock
 ├── README.md
+├── METRICS_GUIDE.md                   # メトリクス機能ガイド (Phase 4)
+├── PHASE4_TEST_GUIDE.md               # Phase 4 テストガイド
+├── OPTION_B_PIPELINE_DESIGN.md        # Option B 設計書 (将来用)
 ├── run_gui.sh                         # GUI起動スクリプト
 ├── view_live.sh                       # WSL2簡易ビューア
 ├── view_live_90frames.sh              # 90フレーム限定版
@@ -134,10 +157,13 @@ security_camera_viewer/
 │   ├── main.rs                        # CLIビューア（エントリポイント）
 │   ├── gui_main.rs                    # GUIビューア（エントリポイント）
 │   ├── protocol.rs                    # MJPEGプロトコル処理
-│   └── serial.rs                      # USB CDC-ACM通信
+│   ├── serial.rs                      # USB CDC-ACM通信
+│   └── metrics.rs                     # 性能測定・CSV出力 (Phase 4)
 ├── examples/
 │   └── split_mjpeg.rs                 # MJPEGファイル分割ツール
 ├── frames/                            # 抽出済みJPEGフレーム（実行時生成）
+├── metrics/                           # CSV性能ログ（実行時生成, Phase 4）
+│   └── metrics_YYYYMMDD_HHMMSS.csv
 └── output.mjpeg                       # MJPEGストリーム（実行時生成）
 ```
 
@@ -178,6 +204,9 @@ clap = { version = "4.4", features = ["derive"] }
 eframe = { version = "0.27", optional = true }
 egui = { version = "0.27", optional = true }
 egui_extras = { version = "0.27", optional = true, features = ["image"] }
+
+# Time handling for metrics (Phase 4)
+chrono = "0.4"
 
 [features]
 default = []
@@ -616,10 +645,15 @@ struct CameraApp {
     connection_status: String,
     is_running: Arc<Mutex<bool>>,
 
-    // Statistics
+    // Statistics (Phase 4 更新)
     fps: f32,
+    spresense_fps: f32,             // Spresense側FPS
     frame_count: u64,
     error_count: u32,
+    decode_time_ms: f32,            // デコード時間
+    serial_read_time_ms: f32,       // シリアル読み込み時間
+    texture_upload_time_ms: f32,    // テクスチャ時間
+    jpeg_size_kb: f32,              // JPEGサイズ
 
     // Settings
     port_path: String,
@@ -628,9 +662,19 @@ struct CameraApp {
 
 #[derive(Debug, Clone)]
 enum AppMessage {
-    NewFrame(Vec<u8>),              // JPEG data
+    NewFrame(Vec<u8>),              // JPEG data (Legacy)
+    DecodedFrame { width: u32, height: u32, pixels: Vec<u8> },  // Phase 3.0: Pre-decoded RGBA
     ConnectionStatus(String),
-    Stats { fps: f32, frame_count: u64, errors: u32 },
+    Stats {                         // Phase 4 更新
+        fps: f32,
+        spresense_fps: f32,
+        frame_count: u64,
+        errors: u32,
+        decode_time_ms: f32,
+        serial_read_time_ms: f32,
+        texture_upload_time_ms: f32,
+        jpeg_size_kb: f32,
+    },
 }
 ```
 
@@ -651,8 +695,10 @@ enum AppMessage {
 │        │  └───────────────────────────────────┘  │
 │        │                                          │
 ├────────┴─────────────────────────────────────────┤
-│ Bottom Panel: Statistics                         │
-│ FPS: 28.5   Frames: 1234   Errors: 0            │
+│ Bottom Panel: Statistics (Phase 4 更新)          │
+│ 📊 PC: 19.9 fps | 📡 Spresense: 30.0 fps |      │
+│ 🎬 Frames: 1234 | ❌ Errors: 0 |                 │
+│ ⏱ Decode: 2.3ms | 📨 Serial: 48ms | 📦 JPEG: 53KB│
 └──────────────────────────────────────────────────┘
 ```
 
@@ -703,14 +749,22 @@ impl eframe::App for CameraApp {
             }
         });
 
-        // ボトムパネル: 統計
+        // ボトムパネル: 統計 (Phase 4 更新)
         egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(format!("📊 FPS: {:.1}", self.fps));
+                ui.label(format!("📊 PC: {:.1} fps", self.fps));
+                ui.separator();
+                ui.label(format!("📡 Spresense: {:.1} fps", self.spresense_fps));
                 ui.separator();
                 ui.label(format!("🎬 Frames: {}", self.frame_count));
                 ui.separator();
                 ui.label(format!("❌ Errors: {}", self.error_count));
+                ui.separator();
+                ui.label(format!("⏱ Decode: {:.1}ms", self.decode_time_ms));
+                ui.separator();
+                ui.label(format!("📨 Serial: {:.1}ms", self.serial_read_time_ms));
+                ui.separator();
+                ui.label(format!("📦 JPEG: {:.1}KB", self.jpeg_size_kb));
             });
         });
     }
@@ -776,6 +830,447 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 ```
+
+---
+
+### 4.6 メトリクスモジュール (metrics.rs) - Phase 4
+
+**責務**: 性能測定・Spresense FPS計算・CSV出力
+
+#### データ構造
+
+```rust
+/// 性能測定データ
+#[derive(Debug, Clone)]
+pub struct PerformanceMetrics {
+    pub timestamp: f64,           // Unix タイムスタンプ
+    pub pc_fps: f32,              // PC側FPS
+    pub spresense_fps: f32,       // Spresense側FPS
+    pub frame_count: u64,         // 累積フレーム数
+    pub error_count: u32,         // エラー数
+    pub decode_time_ms: f32,      // JPEG デコード時間
+    pub serial_read_time_ms: f32, // シリアル読み込み時間
+    pub texture_upload_time_ms: f32, // テクスチャアップロード時間
+    pub jpeg_size_kb: f32,        // JPEG サイズ
+}
+
+/// CSV ロガー
+pub struct MetricsLogger {
+    file: Arc<Mutex<File>>,
+    log_path: PathBuf,
+}
+
+/// Spresense FPS 計算器
+pub struct SpresenseFpsCalculator {
+    sequence_window: Vec<(u32, f64)>,  // (sequence, timestamp)
+    window_size: usize,                // 30 フレーム
+}
+```
+
+#### 主要機能
+
+```rust
+impl SpresenseFpsCalculator {
+    /// パケットシーケンス番号から FPS 計算
+    pub fn update(&mut self, sequence: u32) -> f32 {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+
+        // ウィンドウに追加
+        self.sequence_window.push((sequence, now));
+
+        // ウィンドウサイズを維持
+        if self.sequence_window.len() > self.window_size {
+            self.sequence_window.remove(0);
+        }
+
+        // FPS 計算（最低 2 フレーム必要）
+        if self.sequence_window.len() >= 2 {
+            let first = self.sequence_window.first().unwrap();
+            let last = self.sequence_window.last().unwrap();
+
+            let time_delta = last.1 - first.1;
+            let sequence_delta = last.0 - first.0;  // シーケンス差分
+
+            if time_delta > 0.0 {
+                return sequence_delta as f32 / time_delta as f32;
+            }
+        }
+
+        0.0
+    }
+}
+
+impl MetricsLogger {
+    /// CSV ファイル作成
+    pub fn new(output_dir: &str) -> io::Result<Self> {
+        std::fs::create_dir_all(output_dir)?;
+
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+        let log_path = PathBuf::from(output_dir)
+            .join(format!("metrics_{}.csv", timestamp));
+
+        let mut file = File::create(&log_path)?;
+
+        // CSV ヘッダー書き込み
+        writeln!(
+            file,
+            "timestamp,pc_fps,spresense_fps,frame_count,error_count,\
+             decode_time_ms,serial_read_time_ms,texture_upload_time_ms,jpeg_size_kb"
+        )?;
+
+        Ok(Self {
+            file: Arc::new(Mutex::new(file)),
+            log_path,
+        })
+    }
+
+    /// メトリクスを CSV に記録
+    pub fn log(&self, metrics: &PerformanceMetrics) -> io::Result<()> {
+        let mut file = self.file.lock().unwrap();
+
+        writeln!(
+            file,
+            "{:.3},{:.2},{:.2},{},{},{:.2},{:.2},{:.2},{:.2}",
+            metrics.timestamp,
+            metrics.pc_fps,
+            metrics.spresense_fps,
+            metrics.frame_count,
+            metrics.error_count,
+            metrics.decode_time_ms,
+            metrics.serial_read_time_ms,
+            metrics.texture_upload_time_ms,
+            metrics.jpeg_size_kb,
+        )?;
+
+        file.flush()?;
+        Ok(())
+    }
+}
+```
+
+#### GUI 統合（gui_main.rs での使用例）
+
+```rust
+// キャプチャスレッドでの使用
+let mut spresense_fps_calc = SpresenseFpsCalculator::new(30);
+let metrics_logger = MetricsLogger::new("metrics")?;
+
+// パケット受信時
+let spresense_fps = spresense_fps_calc.update(packet.header.sequence);
+
+// 1 秒ごとに統計送信 & CSV ログ
+tx.send(AppMessage::Stats {
+    fps: pc_fps,
+    spresense_fps,
+    frame_count,
+    // ...
+}).ok();
+
+metrics_logger.log(&PerformanceMetrics {
+    timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs_f64(),
+    pc_fps,
+    spresense_fps,
+    // ...
+})?;
+```
+
+#### CSV 出力形式
+
+```csv
+timestamp,pc_fps,spresense_fps,frame_count,error_count,decode_time_ms,serial_read_time_ms,texture_upload_time_ms,jpeg_size_kb
+1735650622.145,19.8,29.9,20,0,2.3,48.2,0.0,53.1
+1735650623.147,19.9,30.1,40,0,2.2,47.8,0.0,52.9
+```
+
+**更新頻度**: 1 秒ごと（統計更新と同期）
+**用途**: 24 時間テスト、長時間動作分析、性能デバッグ
+
+---
+
+### 4.7 Option A パイプライン実装 - Phase 3.0
+
+**目的**: GUI スレッドの負荷軽減による FPS 向上
+
+**アーキテクチャ**:
+```
+┌─────────────────────┐              ┌─────────────────┐
+│ Capture Thread      │              │ GUI Thread      │
+│ (Priority: Normal)  │              │ (Priority: GUI) │
+├─────────────────────┤              ├─────────────────┤
+│ 1. Serial 読み込み  │              │ 5. Texture      │
+│    (48 ms)          │              │    Upload       │
+│                     │              │    (0-2 ms)     │
+│ 2. JPEG Decode      │──(RGBA)────→│                 │
+│    (2.3 ms)         │   mpsc      │ 6. Render       │
+│                     │   channel   │    (60 FPS)     │
+│ 3. RGBA 変換        │              │                 │
+└─────────────────────┘              └─────────────────┘
+```
+
+**実装内容**:
+
+```rust
+// capture_thread: JPEG デコード実行（GUI スレッドから移動）
+let img = image::load_from_memory(&packet.jpeg_data)?;
+let rgba = img.to_rgba8();
+let width = img.width();
+let height = img.height();
+let pixels = rgba.into_raw();
+
+// Pre-decoded RGBA を GUI スレッドに送信
+tx.send(AppMessage::DecodedFrame {
+    width,
+    height,
+    pixels,
+}).ok();
+```
+
+```rust
+// GUI thread: Pre-decoded RGBA を直接使用
+AppMessage::DecodedFrame { width, height, pixels } => {
+    let size = [width as usize, height as usize];
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+        size,
+        &pixels,
+    );
+
+    // Texture upload のみ（デコードなし）
+    self.current_frame = Some(ctx.load_texture(
+        "camera_frame",
+        color_image,
+        egui::TextureOptions::LINEAR,
+    ));
+}
+```
+
+**性能改善**:
+
+| 項目 | Before (単一スレッド) | After (Option A) | 改善率 |
+|------|---------------------|------------------|--------|
+| PC 側 FPS | 15.6-17 fps | **19.9 fps** | **+27%** |
+| GUI スレッド負荷 | 10-13 ms | **2-3 ms** | **-80%** |
+| Decode 時間 | 8-10 ms (GUI) | **2.3 ms** (Capture) | -76% |
+
+**効果**:
+- GUI スレッドがデコード処理から解放される
+- Serial 読み込みとデコードが並列実行される
+- より滑らかな UI 応答性
+
+---
+
+### 4.8 GUI録画機能 - Phase 3
+
+**目的**: GUIから直接MJPEG形式で録画を行う機能
+
+**主要機能**:
+1. ワンクリック録画開始/停止
+2. リアルタイム録画状態表示
+3. 1GB サイズ制限（自動停止）
+4. MP4形式への変換ツール
+
+#### 録画状態管理
+
+```rust
+#[derive(Debug, Clone)]
+enum RecordingState {
+    Idle,
+    Recording {
+        filepath: PathBuf,
+        start_time: Instant,
+        frame_count: u32,
+        total_bytes: u64,
+    },
+}
+
+struct CameraApp {
+    // ... 既存フィールド ...
+
+    // Phase 3: 録画機能
+    recording_state: RecordingState,
+    recording_file: Option<Arc<Mutex<File>>>,
+    recording_dir: PathBuf,
+    is_recording: Arc<AtomicBool>,  // Capture threadと共有
+}
+```
+
+#### 録画メソッド
+
+**start_recording()**: 録画開始
+```rust
+fn start_recording(&mut self) -> io::Result<()> {
+    // 録画ディレクトリ作成
+    std::fs::create_dir_all(&self.recording_dir)?;
+
+    // タイムスタンプ付きファイル名生成
+    let now = chrono::Local::now();
+    let filename = format!("recording_{}.mjpeg",
+                          now.format("%Y%m%d_%H%M%S"));
+    let filepath = self.recording_dir.join(&filename);
+
+    // ファイル作成
+    let file = File::create(&filepath)?;
+    self.recording_file = Some(Arc::new(Mutex::new(file)));
+
+    // 状態更新
+    self.recording_state = RecordingState::Recording {
+        filepath,
+        start_time: Instant::now(),
+        frame_count: 0,
+        total_bytes: 0,
+    };
+
+    // Capture threadに通知（AtomicBool）
+    self.is_recording.store(true, Ordering::Relaxed);
+
+    Ok(())
+}
+```
+
+**stop_recording()**: 録画停止
+```rust
+fn stop_recording(&mut self) -> io::Result<()> {
+    if let RecordingState::Recording {
+        filepath, start_time, frame_count, total_bytes
+    } = &self.recording_state {
+        let duration = start_time.elapsed();
+        info!("Recording stopped:");
+        info!("  File: {:?}", filepath);
+        info!("  Duration: {:.1}s", duration.as_secs_f32());
+        info!("  Frames: {}", frame_count);
+        info!("  Size: {:.2} MB", *total_bytes as f32 / 1_000_000.0);
+
+        // ファイルクローズ（Arc<Mutex>をDropすることで自動フラッシュ）
+        self.recording_file = None;
+
+        // 状態更新
+        self.recording_state = RecordingState::Idle;
+        self.is_recording.store(false, Ordering::Relaxed);
+    }
+    Ok(())
+}
+```
+
+**write_frame()**: フレーム書き込み
+```rust
+fn write_frame(&mut self, jpeg_data: &[u8]) -> io::Result<()> {
+    if let RecordingState::Recording {
+        total_bytes, frame_count, ..
+    } = &mut self.recording_state {
+        // サイズ制限チェック
+        if *total_bytes + jpeg_data.len() as u64 > MAX_RECORDING_SIZE {
+            warn!("Recording size limit reached (1 GB), stopping");
+            self.stop_recording()?;
+            return Ok(());
+        }
+
+        // JPEG書き込み
+        if let Some(ref file) = self.recording_file {
+            let mut file_guard = file.lock().unwrap();
+            file_guard.write_all(jpeg_data)?;
+            // flush()は削除（OSバッファリングに任せる）
+
+            *total_bytes += jpeg_data.len() as u64;
+            *frame_count += 1;
+        }
+    }
+    Ok(())
+}
+```
+
+#### メッセージキュー最適化
+
+**問題**: Phase 3初期実装では、JpegFrameメッセージを常に送信していたため、
+Metricsパケットが遅延（5-10秒）する問題が発生。
+
+**解決策**: 録画中のみJpegFrameを送信
+```rust
+// Capture thread内
+if is_recording.load(Ordering::Relaxed) {
+    tx.send(AppMessage::JpegFrame(packet.jpeg_data.clone())).ok();
+}
+```
+
+**効果**:
+- 非録画時のデータ転送量: 100%削減（660KB/秒 → 0KB/秒）
+- Metricsパケット遅延: 90%改善（5-10秒 → <1秒）
+- GUIスレッドブロッキング削減
+
+#### UI録画コントロール
+
+**ボタン**:
+- "⏺ Start Rec": 録画開始
+- "⏺ Stop Rec": 録画停止
+
+**状態表示** (録画中):
+```
+🔴 MM:SS | XX.XMB | XXX frames
+例: 🔴 0:05 | 3.1MB | 56 frames
+```
+
+**仕様**:
+- ファイル名: `recording_YYYYMMDD_HHMMSS.mjpeg`
+- 保存先: `./recordings/` (自動作成)
+- サイズ制限: 1GB（超過時自動停止）
+- 自動停止: キャプチャ停止時に録画も停止
+
+#### MJPEG形式仕様
+
+**構造**:
+```
+[JPEG Frame 1]
+[JPEG Frame 2]
+[JPEG Frame 3]
+...
+(連結されたJPEGフレーム)
+```
+
+**ファイルサイズ計算**:
+- 平均JPEGサイズ: 55 KB/frame
+- FPS: 11 fps
+- 1秒: 55KB × 11 = 605 KB
+- 1分: 36.3 MB
+- 30分: 1.09 GB (制限超過で自動停止)
+
+**再生**:
+- VLC Media Player (推奨)
+- FFplay: `ffplay recording_YYYYMMDD_HHMMSS.mjpeg`
+- Windows Media Player
+
+#### MP4変換ツール
+
+**提供スクリプト**:
+1. `convert_to_mp4.sh` (Linux/macOS)
+2. `convert_to_mp4.bat` (Windows)
+
+**使用方法**:
+```bash
+# Linux/macOS
+./convert_to_mp4.sh recording_20260101_123456.mjpeg
+
+# Windows
+convert_to_mp4.bat recording_20260101_123456.mjpeg
+
+# 複数ファイル変換
+./convert_to_mp4.sh recordings/*.mjpeg
+```
+
+**変換設定**:
+```bash
+ffmpeg -i input.mjpeg \
+    -c:v libx264 \        # H.264コーデック
+    -preset medium \      # エンコード速度/品質バランス
+    -crf 23 \            # 品質設定 (18-28)
+    -movflags +faststart \ # Web最適化
+    -y output.mp4
+```
+
+**効果**:
+- ファイルサイズ: 約30-50%削減
+- 再生互換性: 向上（H.264）
+- シーク性能: 向上
 
 ---
 
@@ -923,22 +1418,44 @@ cargo test
 
 ### 8.1 実測値・推定値
 
-| 項目 | Phase 1 (QVGA) | Phase 1.5 (VGA) |
-|------|---------------|----------------|
-| 解像度 | 320×240 | **640×480** |
-| フレームレート | 30 fps | 30 fps |
-| 平均JPEGサイズ | 23.15 KB (実測) | **50-80 KB (推定)** |
-| 帯域使用率 | 5.6 Mbps (46.7%) | **12-19 Mbps** (100-158%) |
-| プロトコルオーバーヘッド | 14 bytes (0.06%) | 14 bytes (0.02-0.03%) |
-| メモリ使用量 | ~50 MB (CLI), ~150 MB (GUI) | ~80 MB (CLI), ~200 MB (GUI) |
+| 項目 | Phase 1<br>(QVGA) | Phase 1.5<br>(VGA Spresense) | Phase 3.0<br>(VGA Option A) | Phase 4<br>(VGA + Metrics) |
+|------|------|------|------|------|
+| **解像度** | 320×240 | **640×480** | **640×480** | **640×480** |
+| **Spresense 送信FPS** | 30 fps | **37.33 fps**<br>(Phase 1.5 実測) | **30 fps**<br>(設定値) | **30 fps**<br>(測定機能あり) |
+| **PC 受信FPS** | 30 fps | 15.6-17 fps | **19.9 fps** | **19.9 fps** |
+| **FPS 改善率** | - | - | **+27%** | 測定機能実装 |
+| **JPEG サイズ** | 23.15 KB (実測) | 50-56 KB (実測) | 50-56 KB (実測) | **53 KB (平均)**<br>(CSV 記録) |
+| **Decode 時間** | - | 8-10 ms (GUI) | **2.3 ms** (Capture) | **2.3 ms (測定)** |
+| **Serial 時間** | - | 未測定 | **48 ms** (実測) | **48 ms (測定)** |
+| **帯域使用率** | 5.6 Mbps (46.7%) | 12-19 Mbps | **12.7 Mbps** (実測) | **測定機能あり** |
+| **メモリ使用量** | ~50 MB (CLI)<br>~150 MB (GUI) | ~80 MB (CLI)<br>~200 MB (GUI) | ~80 MB (CLI)<br>~200 MB (GUI) | ~80 MB (CLI)<br>~200 MB (GUI) |
 
-**注意**: VGAでは USB Full Speed (12 Mbps) の帯域を超過する可能性あり。実測で確認が必要。
+**Phase 3.0 成果**:
+- GUI スレッド負荷: 10-13 ms → **2-3 ms** (-80%)
+- PC FPS: 15.6-17 → **19.9 fps** (+27%)
+- ボトルネック特定: **Serial 読み込み 48ms** (USB CDC-ACM の物理限界)
+
+**Phase 4 新機能**:
+- ✅ Spresense 側 FPS リアルタイム測定（パケットシーケンス番号ベース）
+- ✅ CSV 形式性能ログ（timestamp, pc_fps, spresense_fps, decode_time など）
+- ✅ 24 時間テスト対応（自動ログ出力、約 86,400 データポイント）
 
 ### 8.2 最適化
 
+**Phase 1-2**:
 - ✅ ゼロコピー設計（`Bytes` crateのCow）
 - ✅ 効率的なCRC計算（ルックアップテーブル不使用でもO(n)）
 - ✅ 最小限のバッファコピー
+
+**Phase 3.0 (Option A パイプライン)**:
+- ✅ JPEG デコードの並列化（Capture スレッドに移動）
+- ✅ GUI スレッド負荷 -80% 削減
+- ✅ mpsc channel による効率的なスレッド間通信
+
+**Phase 4 (メトリクス機能)**:
+- ✅ Spresense FPS 計算（30 フレームウィンドウ移動平均）
+- ✅ CSV 自動出力（ディスク I/O 最小化、バッファリング）
+- ✅ リアルタイム統計表示（1 秒更新）
 
 ---
 
@@ -981,14 +1498,19 @@ pub enum ViewerError {
 
 ### 10.1 実装状況
 
-| 機能 | CLI | GUI | WSL2 |
-|------|-----|-----|------|
-| MJPEG受信 | ✅ | ✅ | ✅ |
-| ストリーム保存 | ✅ | - | ✅ |
-| 個別JPEG保存 | ✅ | - | ✅ |
-| リアルタイム表示 | - | ✅ | ✅ (feh) |
-| FPS統計 | ✅ | ✅ | - |
-| 自動検出 | ✅ | ✅ | ✅ |
+| 機能 | CLI | GUI | WSL2 | Phase |
+|------|-----|-----|------|-------|
+| MJPEG受信 | ✅ | ✅ | ✅ | 1 |
+| ストリーム保存 | ✅ | - | ✅ | 1 |
+| 個別JPEG保存 | ✅ | - | ✅ | 1 |
+| リアルタイム表示 | - | ✅ | ✅ (feh) | 1-2 |
+| FPS統計 | ✅ | ✅ | - | 2 |
+| 自動検出 | ✅ | ✅ | ✅ | 2 |
+| **VGA (640×480)** | ✅ | ✅ | ✅ | **1.5** |
+| **Option A パイプライン** | - | ✅ | ✅ | **3.0** |
+| **Spresense FPS 測定** | - | ✅ | - | **4** |
+| **CSV 性能ログ** | - | ✅ | - | **4** |
+| **詳細メトリクス表示** | - | ✅ | - | **4** |
 
 ### 10.2 技術スタック
 
@@ -996,18 +1518,41 @@ pub enum ViewerError {
 **GUI**: egui 0.27 + eframe 0.27
 **通信**: serialport 4.5
 **画像**: image 0.24 (JPEG only)
+**時刻**: chrono 0.4 (Phase 4)
 **CRC**: 自前実装 (CRC-16-CCITT)
+**並列処理**: std::sync::mpsc (Producer-Consumer)
 
 ### 10.3 利点
 
+**Phase 1-2**:
 - ✅ **型安全**: Rustの強力な型システム
 - ✅ **高速**: ゼロコスト抽象化
 - ✅ **クロスプラットフォーム**: Windows/Linux/macOS対応
 - ✅ **軽量**: 最小限の依存関係
 - ✅ **WSL2対応**: 代替ソリューション提供
 
+**Phase 3.0 追加**:
+- ✅ **並列処理**: mpsc channel によるスレッド間通信
+- ✅ **パイプライン最適化**: GUI スレッド負荷 -80%
+- ✅ **FPS 向上**: 15.6-17 → 19.9 fps (+27%)
+
+**Phase 4 追加**:
+- ✅ **Spresense FPS 測定**: パケットシーケンス番号ベース計算
+- ✅ **CSV 自動ログ**: 長時間テスト対応（24 時間 = 86,400 行）
+- ✅ **詳細メトリクス**: decode, serial, texture, jpeg_size を可視化
+
+### 10.4 開発履歴
+
+| Phase | 日付 | 内容 | 主要成果 |
+|-------|------|------|---------|
+| 1 | 2025-12-15 | Spresense カメラアプリ | HD 1280×720 H.264 |
+| 2 | 2025-12-22 | PC 側 Rust ビューア | QVGA MJPEG 30 fps |
+| 1.5 | 2025-12-30 | Spresense VGA パイプライン | VGA 37.33 fps (3.76倍) |
+| 3.0 | 2025-12-31 | PC Option A パイプライン | VGA 19.9 fps (+27%) |
+| **4** | **2025-12-31** | **メトリクス機能追加** | **Spresense FPS + CSV** |
+
 ---
 
-**文書バージョン**: 2.1 (MJPEG実装・実装反映版)
-**最終更新**: 2025-12-22
-**ステータス**: ✅ 実装反映完了
+**文書バージョン**: 3.0 (Phase 4 メトリクス機能追加版)
+**最終更新**: 2025-12-31
+**ステータス**: ✅ Phase 4 実装反映完了

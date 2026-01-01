@@ -268,7 +268,145 @@ pub struct MjpegPacket {
 0xCAFEBABE  uint32_le  uint32_le   JPEG (SOI-EOI)  CRC-16-CCITT
 ```
 
-### 3.2 シリアル通信構造体 (serial.rs)
+### 3.2 デュアルパケットプロトコル - Phase 4.1
+
+**目的**: MJPEG映像データとSpresense側メトリクスを同時伝送
+
+Phase 4.1では、2種類のパケットを識別して処理します:
+
+#### パケット種別
+
+```plantuml
+@startuml
+skinparam componentStyle rectangle
+
+package "Spresense → PC" {
+    rectangle "MJPEG Packet" as MJPEG #lightblue {
+        [SYNC: 0xCAFEBABE]
+        [SEQUENCE: uint32]
+        [JPEG_SIZE: uint32]
+        [JPEG DATA: N bytes]
+        [CRC16: uint16]
+    }
+
+    rectangle "Metrics Packet" as METRICS #lightgreen {
+        [SYNC: 0xCAFEBEEF]
+        [SEQUENCE: uint32]
+        [DATA_SIZE: uint32]
+        [METRICS DATA: N bytes]
+        [CRC16: uint16]
+    }
+}
+
+note right of MJPEG
+    **MJPEGパケット**
+    - 送信頻度: 30 fps
+    - サイズ: 50-60 KB
+    - 用途: 映像データ
+end note
+
+note right of METRICS
+    **Metricsパケット**
+    - 送信頻度: 1秒
+    - サイズ: ~100 bytes
+    - 用途: FPS, エラー統計
+end note
+
+@enduml
+```
+
+#### パケット識別フロー
+
+```plantuml
+@startuml
+participant "Spresense" as SPR
+participant "Serial\nPort" as SERIAL
+participant "PC\nApplication" as APP
+database "Metrics\nCalculator" as CALC
+participant "GUI" as GUI
+
+activate SPR
+activate APP
+
+loop 映像送信 (30 fps)
+    SPR -> SERIAL : MJPEG Packet\n(0xCAFEBABE)
+
+    SERIAL -> APP : read_packet()
+    APP -> APP : Check SYNC word
+
+    alt SYNC == 0xCAFEBABE
+        APP -> APP : Process as\nMJPEG frame
+        APP -> GUI : Display frame
+    end
+end
+
+group 統計送信 (1秒ごと)
+    SPR -> SPR : Collect metrics\n(camera_fps, errors, ...)
+
+    SPR -> SERIAL : Metrics Packet\n(0xCAFEBEEF)
+
+    SERIAL -> APP : read_packet()
+    APP -> APP : Check SYNC word
+
+    alt SYNC == 0xCAFEBEEF
+        APP -> APP : Process as\nMetrics data
+        APP -> CALC : Update Spresense FPS
+        CALC -> GUI : Update stats display
+    end
+end
+
+note over APP
+    **パケット多重化**
+    - MJPEG: 高頻度 (30 fps)
+    - Metrics: 低頻度 (1 Hz)
+    - 同一シリアルポートで送信
+end note
+
+@enduml
+```
+
+#### Metricsパケットデータ構造
+
+```rust
+/// Metrics パケット (Phase 4.1)
+pub const METRICS_SYNC_WORD: u32 = 0xCAFEBEEF;
+
+#[derive(Debug, Clone)]
+pub struct MetricsPacket {
+    pub header: MetricsHeader,
+    pub metrics_data: SpresenseMetrics,
+    pub crc16: u16,
+}
+
+#[derive(Debug, Clone)]
+pub struct SpresenseMetrics {
+    pub camera_fps: f32,           // カメラ側FPS
+    pub queue_depth: u32,          // フレームキュー深度
+    pub packet_error_count: u32,   // パケットエラー数
+    pub jpeg_error_count: u32,     // JPEG検証エラー数
+    // ... その他の統計データ
+}
+```
+
+#### 実装の利点
+
+**Before (Phase 4.0)**:
+- MJPEGパケットのみ
+- Spresense側統計は不明
+- PC側でのFPS計算のみ
+
+**After (Phase 4.1)**:
+- ✅ Spresense側の実FPS取得
+- ✅ キュー深度のリアルタイム監視
+- ✅ エラー統計の詳細把握
+- ✅ デバッグ情報の充実
+
+**通信効率**:
+- MJPEGトラフィック: 30 fps × 55 KB = 1.65 MB/秒
+- Metricsトラフィック: 1 Hz × 100 bytes = 100 bytes/秒
+- **Metricsオーバーヘッド**: < 0.01% (無視できるレベル)
+
+### 3.3 シリアル通信構造体 (serial.rs)
 
 ```rust
 use serialport::SerialPort;
@@ -439,6 +577,141 @@ mod tests {
 ### 4.2 シリアル通信モジュール (serial.rs)
 
 **責務**: USB CDC-ACM通信・パケット受信
+
+#### パケット読み取りフロー
+
+```plantuml
+@startuml
+participant "Application" as APP
+participant "SerialConnection" as SERIAL
+participant "USB CDC-ACM\n/dev/ttyACM0" as USB
+participant "Protocol" as PROTO
+
+APP -> SERIAL : read_packet()
+activate SERIAL
+
+group 1. ヘッダー読み取り (12 bytes)
+    SERIAL -> USB : read_exact(12)
+    activate USB
+    note right: Timeout: 5秒
+    USB --> SERIAL : [SYNC][SEQ][SIZE]
+    deactivate USB
+
+    SERIAL -> PROTO : parse_header()
+    activate PROTO
+    PROTO -> PROTO : Validate SYNC\n(0xCAFEBABE)
+    PROTO -> PROTO : Check SIZE\n(≤ 512KB)
+    PROTO --> SERIAL : MjpegHeader
+    deactivate PROTO
+end
+
+group 2. JPEG + CRC読み取り
+    note over SERIAL
+        total_size = SIZE + 2
+    end note
+
+    SERIAL -> USB : read_exact(SIZE + 2)
+    activate USB
+    USB --> SERIAL : [JPEG data][CRC16]
+    deactivate USB
+end
+
+group 3. CRC検証
+    SERIAL -> PROTO : calculate_crc16(header + jpeg)
+    activate PROTO
+    PROTO --> SERIAL : calculated_crc
+    deactivate PROTO
+
+    SERIAL -> SERIAL : Compare CRC\n(received vs calculated)
+
+    alt CRC match
+        SERIAL --> APP : Ok(MjpegPacket)
+    else CRC mismatch
+        SERIAL --> APP : Err(ProtocolError)
+    end
+end
+
+deactivate SERIAL
+
+@enduml
+```
+
+#### エラーハンドリング戦略
+
+```plantuml
+@startuml
+start
+
+:read_packet();
+
+partition "ヘッダー読み取り" {
+    :read_exact(12 bytes);
+
+    if (Timeout?) then (yes)
+        :Increment error_count;
+        if (error_count ≥ 10?) then (yes)
+            #red:Return IoError(Timeout);
+            stop
+        else (no)
+            :Continue;
+            -> retry;
+        endif
+    else (no)
+        :Parse header;
+
+        if (Invalid SYNC?) then (yes)
+            #orange:Log warning;
+            :Flush buffer;
+            -> retry;
+        else (no)
+            if (SIZE > 512KB?) then (yes)
+                #red:Return ProtocolError;
+                stop
+            else (no)
+                :Continue;
+            endif
+        endif
+    endif
+}
+
+partition "データ読み取り" {
+    :read_exact(SIZE + 2);
+
+    if (Timeout?) then (yes)
+        :Increment error_count;
+        if (error_count ≥ 10?) then (yes)
+            #red:Return IoError(Timeout);
+            stop
+        else (no)
+            :Continue;
+            -> retry;
+        endif
+    else (no)
+        :Continue;
+    endif
+}
+
+partition "CRC検証" {
+    :Calculate CRC;
+
+    if (CRC match?) then (yes)
+        :Reset error_count = 0;
+        #green:Return Ok(MjpegPacket);
+        stop
+    else (no)
+        #orange:Log CRC error;
+        :Increment error_count;
+        if (error_count ≥ 10?) then (yes)
+            #red:Return ProtocolError;
+            stop
+        else (no)
+            -> retry;
+        endif
+    endif
+}
+
+@enduml
+```
 
 #### 主要機能
 
@@ -994,7 +1267,7 @@ timestamp,pc_fps,spresense_fps,frame_count,error_count,decode_time_ms,serial_rea
 
 **目的**: GUI スレッドの負荷軽減による FPS 向上
 
-**アーキテクチャ**:
+**アーキテクチャ概要**:
 ```
 ┌─────────────────────┐              ┌─────────────────┐
 │ Capture Thread      │              │ GUI Thread      │
@@ -1008,6 +1281,65 @@ timestamp,pc_fps,spresense_fps,frame_count,error_count,decode_time_ms,serial_rea
 │                     │   channel   │    (60 FPS)     │
 │ 3. RGBA 変換        │              │                 │
 └─────────────────────┘              └─────────────────┘
+```
+
+**詳細シーケンス図:**
+
+```plantuml
+@startuml
+participant "Spresense" as SPR
+participant "Serial\nPort" as SERIAL
+participant "Capture\nThread" as CAP
+queue "mpsc\nChannel" as CHAN
+participant "GUI\nThread" as GUI
+participant "Display" as DISP
+
+activate SPR
+activate CAP
+activate GUI
+
+loop Every Frame
+    SPR -> SERIAL : Send MJPEG packet\n(14 + 50-60KB)
+
+    note over CAP
+    **Capture Thread処理**
+    Priority: Normal
+    end note
+
+    CAP -> SERIAL : read_packet()
+    activate SERIAL
+    note right: 48ms\n(USB CDC-ACM)
+    SERIAL --> CAP : MjpegPacket
+    deactivate SERIAL
+
+    CAP -> CAP : Decode JPEG\nto RGB8
+    note right: 2.3ms\n(image crate)
+
+    CAP -> CAP : Convert to\nRGBA8
+    note right: <1ms
+
+    CAP -> CHAN : send(DecodedFrame {\n  width, height,\n  pixels: Vec<u8>\n})
+    note right: Non-blocking\n~1.2MB transfer
+
+    note over GUI
+    **GUI Thread処理**
+    Priority: GUI (highest)
+    end note
+
+    CHAN -> GUI : recv()\nprocess_messages()
+
+    GUI -> GUI : Create ColorImage\nfrom RGBA
+    note right: <0.5ms\n(zero-copy)
+
+    GUI -> GUI : Upload to\nGPU Texture
+    note right: 0-2ms\n(GPU upload)
+
+    GUI -> DISP : Render frame
+    note right: 16.7ms @ 60 FPS
+    DISP --> GUI : vsync
+end
+
+@enduml
 ```
 
 **実装内容**:
@@ -1044,6 +1376,130 @@ AppMessage::DecodedFrame { width, height, pixels } => {
         egui::TextureOptions::LINEAR,
     ));
 }
+```
+
+**mpsc Channelフロー:**
+
+```plantuml
+@startuml
+skinparam componentStyle rectangle
+
+package "Capture Thread" {
+    component "Serial Read" as READ
+    component "JPEG Decode" as DECODE
+    component "RGBA Convert" as CONVERT
+    queue "Sender<AppMessage>" as TX
+}
+
+package "mpsc Channel" {
+    queue "Message Queue" as QUEUE {
+        [DecodedFrame 1\n1.2MB RGBA]
+        [DecodedFrame 2\n1.2MB RGBA]
+        [Stats {...}]
+    }
+}
+
+package "GUI Thread" {
+    queue "Receiver<AppMessage>" as RX
+    component "process_messages()" as PROCESS
+    component "Texture Upload" as UPLOAD
+    component "Render" as RENDER
+}
+
+READ -> DECODE : MjpegPacket\n50-60KB
+DECODE -> CONVERT : RGB8 image
+CONVERT -> TX : RGBA pixels\n1.2MB
+
+TX -> QUEUE : send()
+note right of QUEUE
+  非同期キュー
+  容量: unbounded
+  遅延: <1ms
+end note
+
+QUEUE -> RX : recv()
+RX -> PROCESS : DecodedFrame
+PROCESS -> UPLOAD : ColorImage
+UPLOAD -> RENDER : Texture
+
+note bottom of TX
+  **送信側 (Non-blocking)**
+  - send()は即座に完了
+  - GUIスレッドを待たない
+end note
+
+note bottom of RX
+  **受信側 (Try-recv)**
+  - try_recv()で非ブロッキング
+  - 利用可能なメッセージのみ処理
+  - GUIイベントループと並行
+end note
+
+@enduml
+```
+
+**Before/After 比較:**
+
+```plantuml
+@startuml
+skinparam componentStyle rectangle
+
+rectangle "Before (単一スレッド)" as BEFORE {
+    component "GUI Thread" as GUI1 {
+        queue "Event Loop\n16.7ms/frame @ 60 FPS" as LOOP1 {
+            [1. Serial Read: 48ms] as S1
+            [2. JPEG Decode: 8-10ms] as D1
+            [3. Texture Upload: 2ms] as U1
+            [4. Render: 5ms] as R1
+        }
+    }
+
+    note right of LOOP1
+        **合計: 63-65ms/frame**
+        FPS: 15.6-17 fps
+
+        問題点:
+        - Serial Readがブロック
+        - Decodeが重い
+        - フレームドロップ発生
+    end note
+}
+
+rectangle "After (Option A パイプライン)" as AFTER {
+    component "Capture Thread" as CAP2 {
+        [1. Serial Read: 48ms] as S2
+        [2. JPEG Decode: 2.3ms] as D2
+        [3. Send to GUI: <1ms] as T2
+    }
+
+    queue "mpsc Channel" as CHAN2
+
+    component "GUI Thread" as GUI2 {
+        queue "Event Loop\n16.7ms/frame @ 60 FPS" as LOOP2 {
+            [1. Recv RGBA: <0.5ms] as R2
+            [2. Texture Upload: 0-2ms] as U2
+            [3. Render: 5ms] as RE2
+        }
+    }
+
+    CAP2 -> CHAN2 : DecodedFrame
+    CHAN2 -> GUI2 : Non-blocking
+
+    note right of LOOP2
+        **GUI負荷: 7.5ms/frame**
+        FPS: 19.9 fps
+
+        改善点:
+        - Serial/Decodeが並列化
+        - GUI負荷 -80% (63ms → 7.5ms)
+        - FPS +27% (17 → 19.9)
+        - フレームドロップなし
+    end note
+}
+
+BEFORE -[hidden]down-> AFTER
+
+@enduml
 ```
 
 **性能改善**:

@@ -1,8 +1,8 @@
 # Security Camera Project - 総合インデックス
 
-**最終更新**: 2025-12-16
+**最終更新**: 2026-01-01
 **プロジェクト**: Spresense セキュリティカメラシステム
-**状態**: Phase 1 完了 ✅ / Phase 2 完了 ✅ / Phase 3 準備完了
+**状態**: Phase 1 完了 ✅ / Phase 2 完了 ✅ / Phase 1.5 完了 ✅ / **Phase 2パイプライン + Phase 4.1メトリクス完了** 🚀
 
 ---
 
@@ -23,6 +23,13 @@
 | 14 | [14_PHASE2_COMPLETE.md](./14_PHASE2_COMPLETE.md) | Phase 2 完了報告 | ✅ 完了 |
 | 13 | [13_PHASE2_RUST_GUIDE.md](./13_PHASE2_RUST_GUIDE.md) | Rust実装ガイド (詳細) | ✅ 完了 |
 | - | [/home/ken/Rust_ws/QUICKSTART.md](../../../Rust_ws/QUICKSTART.md) | クイックスタート | ✅ 完了 |
+
+### Phase 2 Pipelining + Phase 4.1 Metrics (完了)
+
+| # | ファイル | 内容 | 状態 |
+|---|---------|------|------|
+| 15 | [15_PHASE2_PIPELINING_SUCCESS.md](./15_PHASE2_PIPELINING_SUCCESS.md) | Phase 2 パイプライン成功事例 | ✅ 完了 |
+| - | [../security_camera/04_test_results/13_PHASE2_LONGTERM_TEST_RESULTS.md](../security_camera/04_test_results/13_PHASE2_LONGTERM_TEST_RESULTS.md) | 2.7時間連続運転テスト結果 | ✅ 完了 |
 
 ### 過去のケーススタディ
 
@@ -76,24 +83,86 @@
 - defconfig が設定の大元
 - Make.defs で CONFIGURED_APPS に追加必須
 
-### 📝 Phase 2 準備完了
+### ✅ Phase 2 完了 (2025-12-22)
 
-**開発場所**: `/home/ken/Spr_ws/GH_wk_test/security_camera_viewer/`
+**成果物**:
+- PC側Rustビューア: `/home/ken/Rust_ws/security_camera_viewer/`
+- CLI + GUI 両対応
+- MJPEG プロトコル完全移行（H.264 → MJPEG）
 
-**実装予定**:
-- ⬜ USB CDC-ACM シリアル通信
-- ⬜ プロトコルパーサ (CRC16検証)
-- ⬜ H.264 NALユニット再構築
-- ⬜ ファイル保存 (MP4/MKV)
-- ⬜ リアルタイム表示 (オプション)
+**実装内容**:
+- ✅ USB CDC-ACM シリアル通信
+- ✅ MJPEG プロトコルパーサ (CRC-16-CCITT)
+- ✅ ベアJPEG形式サポート
+- ✅ 個別JPEGファイル保存 / MJPEGストリーム保存
+- ✅ リアルタイムGUI表示（eframe/egui）
 
-**開始手順**:
-```bash
-cd /home/ken/Spr_ws/GH_wk_test
-# security_camera_viewer はすでに作成済み
-cd security_camera_viewer
-cargo build
-```
+**性能**:
+- QVGA (320×240) @ 30 fps
+- 平均JPEGサイズ: 20.6 KB
+- 帯域使用率: 4.9 Mbps (40.8% of 12 Mbps)
+
+### ✅ Phase 1.5 完了 (2025-12-30)
+
+**VGA パイプライン実装 - Spresense側**:
+- ✅ カメラスレッド (Priority 110) + USBスレッド (Priority 100)
+- ✅ 3-buffer FIFO queue（Producer-Consumer パターン）
+- ✅ 性能突破: 9.94 fps → **37.33 fps** (3.76倍改善)
+
+**実装内容**:
+- VGA (640×480) @ 30 fps MJPEG出力
+- 平均JPEGサイズ: ~64 KB
+- USB帯域: 14.30 Mbps (119.2% of Full Speed 12 Mbps)
+  - ※ High Speed (480 Mbps) 使用により問題なし
+
+### 🚀 Phase 3.0 実装完了 (2025-12-31)
+
+**Option A パイプライン実装 - PC側**:
+- ✅ JPEG デコードをキャプチャスレッドに移動
+- ✅ シリアル読み込み・デコード・テクスチャ時間測定
+- ✅ Windows クロスコンパイル対応（MinGW-w64）
+- ✅ 期待性能: 16-20 fps → **25-30 fps**
+
+**実装内容**:
+- GUI スレッド負荷削減（デコード 8-10ms → テクスチャ 2-3ms のみ）
+- 並列処理による FPS 改善
+- 詳細性能メトリクス表示
+
+**ドキュメント**:
+- `/home/ken/Rust_ws/security_camera_viewer/WINDOWS_BUILD.md`
+- `/home/ken/Rust_ws/security_camera_viewer/VGA_TEST_SETUP.md`
+- `/home/ken/Spr_ws/GH_wk_test/docs/security_camera/04_test_results/phase3_vga_test_result_20251231.md`
+
+**ステータス**: 実装完了、Windows ビルドテスト待ち
+
+### 🎉 Phase 2 Pipelining + Phase 4.1 Metrics 完了 (2026-01-01)
+
+**Phase 2マルチスレッドパイプライン実装:**
+- ✅ Camera Thread (Priority 110) + USB Thread (Priority 100)
+- ✅ 3-buffer FIFO queue (Producer-Consumer パターン)
+- ✅ キュー深度99.99%で1維持 = 完璧なバランス達成
+- ✅ デッドロック・メモリリーク無し
+
+**Phase 4.1デュアルパケットプロトコル:**
+- ✅ MJPEGパケット (0xCAFEBABE) + Metricsパケット (0xCAFEBEEF)
+- ✅ 1秒間隔でSpresense側統計送信
+- ✅ PC側でCSVロギング (18カラム)
+- ✅ GUI表示: Camera FPS, Queue Depth, Spresense Errors
+
+**性能結果 (2.7時間連続運転テスト):**
+- 平均FPS: 11.05 fps (PC/Spresense完全同期)
+- **目標達成**: シンプルシーン 12.54 fps (目標12.5 fps) ✅
+- 成功率: **99.895%** (113エラー / 107,712フレーム)
+- クラッシュ: 0回
+- 総フレーム数: 107,712フレーム
+
+**ドキュメント:**
+- `/home/ken/Spr_ws/GH_wk_test/docs/case_study/15_PHASE2_PIPELINING_SUCCESS.md`
+- `/home/ken/Spr_ws/GH_wk_test/docs/security_camera/04_test_results/13_PHASE2_LONGTERM_TEST_RESULTS.md`
+- `/home/ken/Rust_ws/security_camera_viewer/PHASE4_TEST_RESULTS.md`
+
+**次のステップ:**
+WiFi移行により20+ fps達成を目指す
 
 ---
 

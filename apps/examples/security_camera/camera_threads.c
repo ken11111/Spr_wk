@@ -44,6 +44,7 @@
 #include <errno.h>
 #include <syslog.h>
 #include <sched.h>
+#include <time.h>
 
 #include "camera_threads.h"
 #include "frame_queue.h"
@@ -95,6 +96,108 @@ pthread_t g_usb_thread;
 
 static thread_context_t *g_thread_ctx = NULL;
 
+/* Phase 4.1: Metrics tracking variables */
+
+static uint32_t g_metrics_sequence = 0;
+static uint32_t g_total_camera_frames = 0;
+static uint32_t g_total_usb_packets = 0;
+static uint64_t g_total_packet_bytes = 0;
+static uint32_t g_total_errors = 0;
+static struct timespec g_start_time;
+static struct timespec g_last_metrics_time;
+
+#define METRICS_INTERVAL_MS 1000  /* Send metrics every 1 second */
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: get_uptime_ms
+ *
+ * Description:
+ *   Get elapsed time since start in milliseconds
+ *
+ ****************************************************************************/
+
+static uint32_t get_uptime_ms(void)
+{
+  struct timespec now;
+  uint64_t elapsed_ms;
+
+  clock_gettime(CLOCK_MONOTONIC, &now);
+
+  elapsed_ms = (uint64_t)(now.tv_sec - g_start_time.tv_sec) * 1000ULL +
+               (uint64_t)(now.tv_nsec - g_start_time.tv_nsec) / 1000000ULL;
+
+  return (uint32_t)elapsed_ms;
+}
+
+/****************************************************************************
+ * Name: send_metrics_packet
+ *
+ * Description:
+ *   Send metrics packet via USB (direct write, bypassing queue)
+ *
+ ****************************************************************************/
+
+static int send_metrics_packet(int usb_fd)
+{
+  uint8_t metrics_buffer[METRICS_PACKET_SIZE];
+  uint32_t uptime_ms;
+  uint32_t avg_packet_size;
+  uint32_t action_q_depth;
+  int ret;
+  ssize_t written;
+
+  /* Get current metrics */
+
+  uptime_ms = get_uptime_ms();
+  avg_packet_size = (g_total_usb_packets > 0)
+                  ? (uint32_t)(g_total_packet_bytes / g_total_usb_packets)
+                  : 0;
+  action_q_depth = frame_queue_depth(g_action_queue);
+
+  /* Pack metrics into packet */
+
+  ret = mjpeg_pack_metrics(uptime_ms,
+                           g_total_camera_frames,
+                           g_total_usb_packets,
+                           action_q_depth,
+                           avg_packet_size,
+                           g_total_errors,
+                           &g_metrics_sequence,
+                           metrics_buffer);
+
+  if (ret < 0)
+    {
+      LOG_ERROR("Failed to pack metrics: %d", ret);
+      return ret;
+    }
+
+  /* Write metrics packet to USB (direct, not queued) */
+
+  written = write(usb_fd, metrics_buffer, METRICS_PACKET_SIZE);
+  if (written < 0)
+    {
+      LOG_ERROR("Failed to send metrics packet: %d", errno);
+      return -errno;
+    }
+  else if (written != METRICS_PACKET_SIZE)
+    {
+      LOG_WARN("Partial metrics write: %zd/%d bytes", written, METRICS_PACKET_SIZE);
+      return -EIO;
+    }
+
+  LOG_INFO("Metrics sent: seq=%lu, cam_frames=%lu, usb_pkts=%lu, q_depth=%lu",
+           (unsigned long)(g_metrics_sequence - 1),
+           (unsigned long)g_total_camera_frames,
+           (unsigned long)g_total_usb_packets,
+           (unsigned long)action_q_depth);
+
+  return 0;
+}
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -121,6 +224,9 @@ void *camera_thread_func(void *arg)
 
   uint32_t frame_count = 0;
   uint32_t stats_interval = 30;  /* Log every 30 frames (~1 sec @ 30fps) */
+  uint32_t jpeg_validation_error_count = 0;  /* Phase 4.1.1 */
+  uint32_t consecutive_jpeg_errors = 0;      /* Phase 4.1.1 */
+  uint64_t total_jpeg_bytes = 0;             /* For average JPEG size */
 
   LOG_INFO("== Camera thread started (Step 2: active) ==");
   LOG_INFO("Camera thread priority: %d", CAMERA_THREAD_PRIORITY);
@@ -171,6 +277,7 @@ void *camera_thread_func(void *arg)
             {
               LOG_ERROR("Camera thread: Failed to get frame: %d", ret);
               error_count++;
+              g_total_errors++;  /* Phase 4.1: Track total errors */
 
               if (error_count >= 3)
                 {
@@ -202,12 +309,34 @@ void *camera_thread_func(void *arg)
       error_count = 0;  /* Reset error count on success */
 
       /* Step 3: Pack JPEG into MJPEG protocol packet (outside mutex) */
+      /* Phase 4.1.1: JPEG validation happens inside mjpeg_pack_frame() */
 
       packet_size = mjpeg_pack_frame(frame.buf, frame.size, ctx->sequence,
                                       (uint8_t *)buffer->data, buffer->length);
       if (packet_size < 0)
         {
-          LOG_ERROR("Failed to pack frame: %d", packet_size);
+          /* Phase 4.1.1: JPEG validation error detected */
+
+          LOG_ERROR("Failed to pack frame (JPEG validation error): %d", packet_size);
+          jpeg_validation_error_count++;
+          consecutive_jpeg_errors++;
+          g_total_errors++;  /* Phase 4.1: Track JPEG validation errors */
+
+          /* Warning at 5 consecutive errors */
+
+          if (consecutive_jpeg_errors >= 5)
+            {
+              LOG_WARN("Camera thread: %lu consecutive JPEG validation errors",
+                       (unsigned long)consecutive_jpeg_errors);
+            }
+
+          /* Error threshold at 10 consecutive */
+
+          if (consecutive_jpeg_errors >= 10)
+            {
+              LOG_ERROR("Camera thread: 10+ consecutive JPEG validation errors, "
+                        "this may indicate ISX012 hardware issue");
+            }
 
           /* Return buffer to empty queue and continue */
 
@@ -217,7 +346,15 @@ void *camera_thread_func(void *arg)
           continue;
         }
 
+      /* JPEG validation successful - reset consecutive error counter */
+
+      consecutive_jpeg_errors = 0;
       buffer->used = packet_size;
+      total_jpeg_bytes += frame.size;  /* Accumulate JPEG size */
+
+      /* Phase 4.1: Track total frames for metrics */
+
+      g_total_camera_frames++;
 
       /* Step 4: Push filled buffer to action queue */
 
@@ -232,20 +369,60 @@ void *camera_thread_func(void *arg)
         {
           int action_depth = frame_queue_depth(g_action_queue);
           int empty_depth = frame_queue_depth(g_empty_queue);
+          uint32_t avg_jpeg_kb = (total_jpeg_bytes / frame_count) / 1024;
+          float jpeg_error_rate = (float)jpeg_validation_error_count / (float)frame_count * 100.0f;
 
-          LOG_INFO("Camera stats: frame=%lu, action_q=%d, empty_q=%d",
-                   (unsigned long)frame_count, action_depth, empty_depth);
+          LOG_INFO("Camera stats: frame=%lu, action_q=%d, empty_q=%d, "
+                   "avg_jpeg=%lu KB, jpeg_errors=%lu (%.2f%%)",
+                   (unsigned long)frame_count, action_depth, empty_depth,
+                   (unsigned long)avg_jpeg_kb,
+                   (unsigned long)jpeg_validation_error_count, jpeg_error_rate);
         }
 
       pthread_mutex_unlock(&g_queue_mutex);
+
+      /* Phase 4.1: Check if it's time to send metrics packet */
+
+      struct timespec now;
+      clock_gettime(CLOCK_MONOTONIC, &now);
+      uint64_t elapsed_ms = (uint64_t)(now.tv_sec - g_last_metrics_time.tv_sec) * 1000ULL +
+                            (uint64_t)(now.tv_nsec - g_last_metrics_time.tv_nsec) / 1000000ULL;
+
+      if (elapsed_ms >= METRICS_INTERVAL_MS)
+        {
+          send_metrics_packet(ctx->usb_fd);
+          g_last_metrics_time = now;
+        }
 
       /* Step 2: Maintain frame rate (30 fps = 33333 us per frame) */
 
       usleep(33333);  /* ~30 fps */
     }
 
+  /* Phase 4.1.1: Final statistics */
+
   LOG_INFO("== Camera thread exiting (processed %lu frames) ==",
            (unsigned long)frame_count);
+
+  if (jpeg_validation_error_count > 0)
+    {
+      float error_rate = (float)jpeg_validation_error_count / (float)frame_count * 100.0f;
+      LOG_WARN("Camera thread: JPEG validation errors: %lu / %lu (%.2f%%)",
+               (unsigned long)jpeg_validation_error_count,
+               (unsigned long)frame_count, error_rate);
+    }
+  else
+    {
+      LOG_INFO("Camera thread: JPEG validation errors: 0 (all frames valid)");
+    }
+
+  if (frame_count > 0)
+    {
+      uint32_t avg_jpeg_kb = (total_jpeg_bytes / frame_count) / 1024;
+      LOG_INFO("Camera thread: Average JPEG size: %lu KB",
+               (unsigned long)avg_jpeg_kb);
+    }
+
   return NULL;
 }
 
@@ -353,6 +530,11 @@ void *usb_thread_func(void *arg)
         {
           error_count = 0;  /* Reset error count on success */
 
+          /* Phase 4.1: Update global metrics */
+
+          g_total_usb_packets++;
+          g_total_packet_bytes += buffer->used;
+
           /* Step 5: Collect transmission statistics */
 
           packet_count++;
@@ -404,6 +586,11 @@ int camera_threads_init(thread_context_t *ctx)
     }
 
   g_thread_ctx = ctx;
+
+  /* Phase 4.1: Initialize metrics start time */
+
+  clock_gettime(CLOCK_MONOTONIC, &g_start_time);
+  g_last_metrics_time = g_start_time;
 
   /* Initialize frame queue system */
 

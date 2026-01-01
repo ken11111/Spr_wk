@@ -268,3 +268,66 @@ int mjpeg_validate_header(const mjpeg_header_t *header)
 
   return 0;
 }
+
+/****************************************************************************
+ * Name: mjpeg_pack_metrics
+ *
+ * Description:
+ *   Pack metrics data into metrics protocol packet (Phase 4.1 extension)
+ *
+ ****************************************************************************/
+
+int mjpeg_pack_metrics(uint32_t timestamp_ms,
+                       uint32_t camera_frames,
+                       uint32_t usb_packets,
+                       uint32_t action_q_depth,
+                       uint32_t avg_packet_size,
+                       uint32_t errors,
+                       uint32_t *sequence,
+                       uint8_t *packet)
+{
+  metrics_packet_t *metrics;
+  uint16_t crc;
+
+  /* Validate inputs */
+
+  if (sequence == NULL || packet == NULL)
+    {
+      LOG_ERROR("Invalid parameters for metrics packet");
+      return -EINVAL;
+    }
+
+  /* Build metrics packet */
+
+  metrics = (metrics_packet_t *)packet;
+  metrics->sync_word = METRICS_SYNC_WORD;
+  metrics->sequence = *sequence;
+  metrics->timestamp_ms = timestamp_ms;
+  metrics->camera_frames = camera_frames;
+  metrics->usb_packets = usb_packets;
+  metrics->action_q_depth = action_q_depth;
+  metrics->avg_packet_size = avg_packet_size;
+  metrics->errors = errors;
+  metrics->reserved = 0;
+
+  /* Calculate CRC over all fields except crc16 itself (36 bytes) */
+
+  crc = mjpeg_crc16_ccitt(packet, METRICS_PACKET_SIZE - sizeof(uint16_t));
+  metrics->crc16 = crc;
+
+  /* Increment sequence number */
+
+  (*sequence)++;
+
+  LOG_DEBUG("Packed metrics: seq=%lu, cam_frames=%lu, usb_pkts=%lu, "
+            "q_depth=%lu, avg_size=%lu, errors=%lu, crc=0x%04X",
+            (unsigned long)metrics->sequence,
+            (unsigned long)camera_frames,
+            (unsigned long)usb_packets,
+            (unsigned long)action_q_depth,
+            (unsigned long)avg_packet_size,
+            (unsigned long)errors,
+            crc);
+
+  return METRICS_PACKET_SIZE;
+}

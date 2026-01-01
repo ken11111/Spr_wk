@@ -31,6 +31,11 @@
 #define MJPEG_MAX_JPEG_SIZE      98304        /* 96 KB (Phase 1.5: 47% safety margin) */
 #define MJPEG_MAX_PACKET_SIZE    (MJPEG_HEADER_SIZE + MJPEG_MAX_JPEG_SIZE + MJPEG_CRC_SIZE)
 
+/* Metrics packet constants (Phase 4.1 extension) */
+
+#define METRICS_SYNC_WORD        0xCAFEBEEF
+#define METRICS_PACKET_SIZE      38           /* Total size including CRC */
+
 /****************************************************************************
  * Public Types
  ****************************************************************************/
@@ -51,6 +56,22 @@ typedef struct mjpeg_packet_s
   mjpeg_header_t header;                      /* Packet header */
   uint8_t data[];                             /* Flexible array: JPEG data + CRC */
 } __attribute__((packed)) mjpeg_packet_t;
+
+/* Metrics packet structure (Phase 4.1 extension) */
+
+typedef struct metrics_packet_s
+{
+  uint32_t sync_word;                         /* Magic number: 0xCAFEBEEF */
+  uint32_t sequence;                          /* Metrics packet sequence number */
+  uint32_t timestamp_ms;                      /* Spresense uptime in milliseconds */
+  uint32_t camera_frames;                     /* Total camera frames captured */
+  uint32_t usb_packets;                       /* Total USB packets sent */
+  uint32_t action_q_depth;                    /* Current action queue depth (0-3) */
+  uint32_t avg_packet_size;                   /* Average MJPEG packet size (bytes) */
+  uint32_t errors;                            /* Total error count */
+  uint32_t reserved;                          /* Reserved for future use (0) */
+  uint16_t crc16;                             /* CRC-16-CCITT checksum */
+} __attribute__((packed)) metrics_packet_t;
 
 /****************************************************************************
  * Public Function Prototypes
@@ -117,6 +138,36 @@ int mjpeg_pack_frame(const uint8_t *jpeg_data,
  ****************************************************************************/
 
 int mjpeg_validate_header(const mjpeg_header_t *header);
+
+/****************************************************************************
+ * Name: mjpeg_pack_metrics
+ *
+ * Description:
+ *   Pack metrics data into metrics protocol packet (Phase 4.1 extension)
+ *
+ * Parameters:
+ *   timestamp_ms     - Spresense uptime in milliseconds
+ *   camera_frames    - Total camera frames captured
+ *   usb_packets      - Total USB packets sent
+ *   action_q_depth   - Current action queue depth (0-3)
+ *   avg_packet_size  - Average MJPEG packet size
+ *   errors           - Total error count
+ *   sequence         - Pointer to sequence number (will be incremented)
+ *   packet           - Output buffer for packed packet
+ *
+ * Returns:
+ *   Packet size (METRICS_PACKET_SIZE) on success, negative errno on failure
+ *
+ ****************************************************************************/
+
+int mjpeg_pack_metrics(uint32_t timestamp_ms,
+                       uint32_t camera_frames,
+                       uint32_t usb_packets,
+                       uint32_t action_q_depth,
+                       uint32_t avg_packet_size,
+                       uint32_t errors,
+                       uint32_t *sequence,
+                       uint8_t *packet);
 
 #ifdef __cplusplus
 }

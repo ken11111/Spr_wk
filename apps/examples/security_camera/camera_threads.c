@@ -54,6 +54,12 @@
 #include "perf_logger.h"
 #include "config.h"
 
+/* Phase 7: WiFi/TCP transport support */
+
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+#include "tcp_server.h"
+#endif
+
 /****************************************************************************
  * Performance Optimization Strategy (Step 5)
  ****************************************************************************/
@@ -484,9 +490,19 @@ void *usb_thread_func(void *arg)
           continue;
         }
 
-      /* Step 2: Send packet via USB (outside mutex - blocking I/O) */
+      /* Step 2: Send packet via transport (USB or TCP) */
+
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+      /* Phase 7: Send via TCP */
+
+      tcp_server_t *tcp_srv = (tcp_server_t *)g_thread_ctx->tcp_server;
+      ret = tcp_server_send(tcp_srv, buffer->data, buffer->used);
+#else
+      /* Send via USB */
 
       ret = usb_transport_send_bytes((uint8_t *)buffer->data, buffer->used);
+#endif
+
       if (ret < 0)
         {
           /* Step 4: Enhanced USB error detection */

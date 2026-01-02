@@ -48,4 +48,70 @@ config EXAMPLES_SECURITY_CAMERA_HDR_ENABLE
 	bool "Enable HDR"
 	default n
 
+# Phase 7: WiFi/TCP Transport Configuration
+
+config EXAMPLES_SECURITY_CAMERA_WIFI
+	bool "Enable WiFi/TCP transport (Phase 7)"
+	default n
+	select WIRELESS_WAPI
+	select DRIVERS_WIRELESS
+	select WIRELESS_GS2200M
+	select WL_GS2200M
+	select NET_USRSOCK_TCP
+	select NETDB_DNSCLIENT
+	---help---
+		Enable WiFi connectivity and TCP server for MJPEG streaming.
+		Requires iS110B WiFi add-on board with GS2200M module.
+
+if EXAMPLES_SECURITY_CAMERA_WIFI
+
+config EXAMPLES_SECURITY_CAMERA_WIFI_SSID
+	string "WiFi SSID"
+	default "your_ssid_here"
+	---help---
+		WiFi network SSID to connect to.
+
+config EXAMPLES_SECURITY_CAMERA_WIFI_PASSWORD
+	string "WiFi Password"
+	default "your_password_here"
+	---help---
+		WiFi network password (WPA2-PSK).
+
+config EXAMPLES_SECURITY_CAMERA_WIFI_USE_DHCP
+	bool "Use DHCP"
+	default y
+	---help---
+		Use DHCP to obtain IP address.
+		If disabled, static IP configuration will be used.
+
+if !EXAMPLES_SECURITY_CAMERA_WIFI_USE_DHCP
+
+config EXAMPLES_SECURITY_CAMERA_WIFI_STATIC_IP
+	string "Static IP Address"
+	default "192.168.1.100"
+
+config EXAMPLES_SECURITY_CAMERA_WIFI_NETMASK
+	string "Subnet Mask"
+	default "255.255.255.0"
+
+config EXAMPLES_SECURITY_CAMERA_WIFI_GATEWAY
+	string "Default Gateway"
+	default "192.168.1.1"
+
+endif # !EXAMPLES_SECURITY_CAMERA_WIFI_USE_DHCP
+
+config EXAMPLES_SECURITY_CAMERA_TCP_PORT
+	int "TCP Server Port"
+	default 8888
+	---help---
+		TCP port number for MJPEG streaming server.
+
+config EXAMPLES_SECURITY_CAMERA_WIFI_CONNECT_TIMEOUT
+	int "WiFi Connection Timeout (seconds)"
+	default 15
+	---help---
+		Maximum time to wait for WiFi connection.
+
+endif # EXAMPLES_SECURITY_CAMERA_WIFI
+
 endif # EXAMPLES_SECURITY_CAMERA

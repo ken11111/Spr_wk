@@ -3,6 +3,18 @@
 ## 目的
 古いSpresense SDK環境を最新版にアップデートし、開発環境を整える
 
+## 📊 フローチャート
+
+**視覚的な手順**: [phase1_environment_setup_flow.puml](../../diagrams/phase1_environment_setup_flow.puml)
+
+Phase 1の全体フローをPlantUML図で確認できます。図には以下の情報が含まれています：
+- 現状確認の手順
+- ツールチェーンのインストールフロー
+- PATH設定の方法
+- ビルドテストの手順
+- エラー時の分岐処理
+- デバイス接続確認（オプション）
+
 ## Claude Codeへの効果的なプロンプト例
 
 ### プロンプト1: 現状確認と診断

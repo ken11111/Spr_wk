@@ -29,3 +29,5 @@ __pycache__/
 # Rust (for PC-side viewer)
 target/
 Cargo.lock
+apps/examples/aps00_sandbox/
+apps/examples/asmpApp/

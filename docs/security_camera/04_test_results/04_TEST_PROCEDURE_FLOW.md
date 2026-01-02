@@ -1,8 +1,8 @@
 # テスト手順フローチャート
 
 **作成日**: 2025-12-21
-**最終更新**: 2025-12-28 (USBコンソール自動起動対応)
-**対象**: Phase 1B USB CDC データ転送テスト / Phase 1.5 VGA性能検証テスト
+**最終更新**: 2025-12-31 (Phase 3.0 Windows クロスコンパイル対応)
+**対象**: Phase 1B USB CDC データ転送テスト / Phase 1.5 VGA性能検証テスト / Phase 3.0 VGA GUI Viewer テスト
 
 このドキュメントでは、Phase 1B/1.5 テストにおける Windows/Ubuntu の操作手順と、複数の Ubuntu 端末での操作の流れを視覚化します。
 
@@ -25,6 +25,7 @@
 
 - [Phase 1B: USB CDC データ転送テスト](#phase-1b-全体フローシーケンス図)
 - [Phase 1.5: VGA性能検証テスト（ログ取得あり/なし）](#phase-15-全体フローシーケンス図)
+- [Phase 3.0: VGA GUI Viewer テスト（Windows クロスコンパイル）](#phase-30-全体フローシーケンス図)
 - [Phase 0: 初回セットアップ](#phase-0-初回セットアップ-初回のみ必要)
 - [端末の役割まとめ](#端末の役割まとめ)
 - [USB デバイス構成](#usb-デバイス構成)
@@ -602,6 +603,610 @@ Spresense ─┬─ /dev/ttyUSB0  (CP2102 Boot Loader)
 
 ---
 
+## Phase 3.0: 全体フローシーケンス図
+
+**Phase 3.0: VGA GUI Viewer テスト (Windows クロスコンパイル)**
+
+Phase 3.0 では、WSL2 の OpenGL/GLX 制限を回避するため、Windows 向けクロスコンパイルを使用します。
+
+### Phase 3.0: アーキテクチャ概要
+
+```
+WSL2 (Ubuntu)                    Windows 11
+┌─────────────────────┐         ┌─────────────────────┐
+│                     │         │                     │
+│ MinGW-w64           │         │ security_camera_    │
+│ クロスコンパイラ     │ ビルド→  │ gui.exe             │
+│                     │         │ (PE32+ 実行形式)    │
+│ Rust Toolchain      │         │                     │
+│ x86_64-pc-windows-  │         │ ネイティブ          │
+│ gnu                 │         │ OpenGL/GPU 使用     │
+└─────────────────────┘         └─────────────────────┘
+         ↓                               ↓
+    /dev/ttyACM0 ←────────────────→  COM4 (WSL2経由)
+         ↓
+    Spresense (VGA 37.33 fps)
+```
+
+### Phase 3.0-A: Windows クロスコンパイルビルド
+
+```plantuml
+@startuml
+title Phase 3.0 VGA GUI Viewer - Windows クロスコンパイル
+
+actor "開発者" as Dev #LightBlue
+participant "WSL2\nUbuntu" as WSL #LightGreen
+participant "MinGW-w64\nツールチェーン" as MinGW #LightCyan
+participant "Rust\nCargo" as Cargo #Orange
+participant "Windows\nファイルシステム" as WinFS #LightPink
+
+== Phase 1: 初回セットアップ（初回のみ） ==
+
+note over Dev, WinFS #FFCCCC
+  **前提条件**:
+  - WSL2 インストール済み
+  - Rust インストール済み (rustup)
+  - security_camera_viewer プロジェクト存在
+end note
+
+Dev -> WSL: sudo apt-get install -y mingw-w64
+WSL -> WSL: MinGW-w64 インストール完了
+note left: x86_64-w64-mingw32-gcc\nクロスコンパイラ
+
+Dev -> WSL: rustup target add\nx86_64-pc-windows-gnu
+WSL -> WSL: Windows ターゲット追加完了
+note left: Windows 64bit GNU ABI
+
+Dev -> WSL: mkdir -p ~/.cargo\ncat >> ~/.cargo/config.toml <<EOF\n[target.x86_64-pc-windows-gnu]\nlinker = "x86_64-w64-mingw32-gcc"\nar = "x86_64-w64-mingw32-ar"\nEOF
+WSL -> WSL: Cargo 設定完了
+note left: リンカー設定
+
+== Phase 2: ビルド ==
+
+Dev -> WSL: cd ~/Rust_ws/security_camera_viewer
+Dev -> Cargo: cargo build --release\n--target x86_64-pc-windows-gnu\n--features gui\n--bin security_camera_gui
+
+note over Cargo #LIGHTYELLOW
+  **ビルド時間**:
+  - 初回: 約47.8秒
+  - 2回目以降: 増分ビルド（高速）
+end note
+
+Cargo -> MinGW: Windows 向けクロスコンパイル
+MinGW -> MinGW: eframe/egui/glow のコンパイル
+MinGW -> MinGW: serialport (Windows 対応) のコンパイル
+MinGW -> MinGW: リンク処理
+
+alt 警告あり（unused imports など）
+    MinGW --> Cargo: ⚠️ warning: unused import 'warn'
+    note right: 動作には影響なし\n後で修正可能
+end
+
+MinGW -> WinFS: target/x86_64-pc-windows-gnu/\nrelease/security_camera_gui.exe
+note right: PE32+ 実行形式\n約16MB
+
+Cargo --> Dev: ✅ Finished 'release' profile\ntarget(s) in 47.80s
+
+== Phase 3: 実行ファイル確認 ==
+
+Dev -> WSL: file target/x86_64-pc-windows-gnu/\nrelease/security_camera_gui.exe
+WSL --> Dev: PE32+ executable (console)\nx86-64, for MS Windows
+
+Dev -> WSL: ls -lh target/x86_64-pc-windows-gnu/\nrelease/security_camera_gui.exe
+WSL --> Dev: -rwxr-xr-x 1 ken ken 16M\nDec 31 10:30 security_camera_gui.exe
+
+@enduml
+```
+
+### Phase 3.0-B: Windows GUI テスト実行
+
+```plantuml
+@startuml
+title Phase 3.0 VGA GUI Viewer - Windows 実行とトラブルシューティング
+
+actor "開発者" as Dev #LightBlue
+participant "WSL2\nUbuntu" as WSL #LightGreen
+participant "Windows\nGUI Application" as WinGUI #LightPink
+participant "シリアル\nポート" as Serial #LightCyan
+participant "Spresense\nVGA 37.33fps" as Spresense #LightSkyBlue
+
+== Phase 1: 事前確認 ==
+
+note over Dev, Spresense #FFCCCC
+  **重要**:
+  - Spresense が USB 接続されている
+  - VGA ファームウェア (37.33 fps) がフラッシュ済み
+  - WSL2 で /dev/ttyACM0 が見えている
+  - Windows デバイスマネージャーで COM ポート確認
+end note
+
+Dev -> WSL: ls -l /dev/ttyACM0
+WSL --> Dev: crw-rw-rw- 1 root root\n166, 0 Dec 31 10:59 /dev/ttyACM0
+note right: ✅ デバイス存在確認
+
+Dev -> WSL: lsof /dev/ttyACM0
+alt ポートが使用中
+    WSL --> Dev: cat 16772 /dev/ttyACM0
+    note right #FFCCCC: ⚠️ ブロッキングプロセス発見
+
+    Dev -> WSL: kill 16772
+    WSL -> WSL: プロセス強制終了
+    note left: cat などの\n読み取りプロセスを終了
+
+    Dev -> WSL: lsof /dev/ttyACM0
+    WSL --> Dev: (空の出力)
+    note right: ✅ ポート解放完了
+else ポートが空き
+    WSL --> Dev: (空の出力)
+    note right: ✅ ポート使用可能
+end
+
+== Phase 2: Windows COM ポート確認 ==
+
+note over Dev #LIGHTYELLOW
+  **Windows 側で確認**:
+  デバイスマネージャー
+  → ポート (COM & LPT)
+  → USB Serial Device (COMx)
+
+  または PowerShell で:
+  Get-WmiObject Win32_SerialPort |
+  Select Name, DeviceID
+end note
+
+Dev -> Dev: Windows デバイスマネージャー確認
+note right: 例: COM4\nSpresense USB CDC
+
+== Phase 3: GUI アプリケーション起動 ==
+
+Dev -> WSL: cd ~/Rust_ws/security_camera_viewer
+Dev -> WSL: ./target/x86_64-pc-windows-gnu/\nrelease/security_camera_gui.exe
+
+WSL -> WinGUI: Windows ネイティブ実行
+WinGUI -> WinGUI: GUI ウィンドウ表示\n(1280×720 初期サイズ)
+
+note over WinGUI #LIGHTGREEN
+  **GUI 画面構成**:
+  ┌────────────────────────────┐
+  │ 左パネル: 設定エリア        │
+  │  □ Auto-detect Spresense   │
+  │  Serial Port: [COM4     ]  │
+  │  ▶ Start / ⏹ Stop         │
+  ├────────────────────────────┤
+  │ 中央: MJPEG 映像表示       │
+  │  640×480 VGA 画像          │
+  ├────────────────────────────┤
+  │ 下パネル: 統計情報         │
+  │  📊 FPS: 30.5 fps          │
+  │  🎬 Frames: 1234           │
+  │  ❌ Errors: 0              │
+  │  ⏱ Decode: 8.3ms          │
+  └────────────────────────────┘
+end note
+
+== Phase 4: シリアルポート設定 ==
+
+Dev -> WinGUI: □ Auto-detect のチェックを外す
+note right: 手動設定モードに切り替え
+
+Dev -> WinGUI: Serial Port 欄に "COM4" と入力
+note right: Windows COM ポート名を使用\n(/dev/ttyACM0 は使用不可)
+
+== Phase 5: 接続開始 ==
+
+Dev -> WinGUI: ▶ Start ボタンをクリック
+
+WinGUI -> Serial: シリアルポート "COM4" をオープン
+
+alt シリアルポート接続成功
+    Serial -> Serial: COM4 オープン成功
+    WinGUI -> WinGUI: Status: "Connected" に変更
+    note left: ✅ 接続成功
+
+    WinGUI -> Serial: データ読み取りスレッド開始
+
+    loop MJPEG パケット受信
+        Spresense -> Serial: MJPEG パケット送信\n(be ba fe ca + JPEG データ)
+        Serial -> WinGUI: パケット受信
+
+        WinGUI -> WinGUI: CRC16 検証
+        WinGUI -> WinGUI: JPEG デコード
+        WinGUI -> WinGUI: 画面更新
+
+        WinGUI -> WinGUI: 統計更新\nFPS, Frames, Errors, Decode時間
+
+        note over WinGUI #LIGHTGREEN
+          **リアルタイム統計**:
+          - FPS: 30+ fps (目標値)
+          - Decode: <10ms (目標値)
+          - Errors: 0 (エラーなし)
+        end note
+    end
+
+else シリアルポート接続失敗
+    Serial --> WinGUI: Error: 指定されたファイルが\n見つかりません。
+
+    note over Dev, WinGUI #FFCCCC
+      **トラブルシューティング**:
+      1. Windows デバイスマネージャーで COM ポート番号再確認
+      2. WSL2 で /dev/ttyACM0 が使用中でないか確認
+         lsof /dev/ttyACM0
+      3. 使用中の場合はプロセスを終了:
+         kill <PID>
+      4. GUI を再起動して再試行
+    end note
+
+    Dev -> Dev: トラブルシューティング実施
+end
+
+== Phase 6: 性能測定（30秒間） ==
+
+note over Dev, Spresense #LIGHTYELLOW
+  **測定項目**:
+  - 📊 FPS (目標: 30+ fps)
+  - ⏱ Decode 時間 (目標: <10ms)
+  - ❌ Errors (目標: 0)
+  - 🎬 Frames (カウントアップ確認)
+  - 解像度表示 (640×480 確認)
+end note
+
+Dev -> Dev: 30秒間観察し、統計を記録
+
+== Phase 7: 停止とデータ記録 ==
+
+Dev -> WinGUI: ⏹ Stop ボタンをクリック
+WinGUI -> Serial: シリアルポート切断
+WinGUI -> WinGUI: 受信スレッド停止
+WinGUI -> WinGUI: Status: "Disconnected"
+
+Dev -> Dev: 測定結果を記録\n(FPS, Decode時間, Errors)
+
+@enduml
+```
+
+---
+
+## Phase 3.0: 操作手順詳細
+
+### 初回セットアップ（Phase 3.0 用）
+
+**前提条件**:
+- WSL2 インストール済み
+- Rust インストール済み
+- `/home/ken/Rust_ws/security_camera_viewer` プロジェクト存在
+
+#### Step 1: MinGW-w64 インストール
+
+```bash
+# WSL2 Ubuntu で実行
+sudo apt-get update
+sudo apt-get install -y mingw-w64
+
+# 確認
+x86_64-w64-mingw32-gcc --version
+# 期待される出力: x86_64-w64-mingw32-gcc (GCC) X.X.X
+```
+
+#### Step 2: Rust Windows ターゲット追加
+
+```bash
+rustup target add x86_64-pc-windows-gnu
+
+# 確認
+rustup target list | grep windows-gnu
+# 期待される出力: x86_64-pc-windows-gnu (installed)
+```
+
+#### Step 3: Cargo リンカー設定
+
+```bash
+mkdir -p ~/.cargo
+cat >> ~/.cargo/config.toml << 'EOF'
+
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+ar = "x86_64-w64-mingw32-ar"
+EOF
+
+# 確認
+cat ~/.cargo/config.toml
+```
+
+#### Step 4: Windows 向けビルド
+
+```bash
+cd /home/ken/Rust_ws/security_camera_viewer
+
+# GUIアプリケーションをWindows向けにビルド
+cargo build --release --target x86_64-pc-windows-gnu --features gui --bin security_camera_gui
+
+# ビルド時間: 初回は約47.8秒（依存関係のコンパイル）
+```
+
+#### Step 5: 実行ファイル確認
+
+```bash
+ls -lh target/x86_64-pc-windows-gnu/release/security_camera_gui.exe
+# 期待される出力: -rwxr-xr-x 1 ken ken 16M Dec 31 10:30 security_camera_gui.exe
+
+file target/x86_64-pc-windows-gnu/release/security_camera_gui.exe
+# 期待される出力: PE32+ executable (console) x86-64, for MS Windows
+```
+
+---
+
+### テスト実行手順（Phase 3.0）
+
+#### 事前準備
+
+**1. Spresense 接続確認（WSL2 側）**:
+
+```bash
+# デバイス存在確認
+ls -l /dev/ttyACM0
+# 期待される出力: crw-rw-rw- 1 root root 166, 0 Dec 31 10:59 /dev/ttyACM0
+
+# ポートが使用中でないか確認
+lsof /dev/ttyACM0
+# 空の出力ならOK
+
+# もし使用中のプロセスがあれば終了
+# kill <PID>
+```
+
+**2. Windows COM ポート確認**:
+
+**方法1**: デバイスマネージャー
+1. Windows で「デバイスマネージャー」を開く
+2. 「ポート (COM & LPT)」を展開
+3. "USB Serial Device (COMx)" を確認
+4. COM ポート番号をメモ（例: COM3, COM4）
+
+**方法2**: PowerShell コマンド
+```powershell
+# PowerShell で実行
+Get-WmiObject Win32_SerialPort | Select Name, DeviceID
+```
+
+#### GUI アプリケーション起動
+
+```bash
+# WSL2 Ubuntu で実行
+cd /home/ken/Rust_ws/security_camera_viewer
+./target/x86_64-pc-windows-gnu/release/security_camera_gui.exe
+```
+
+Windows 側で GUI ウィンドウが表示されます（1280×720 初期サイズ）。
+
+#### GUI 設定と接続
+
+**1. 自動検出を無効化**:
+- 左パネルの "Auto-detect Spresense" のチェックを**外す**
+
+**2. シリアルポートを設定**:
+- "Serial Port" 欄に Windows COM ポート名を入力（例: `COM4`）
+- ⚠️ `/dev/ttyACM0` は使用できません（Windows では COM ポート名が必要）
+
+**3. 接続開始**:
+- "▶ Start" ボタンをクリック
+- Status が "Connected" になることを確認
+
+#### 性能測定（30秒間）
+
+底部パネルの統計を観察し、以下を記録:
+
+| 項目 | 目標値 | 測定値（記録してください） |
+|------|--------|--------------------------|
+| **📊 FPS** | 30+ fps | _____ fps |
+| **⏱ Decode** | <10 ms | _____ ms |
+| **❌ Errors** | 0 | _____ |
+| **🎬 Frames** | カウントアップ | _____ |
+| **解像度** | 640×480 | _____ × _____ |
+
+**測定手順**:
+1. Start ボタンクリック後、5秒待つ（初期安定化）
+2. 30秒間観察し、FPS と Decode 時間を記録
+3. Stop ボタンをクリック
+4. Errors が 0 であることを確認
+
+#### 停止とクリーンアップ
+
+```bash
+# GUI で Stop ボタンをクリック
+# または GUI ウィンドウを閉じる
+
+# WSL2 側で確認（必要に応じて）
+lsof /dev/ttyACM0  # 空であることを確認
+```
+
+---
+
+## Phase 3.0: トラブルシューティング
+
+### 問題1: "Spresense device not found" (自動検出失敗)
+
+**エラーメッセージ**:
+```
+[ERROR] Spresense device not found (VID=054C, PID=0BC2)
+```
+
+**原因**: Windows ネイティブ実行では USB デバイスの VID/PID 検出方法が異なる
+
+**解決策**:
+1. 自動検出を無効化（チェックを外す）
+2. COM ポート名を手動入力（例: COM4）
+
+---
+
+### 問題2: "指定されたパスが見つかりません" (/dev/ttyACM0)
+
+**エラーメッセージ**:
+```
+[ERROR] Failed to open serial port /dev/ttyACM0: 指定されたパスが見つかりません。
+```
+
+**原因**: Windows ネイティブ実行では Linux スタイルのパス (`/dev/ttyACM0`) が使用できない
+
+**解決策**:
+1. Windows COM ポート名を使用（例: `COM3`, `COM4`）
+2. デバイスマネージャーで正しい COM ポート番号を確認
+
+---
+
+### 問題3: "指定されたファイルが見つかりません" (COM4)
+
+**エラーメッセージ**:
+```
+[ERROR] Failed to open serial port COM4: 指定されたファイルが見つかりません。
+```
+
+**原因**:
+- WSL2 側で `/dev/ttyACM0` が別のプロセスに占有されている
+- Windows 側から COM ポートにアクセスできない
+
+**解決策**:
+
+**Step 1**: WSL2 側でポートを確認
+```bash
+lsof /dev/ttyACM0
+```
+
+**Step 2**: 使用中のプロセスがあれば終了
+```bash
+# 例: cat プロセス (PID 16772) が使用中の場合
+kill 16772
+
+# 確認
+lsof /dev/ttyACM0  # 空の出力になるはず
+```
+
+**Step 3**: GUI を再起動して再接続
+
+---
+
+### 問題4: リンカーエラー (ビルド時)
+
+**エラーメッセージ**:
+```
+error: linker `x86_64-w64-mingw32-gcc` not found
+```
+
+**原因**: MinGW-w64 がインストールされていない、または PATH に含まれていない
+
+**解決策**:
+```bash
+# MinGW-w64 をインストール
+sudo apt-get install -y mingw-w64
+
+# インストール確認
+which x86_64-w64-mingw32-gcc
+
+# Cargo 設定を確認
+cat ~/.cargo/config.toml
+```
+
+---
+
+### 問題5: FPS が低い（<20 fps）
+
+**原因**:
+- Spresense 側の問題（ファームウェアが古い）
+- USB 接続の問題
+- デコード処理の遅延
+
+**解決策**:
+
+**Step 1**: Spresense ファームウェア確認
+```bash
+# VGA 37.33 fps 版がフラッシュされているか確認
+# Phase 1.5 ファームウェアを再フラッシュ
+```
+
+**Step 2**: USB 接続確認
+```bash
+# WSL2 側
+dmesg | tail -50 | grep -i "cdc_acm\|ttyACM"
+```
+
+**Step 3**: GUI 側のログ確認
+- Decode 時間が 10ms を超えていないか確認
+- Errors カウントが増えていないか確認
+
+---
+
+## Phase 3.0: 性能評価基準
+
+### 成功基準
+
+| 項目 | 目標値 | 評価基準 |
+|------|--------|---------|
+| **FPS** | 30+ fps | ✅ 合格: ≥30 fps<br>⚠️ 要改善: 20-29 fps<br>❌ 不合格: <20 fps |
+| **Decode 時間** | <10 ms | ✅ 合格: <10 ms<br>⚠️ 要改善: 10-15 ms<br>❌ 不合格: >15 ms |
+| **Errors** | 0 | ✅ 合格: 0<br>⚠️ 要改善: 1-5<br>❌ 不合格: >5 |
+| **映像品質** | 640×480, 明瞭 | ✅ 合格: 解像度正確、ノイズなし<br>⚠️ 要改善: 軽微なノイズ<br>❌ 不合格: 頻繁なノイズ、乱れ |
+
+### QVGAとの比較（参考）
+
+| 項目 | QVGA (Phase 1B) | VGA (Phase 3.0) | 増加率 |
+|------|-----------------|-----------------|--------|
+| ピクセル数 | 76,800 | 307,200 | **4倍** |
+| JPEG平均サイズ | ~20 KB | ~64 KB | **3.2倍** |
+| 目標 FPS | 30 fps | 30 fps | - |
+| デコード時間（推定） | ~3 ms | ~8-10 ms | **3倍** |
+
+---
+
+## Phase 3.0: Windows クロスコンパイルの利点と制限
+
+### 利点 ✅
+
+1. **WSLg OpenGL 制限を回避**
+   - WSL2 の GLXBadFBConfig エラーを完全に回避
+   - Windows ネイティブ OpenGL ドライバー使用
+
+2. **パフォーマンス向上**
+   - GPU アクセラレーション利用可能
+   - ネイティブ実行による高速化
+
+3. **配布が容易**
+   - .exe ファイルを Windows ユーザーに直接配布可能
+   - WSL2 不要で実行可能
+
+4. **開発効率**
+   - WSL2 で開発、Windows で実行
+   - クロスプラットフォーム検証
+
+### 制限 ⚠️
+
+1. **初回ビルド時間**
+   - 約47.8秒（依存関係のコンパイル）
+   - 2回目以降は増分ビルドで高速化
+
+2. **実行ファイルサイズ**
+   - 約16MB（静的リンクのため）
+   - リリース時は strip で削減可能
+
+3. **シリアルポート名の違い**
+   - WSL2: `/dev/ttyACM0`
+   - Windows: `COMx`
+   - 手動設定が必要
+
+4. **クロスコンパイル環境の準備**
+   - MinGW-w64 インストール必須
+   - Rust ターゲット追加必須
+   - Cargo 設定必須
+
+---
+
+## Phase 3.0: 関連ドキュメント
+
+- **クロスコンパイル詳細ガイド**: [`/home/ken/Rust_ws/CROSS_COMPILE_GUIDE.md`](../../../../Rust_ws/CROSS_COMPILE_GUIDE.md)
+- **Windows ビルドガイド**: [`/home/ken/Rust_ws/security_camera_viewer/WINDOWS_BUILD.md`](../../../../Rust_ws/security_camera_viewer/WINDOWS_BUILD.md)
+- **VGA テストセットアップ**: [`/home/ken/Rust_ws/security_camera_viewer/VGA_TEST_SETUP.md`](../../../../Rust_ws/security_camera_viewer/VGA_TEST_SETUP.md)
+- **Phase 3.0 計画**: [`/home/ken/Spr_ws/GH_wk_test/docs/security_camera/PHASE3_PLAN.md`](../PHASE3_PLAN.md)
+
+---
+
 ## Phase 0: 初回セットアップ (初回のみ必要)
 
 ### Windows 側
@@ -858,6 +1463,8 @@ stty -F /dev/ttyACM0 -a | grep -E "raw|echo"
 
 ## トラブルシューティング早見表
 
+### Phase 1B/1.5 共通
+
 | 問題 | 原因 | 解決策 | Terminal |
 |-----|------|-------|----------|
 | `/dev/ttyACM0` が見つからない | ドライバー未ロード | `sudo modprobe cdc-acm` | Terminal 1, 2 |
@@ -866,15 +1473,35 @@ stty -F /dev/ttyACM0 -a | grep -E "raw|echo"
 | `/dev/ttyUSB0` デバイスロック | ロックファイル残存 | `sudo rm -f /var/lock/LCK..ttyUSB0` | Terminal 1, 2 |
 | USB デバイスが見えない | WSL2 未アタッチ | `usbipd attach --wsl --busid <ID>` | Windows |
 
+### Phase 3.0 Windows クロスコンパイル
+
+| 問題 | 原因 | 解決策 | 環境 |
+|-----|------|-------|------|
+| `linker 'x86_64-w64-mingw32-gcc' not found` | MinGW-w64 未インストール | `sudo apt-get install -y mingw-w64` | WSL2 |
+| GLXBadFBConfig エラー | WSLg OpenGL 制限 | Windows クロスコンパイルを使用 | WSL2 → Windows |
+| "Spresense device not found" (VID=054C, PID=0BC2) | 自動検出が Windows で動作しない | Auto-detect のチェックを外し、COM ポート名を手動入力 | Windows GUI |
+| "指定されたパスが見つかりません" (/dev/ttyACM0) | Windows は Linux パスを認識しない | Windows COM ポート名 (COM3, COM4) を使用 | Windows GUI |
+| "指定されたファイルが見つかりません" (COM4) | WSL2 側でポートが占有されている | `lsof /dev/ttyACM0` で確認後 `kill <PID>` | WSL2 |
+| FPS が低い (<20 fps) | ファームウェア/USB/デコード問題 | VGA ファームウェア再フラッシュ、USB 接続確認、ログ確認 | 全体 |
+
 ---
 
 ## 参考資料
+
+### Phase 1B/1.5 関連
 
 - **詳細手順**: [`02_PHASE1_SUCCESS_GUIDE.md`](../03_manuals/02_PHASE1_SUCCESS_GUIDE.md)
 - **最小手順**: [`01_QUICK_START.md`](../03_manuals/01_QUICK_START.md)
 - **USB CDC セットアップ**: [`03_USB_CDC_SETUP.md`](../03_manuals/03_USB_CDC_SETUP.md)
 - **トラブルシューティング**: [`04_TROUBLESHOOTING.md`](../03_manuals/04_TROUBLESHOOTING.md)
 - **教訓**: [`03_LESSONS_LEARNED.md`](../05_project/03_LESSONS_LEARNED.md)
+
+### Phase 3.0 関連
+
+- **Phase 3.0 計画**: [`PHASE3_PLAN.md`](../PHASE3_PLAN.md)
+- **クロスコンパイル詳細ガイド**: [`/home/ken/Rust_ws/CROSS_COMPILE_GUIDE.md`](../../../../Rust_ws/CROSS_COMPILE_GUIDE.md)
+- **Windows ビルドガイド**: [`/home/ken/Rust_ws/security_camera_viewer/WINDOWS_BUILD.md`](../../../../Rust_ws/security_camera_viewer/WINDOWS_BUILD.md)
+- **VGA テストセットアップ**: [`/home/ken/Rust_ws/security_camera_viewer/VGA_TEST_SETUP.md`](../../../../Rust_ws/security_camera_viewer/VGA_TEST_SETUP.md)
 
 ---
 
@@ -945,4 +1572,4 @@ CONFIG_NSH_USBCONSOLE=y      # 自動起動
 ---
 
 **作成者**: Claude Code (Sonnet 4.5)
-**最終更新**: 2025-12-28
+**最終更新**: 2025-12-31 (Phase 3.0 Windows クロスコンパイル追加)

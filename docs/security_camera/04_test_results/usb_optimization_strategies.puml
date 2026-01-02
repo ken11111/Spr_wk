@@ -1,0 +1,180 @@
+@startuml USB最適化戦略の比較
+!theme plain
+skinparam defaultFontName "Noto Sans CJK JP, Arial"
+skinparam backgroundColor white
+skinparam shadowing false
+
+title USB書き込み最適化戦略の比較
+
+' Current sequential processing
+card "現在の実装（逐次処理）" as current #FFE0E0 {
+  rectangle "Frame N" as frame_n_current {
+    rectangle "カメラ\n5.1ms" as cam_n_current #FFC0C0
+    rectangle "パケット\n8.7ms" as pack_n_current #FFB0B0
+    rectangle "USB書込\n30.2ms" as usb_n_current #FFA0A0
+
+    cam_n_current -right-> pack_n_current
+    pack_n_current -right-> usb_n_current
+  }
+
+  rectangle "Frame N+1" as frame_n1_current {
+    rectangle "カメラ\n5.1ms" as cam_n1_current #FFC0C0
+    rectangle "パケット\n8.7ms" as pack_n1_current #FFB0B0
+    rectangle "USB書込\n30.2ms" as usb_n1_current #FFA0A0
+
+    cam_n1_current -right-> pack_n1_current
+    pack_n1_current -right-> usb_n1_current
+  }
+
+  usb_n_current -down-> cam_n1_current : **44.0ms間隔**
+
+  note right of current
+    **問題点**:
+    • USB転送完了まで次のフレーム開始不可
+    • CPU待機時間が長い(30.2ms)
+    • パイプライン効率が低い
+
+    **性能**:
+    • フレーム間隔: 44.0 ms
+    • FPS: 11.0 fps
+  end note
+}
+
+|||
+
+' Optimized pipeline processing
+card "最適化後（パイプライン処理）" as optimized #E0FFE0 {
+  rectangle "Frame N" as frame_n_opt {
+    rectangle "カメラ\n5.1ms" as cam_n_opt #C0FFC0
+    rectangle "パケット\n8.7ms" as pack_n_opt #B0FFB0
+    rectangle "USB開始" as usb_start_n #A0FFA0
+  }
+
+  rectangle "Frame N+1（並列実行）" as frame_n1_opt {
+    rectangle "カメラ\n5.1ms" as cam_n1_opt #C0FFC0
+    rectangle "パケット\n8.7ms" as pack_n1_opt #B0FFB0
+    rectangle "USB開始" as usb_start_n1 #A0FFA0
+  }
+
+  rectangle "USB N転送中\n27.4ms" as usb_n_bg #D0FFD0
+  rectangle "USB N+1転送中\n27.4ms" as usb_n1_bg #D0FFD0
+
+  cam_n_opt -right-> pack_n_opt
+  pack_n_opt -right-> usb_start_n
+  usb_start_n -down-> usb_n_bg : 非同期転送開始
+
+  usb_start_n -down-> cam_n1_opt : すぐ次フレーム開始
+  cam_n1_opt -right-> pack_n1_opt
+  pack_n1_opt -right-> usb_start_n1
+
+  usb_n_bg -down-> usb_n1_bg : バッファ切替
+
+  note right of optimized
+    **改善点**:
+    • USB転送と次フレーム処理が並列
+    • CPU効率向上
+    • パイプライン化による高速化
+
+    **性能**:
+    • フレーム間隔: 38-39 ms
+    • FPS: 12.5-13.2 fps
+    • **改善: +1.5-2.2 fps** 🎯
+  end note
+}
+
+|||
+
+' Optimization strategies comparison table
+rectangle "最適化戦略の比較" as strategies #F0F8FF {
+  card "戦略1: バッファサイズ最適化" as strategy1 {
+    note
+      **変更**: 8KB → 64KB
+      **効果**: write()呼出 5回→1回
+      **改善**: -0.8ms (-2.7%)
+      **工数**: 5分
+      **優先度**: ⭐⭐⭐⭐⭐
+    end note
+  }
+
+  card "戦略2: CDC-ACM設定最適化" as strategy2 {
+    note
+      **変更**: 送信バッファサイズ調整
+      **効果**: USB転送効率向上
+      **改善**: -1～2ms (-3～7%)
+      **工数**: 30分
+      **優先度**: ⭐⭐⭐⭐⭐
+    end note
+  }
+
+  card "戦略3: パイプライン化" as strategy3 {
+    note
+      **変更**: ダブルバッファ + 非同期
+      **効果**: 並列実行
+      **改善**: -5～6ms (フレーム間隔)
+      **工数**: 2-3時間
+      **優先度**: ⭐⭐⭐⭐
+    end note
+  }
+
+  card "戦略4: DMA転送" as strategy4 {
+    note
+      **変更**: DMA有効化
+      **効果**: CPU負荷削減
+      **改善**: -0.5～1.5ms (不確実)
+      **工数**: 4-8時間
+      **優先度**: ⭐⭐ (オプション)
+    end note
+  }
+}
+
+' Performance timeline
+card "性能改善のタイムライン" as timeline #FFFACD {
+  rectangle "現在\n11.0 fps" as current_perf #FFE0E0
+  rectangle "フェーズ1\n11.4-11.6 fps" as phase1_perf #FFD0C0
+  rectangle "フェーズ2\n12.5-13.2 fps" as phase2_perf #C0FFC0
+  rectangle "目標\n13-14 fps" as target_perf #A0FFA0
+
+  current_perf -right-> phase1_perf : バッファ+CDC-ACM\n(35分)
+  phase1_perf -right-> phase2_perf : パイプライン化\n(2-3時間)
+  phase2_perf -right-> target_perf : 目標達成 ✅
+
+  note bottom of timeline
+    **推奨実装順序**:
+    1. バッファサイズ最適化 (5分)
+    2. CDC-ACM設定調整 (30分)
+    3. パイプライン化実装 (2-3時間)
+
+    **合計工数**: 約3時間
+    **期待効果**: +1.5～2.2 fps
+  end note
+}
+
+' Hardware constraint visualization
+card "ハードウェア制約の分析" as hw_constraint #E3F2FD {
+  rectangle "USB転送時間 30.2ms の内訳" as breakdown {
+    rectangle "USB転送\n(ハードウェア)\n27.4ms\n90.7%" as hw_transfer #B0D0FF
+    rectangle "オーバーヘッド\n2.8ms\n9.3%" as overhead {
+      rectangle "システムコール\n1.0ms" as syscall #D0E0FF
+      rectangle "ドライバ処理\n1.0ms" as driver #D0E0FF
+      rectangle "バッファコピー\n0.8ms" as copy #D0E0FF
+    }
+  }
+
+  note right of hw_constraint
+    **重要な洞察**:
+
+    USB Full Speed帯域幅: 12 Mbps
+    理論転送時間: 41.1KB ÷ 1.5MB/s = **27.4ms**
+
+    現在のUSB転送は既に**非常に効率的**:
+    • 帯域幅利用率: 90.7%
+    • オーバーヘッド: わずか9.3%
+
+    **結論**: 大幅な改善は困難
+    → **並列化が最も効果的**
+  end note
+}
+
+footer USB最適化戦略 - Phase 1.5 性能最適化
+
+@enduml

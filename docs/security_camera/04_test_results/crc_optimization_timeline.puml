@@ -1,0 +1,159 @@
+@startuml CRC最適化タイムライン比較
+!theme plain
+skinparam defaultFontName "Noto Sans CJK JP, Arial"
+skinparam backgroundColor white
+skinparam shadowing false
+
+title パケット処理タイムライン比較（64KB JPEGフレームの場合）
+
+participant "Camera\nDriver" as Camera
+participant "MJPEG\nProtocol" as Protocol
+participant "USB\nDriver" as USB
+participant "PC側\nReceiver" as PC
+
+== 最適化前（ビットバイビット方式）: 総計 58.6 ms ==
+
+Camera -> Protocol : JPEG取得 (5.1 ms)
+note right
+  V4L2 DQBUF
+  JPEG圧縮完了待ち
+  (シンプルなシーン)
+end note
+
+Protocol -> Protocol : パケットヘッダ構築 (0.5 ms)
+note right
+  sync_word: 0xDEADBEEF
+  sequence: カウンタ
+  size: JPEG長
+end note
+
+Protocol -> Protocol : JPEG データコピー (2-3 ms)
+note right
+  memcpy()
+  64KB転送
+end note
+
+Protocol -> Protocol : **CRC計算** (15-18 ms) ⏱️
+note right #FFCCCC
+  **ボトルネック！**
+
+  ビットバイビット方式:
+  • 524,288回ループ
+  • 524,288回条件分岐
+  • パイプラインストール頻発
+
+  for (64KB):
+    for (8 bits):
+      if (crc & 0x8000)
+        crc = (crc<<1) ^ 0x1021
+      else
+        crc = crc << 1
+end note
+
+Protocol -> Protocol : CRC追加 (0.1 ms)
+
+Protocol -> USB : USB書き込み (30.2 ms)
+note right
+  CDC-ACM転送
+  64KB + ヘッダ + CRC
+end note
+
+USB -> PC : パケット送信
+
+note over Camera, PC
+  **総レイテンシ: 58.6 ms**
+  → FPS: 9.8 fps (102 ms/frame)
+end note
+
+|||
+
+== 最適化後（テーブルルックアップ方式）: 総計 47.9 ms ==
+
+Camera -> Protocol : JPEG取得 (5.1 ms)
+note right
+  同じ
+  (変更なし)
+end note
+
+Protocol -> Protocol : パケットヘッダ構築 (0.5 ms)
+note right
+  同じ
+  (変更なし)
+end note
+
+Protocol -> Protocol : JPEG データコピー (2-3 ms)
+note right
+  同じ
+  (変更なし)
+end note
+
+Protocol -> Protocol : **CRC計算** (~2 ms) ⚡
+note right #CCFFCC
+  **最適化成功！**
+
+  テーブルルックアップ方式:
+  • 65,536回ループ (1/8)
+  • 0回条件分岐
+  • 高速メモリアクセス
+  • キャッシュヒット率高
+
+  for (64KB):
+    index = (crc>>8) ^ data[i]
+    crc = (crc<<8) ^ table[index]
+
+  テーブル: 256 entries × 2 bytes
+            = 512 bytes (L1キャッシュ)
+end note
+
+Protocol -> Protocol : CRC追加 (0.1 ms)
+
+Protocol -> USB : USB書き込み (30.2 ms)
+note right
+  同じ
+  (変更なし)
+end note
+
+USB -> PC : パケット送信
+
+note over Camera, PC
+  **総レイテンシ: 47.9 ms**
+  → FPS: 11.0 fps (91 ms/frame)
+
+  **改善: -10.7 ms (-18.3%)**
+  **FPS向上: +1.2 fps (+12.2%)**
+end note
+
+|||
+
+== 改善の詳細 ==
+
+note over Protocol
+  **CRC計算時間の削減**
+
+  Before: 15-18 ms
+  After:  ~2 ms
+
+  **削減量: 13-16 ms (約8倍高速化)**
+
+  **パケット処理全体**
+  Before: 23.3 ms
+  After:  8.7 ms
+  削減量: -14.6 ms (-62.7%)
+end note
+
+note over USB
+  **次の最適化ターゲット**
+
+  USB書き込み: 30.2 ms (63.0%)
+
+  候補手法:
+  • DMA非同期転送
+  • バッファサイズ最適化
+  • CDC-ACM設定調整
+
+  期待効果: -5~10 ms
+end note
+
+footer CRC最適化による処理フロー改善 - Phase 1.5
+
+@enduml

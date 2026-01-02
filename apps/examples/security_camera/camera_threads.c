@@ -137,7 +137,7 @@ static uint32_t get_uptime_ms(void)
  * Name: send_metrics_packet
  *
  * Description:
- *   Send metrics packet via USB (direct write, bypassing queue)
+ *   Queue metrics packet for USB thread to send (avoids race condition)
  *
  ****************************************************************************/
 
@@ -148,7 +148,7 @@ static int send_metrics_packet(int usb_fd)
   uint32_t avg_packet_size;
   uint32_t action_q_depth;
   int ret;
-  ssize_t written;
+  frame_buffer_t *buf;
 
   /* Get current metrics */
 
@@ -175,21 +175,25 @@ static int send_metrics_packet(int usb_fd)
       return ret;
     }
 
-  /* Write metrics packet to USB (direct, not queued) */
+  /* Queue metrics packet for USB thread to send (avoid race condition) */
 
-  written = write(usb_fd, metrics_buffer, METRICS_PACKET_SIZE);
-  if (written < 0)
+  buf = frame_queue_pull(&g_empty_queue);
+  if (buf == NULL)
     {
-      LOG_ERROR("Failed to send metrics packet: %d", errno);
-      return -errno;
-    }
-  else if (written != METRICS_PACKET_SIZE)
-    {
-      LOG_WARN("Partial metrics write: %zd/%d bytes", written, METRICS_PACKET_SIZE);
-      return -EIO;
+      LOG_WARN("No empty buffer for metrics packet");
+      return -ENOMEM;
     }
 
-  LOG_INFO("Metrics sent: seq=%lu, cam_frames=%lu, usb_pkts=%lu, q_depth=%lu",
+  /* Copy metrics packet to buffer */
+
+  memcpy(buf->data, metrics_buffer, METRICS_PACKET_SIZE);
+  buf->used = METRICS_PACKET_SIZE;
+
+  /* Push to action queue for USB thread to send */
+
+  frame_queue_push(&g_action_queue, buf);
+
+  LOG_INFO("Metrics queued: seq=%lu, cam_frames=%lu, usb_pkts=%lu, q_depth=%lu",
            (unsigned long)(g_metrics_sequence - 1),
            (unsigned long)g_total_camera_frames,
            (unsigned long)g_total_usb_packets,

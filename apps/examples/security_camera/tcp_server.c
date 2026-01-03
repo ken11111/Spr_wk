@@ -142,6 +142,10 @@ int tcp_server_accept(tcp_server_t *server)
 int tcp_server_send(tcp_server_t *server, const void *data, size_t len)
 {
   ssize_t sent;
+  size_t total_sent = 0;
+  const uint8_t *ptr = (const uint8_t *)data;
+  int retry_count = 0;
+  const int MAX_RETRIES = 3;
 
   if (server == NULL || data == NULL)
     {
@@ -153,16 +157,47 @@ int tcp_server_send(tcp_server_t *server, const void *data, size_t len)
       return -ENOTCONN;
     }
 
-  sent = write(server->client_fd, data, len);
-
-  if (sent < 0)
+  /* Loop until all data is sent (handle partial writes) */
+  while (total_sent < len)
     {
-      _err("ERROR: Failed to send data: %d\n", errno);
-      tcp_server_disconnect_client(server);
-      return -errno;
+      sent = write(server->client_fd, ptr + total_sent, len - total_sent);
+
+      if (sent < 0)
+        {
+          /* Handle temporary errors (buffer full) */
+          if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+              if (retry_count++ < MAX_RETRIES)
+                {
+                  /* Wait briefly for TCP buffer to drain */
+                  usleep(10000);  /* 10ms */
+                  continue;
+                }
+              else
+                {
+                  _err("ERROR: TCP send timeout (buffer full)\n");
+                  return -ETIMEDOUT;
+                }
+            }
+
+          /* Fatal error - disconnect client */
+          _err("ERROR: Failed to send data: %d\n", errno);
+          tcp_server_disconnect_client(server);
+          return -errno;
+        }
+      else if (sent == 0)
+        {
+          /* Connection closed by peer */
+          _warn("WARNING: Connection closed by peer\n");
+          tcp_server_disconnect_client(server);
+          return -ENOTCONN;
+        }
+
+      total_sent += sent;
+      retry_count = 0;  /* Reset retry counter on successful send */
     }
 
-  return sent;
+  return total_sent;
 }
 
 /**

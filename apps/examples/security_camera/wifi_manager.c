@@ -103,6 +103,7 @@ int wifi_manager_connect(wifi_manager_t *mgr, const char *ssid,
                          const char *password, int auth)
 {
   int ret;
+  struct in_addr addr;
 
   if (mgr == NULL || ssid == NULL)
     {
@@ -112,6 +113,18 @@ int wifi_manager_connect(wifi_manager_t *mgr, const char *ssid,
   if (mgr->state == WIFI_STATE_READY)
     {
       _warn("WARNING: Already connected to WiFi\n");
+      return OK;
+    }
+
+  /* Check if already connected (by gs2200m daemon) */
+  ret = wapi_get_ip(mgr->sock, WIFI_INTERFACE, &addr);
+  if (ret == 0 && addr.s_addr != 0)
+    {
+      _info("WiFi already connected! Using existing connection\n");
+      _info("IP address: %s\n", inet_ntoa(addr));
+      mgr->ip_addr = addr;
+      mgr->state = WIFI_STATE_READY;
+      strncpy(mgr->ssid, ssid, sizeof(mgr->ssid) - 1);
       return OK;
     }
 
@@ -166,26 +179,23 @@ int wifi_manager_connect(wifi_manager_t *mgr, const char *ssid,
           return ret;
         }
 
-      ret = wapi_connect(mgr->sock, WIFI_INTERFACE);
-      if (ret < 0)
-        {
-          _err("ERROR: Failed to connect to WiFi: %d\n", ret);
-          mgr->state = WIFI_STATE_ERROR;
-          return ret;
-        }
+      /* GS2200M: No explicit connect needed, ESSID set triggers connection */
     }
 
   mgr->state = WIFI_STATE_CONNECTED;
 
 #if USE_DHCP
-  /* Start DHCP client */
-  _info("Starting DHCP client...\n");
-  ret = wapi_start_dhcp(mgr->sock, WIFI_INTERFACE);
+  /* GS2200M: DHCP is handled automatically by driver when interface is up */
+  /* Bring up the interface */
+  ret = wapi_set_ifup(mgr->sock, WIFI_INTERFACE);
   if (ret < 0)
     {
-      _warn("WARNING: Failed to start DHCP: %d\n", ret);
-      /* Continue anyway, might have static IP */
+      _err("ERROR: Failed to bring up interface: %d\n", ret);
+      mgr->state = WIFI_STATE_ERROR;
+      return ret;
     }
+
+  _info("Waiting for DHCP IP address...\n");
 
   /* Wait for IP address */
   ret = wifi_wait_connection(mgr, DHCP_TIMEOUT_SEC);
@@ -255,10 +265,12 @@ int wifi_manager_disconnect(wifi_manager_t *mgr)
 
   _info("Disconnecting from WiFi...\n");
 
-  ret = wapi_disconnect(mgr->sock, WIFI_INTERFACE);
+  /* GS2200M: Bring down the interface to disconnect */
+  ret = wapi_set_ifdown(mgr->sock, WIFI_INTERFACE);
   if (ret < 0)
     {
-      _warn("WARNING: Failed to disconnect WiFi: %d\n", ret);
+      _warn("WARNING: Failed to bring down interface: %d\n", ret);
+      /* Continue anyway to update state */
     }
 
   mgr->state = WIFI_STATE_DISCONNECTED;

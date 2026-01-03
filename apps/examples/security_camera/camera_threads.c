@@ -505,6 +505,30 @@ void *usb_thread_func(void *arg)
 
       if (ret < 0)
         {
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+          /* Phase 7: TCP error detection */
+
+          if (ret == -ENOTCONN || ret == -ECONNRESET || ret == -EPIPE)
+            {
+              LOG_ERROR("TCP thread: Client disconnected (error %d)", ret);
+
+              /* Immediate shutdown on TCP disconnect */
+
+              pthread_mutex_lock(&g_queue_mutex);
+              g_shutdown_requested = true;
+              pthread_cond_broadcast(&g_queue_cond);
+              pthread_mutex_unlock(&g_queue_mutex);
+
+              /* Return buffer before exiting */
+
+              pthread_mutex_lock(&g_queue_mutex);
+              frame_queue_push(&g_empty_queue, buffer);
+              pthread_mutex_unlock(&g_queue_mutex);
+              break;
+            }
+
+          LOG_ERROR("TCP thread: Failed to send packet: %d", ret);
+#else
           /* Step 4: Enhanced USB error detection */
 
           if (ret == -ENXIO || ret == -EIO || ret == ERR_USB_DISCONNECTED)
@@ -527,12 +551,18 @@ void *usb_thread_func(void *arg)
             }
 
           LOG_ERROR("USB thread: Failed to send packet: %d", ret);
+#endif
           error_count++;
 
           if (error_count >= 10)
             {
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+              LOG_ERROR("Too many TCP errors (%lu consecutive), shutting down",
+                        (unsigned long)error_count);
+#else
               LOG_ERROR("Too many USB errors (%lu consecutive), shutting down",
                         (unsigned long)error_count);
+#endif
               pthread_mutex_lock(&g_queue_mutex);
               g_shutdown_requested = true;
               pthread_cond_broadcast(&g_queue_cond);

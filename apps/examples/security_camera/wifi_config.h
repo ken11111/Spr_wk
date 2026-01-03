@@ -14,9 +14,9 @@
 
 /* WiFi Network Configuration */
 
-#define WIFI_SSID        "your_ssid_here"     /* Replace with your WiFi SSID */
-#define WIFI_PASSWORD    "your_password_here" /* Replace with your WiFi password */
-#define WIFI_AUTH        WAPI_CRYPT_WPA2PSK   /* WPA2-PSK authentication */
+#define WIFI_SSID        "DESKTOP-GPU979R"    /* WiFi SSID */
+#define WIFI_PASSWORD    "B54p3530"           /* WiFi WPA2 password */
+#define WIFI_AUTH        0   /* Unused: auth is hardcoded in wifi_manager.c */
 
 /* TCP Server Configuration */
 

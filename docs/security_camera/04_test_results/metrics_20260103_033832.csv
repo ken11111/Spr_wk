@@ -1,0 +1,1 @@
+timestamp,pc_fps,spresense_fps,frame_count,error_count,decode_time_ms,serial_read_time_ms,texture_upload_time_ms,jpeg_size_kb,spresense_camera_frames,spresense_camera_fps,spresense_usb_packets,action_q_depth,spresense_errors

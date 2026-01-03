@@ -114,7 +114,9 @@ security_camera/
 │   ├── 03_PROTOCOL_SPEC.md           # プロトコル仕様
 │   ├── 04_MJPEG_PROTOCOL.md          # MJPEGプロトコル
 │   ├── 05_SOFTWARE_SPEC_SPRESENSE.md # Spresense仕様
-│   └── 06_SOFTWARE_SPEC_PC_RUST.md   # PC (Rust) 仕様
+│   ├── 06_SOFTWARE_SPEC_PC_RUST.md   # PC (Rust) 仕様
+│   ├── PERFORMANCE_LOGGING.md        # 性能ロギング仕様
+│   └── PHASE1_5_UPDATE_PLAN.md       # Phase1.5更新計画
 │
 ├── 02_implementation/                # 🔧 実装計画・ノート
 │   ├── 01_IMPLEMENTATION_PLAN.md     # 実装計画
@@ -131,12 +133,24 @@ security_camera/
 │   ├── 01_PROTOCOL_TEST_RESULTS.md   # プロトコルテスト結果
 │   ├── 02_MJPEG_SUCCESS.md           # MJPEG成功記録
 │   ├── 03_ERROR_CODE_ANALYSIS.md     # エラーコード分析
-│   └── 04_TEST_PROCEDURE_FLOW.md     # テスト手順フロー
+│   ├── 04_TEST_PROCEDURE_FLOW.md     # テスト手順フロー
+│   ├── 05~17_PHASE*.md               # Phase 1.5/2/3/7テスト結果
+│   ├── MJPEG_INTEGRATION_TEST.md     # MJPEG統合テスト
+│   ├── PHASE3.0_COMPLETION_REPORT.md # Phase3.0完了レポート
+│   └── diagrams/                     # PlantUML図集約
+│       └── *.puml                    # 全PlantUML図
 │
-└── 05_project/                       # 📊 プロジェクト管理
+├── 05_optimization_plans/            # 🚀 最適化提案・計画
+│   ├── 01_パケット化処理最適化提案.md
+│   ├── CRC最適化分析ファイル一覧.md
+│   └── USB最適化クイックガイド.md
+│
+└── 06_project/                       # 📊 プロジェクト管理
     ├── 01_CURRENT_STATUS.md          # 現在のステータス
     ├── 02_CHANGES_SUMMARY.md         # 変更履歴
-    └── 03_LESSONS_LEARNED.md         # 学んだ教訓
+    ├── 03_LESSONS_LEARNED.md         # 学んだ教訓
+    ├── PHASE15_STATUS.md             # Phase1.5ステータス
+    └── PHASE3_PLAN.md                # Phase3計画
 ```
 
 ---
@@ -147,9 +161,9 @@ security_camera/
 
 1. **[01_QUICK_START.md](security_camera/03_manuals/01_QUICK_START.md)** - 最小限の手順で実行
 2. **[02_PHASE1_SUCCESS_GUIDE.md](security_camera/03_manuals/02_PHASE1_SUCCESS_GUIDE.md)** - 完全な成功手順
-3. **[01_CURRENT_STATUS.md](security_camera/05_project/01_CURRENT_STATUS.md)** - 現在の状態・進捗
+3. **[01_CURRENT_STATUS.md](security_camera/06_project/01_CURRENT_STATUS.md)** - 現在の状態・進捗
 4. **[01_PROTOCOL_TEST_RESULTS.md](security_camera/04_test_results/01_PROTOCOL_TEST_RESULTS.md)** - テスト結果
-5. **[03_LESSONS_LEARNED.md](security_camera/05_project/03_LESSONS_LEARNED.md)** - 重要な発見と教訓
+5. **[03_LESSONS_LEARNED.md](security_camera/06_project/03_LESSONS_LEARNED.md)** - 重要な発見と教訓
 
 ### 📖 設計ドキュメント
 

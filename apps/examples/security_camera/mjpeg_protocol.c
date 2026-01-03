@@ -283,6 +283,8 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
                        uint32_t action_q_depth,
                        uint32_t avg_packet_size,
                        uint32_t errors,
+                       uint32_t tcp_avg_send_us,
+                       uint32_t tcp_max_send_us,
                        uint32_t *sequence,
                        uint8_t *packet)
 {
@@ -308,9 +310,10 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
   metrics->action_q_depth = action_q_depth;
   metrics->avg_packet_size = avg_packet_size;
   metrics->errors = errors;
-  metrics->reserved = 0;
+  metrics->tcp_avg_send_us = tcp_avg_send_us;
+  metrics->tcp_max_send_us = tcp_max_send_us;
 
-  /* Calculate CRC over all fields except crc16 itself (36 bytes) */
+  /* Calculate CRC over all fields except crc16 itself (40 bytes) */
 
   crc = mjpeg_crc16_ccitt(packet, METRICS_PACKET_SIZE - sizeof(uint16_t));
   metrics->crc16 = crc;

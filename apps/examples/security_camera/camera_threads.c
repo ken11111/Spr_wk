@@ -129,14 +129,19 @@ static struct timespec g_last_metrics_time;
 static uint32_t get_uptime_ms(void)
 {
   struct timespec now;
-  uint64_t elapsed_ms;
+  uint64_t start_ms;
+  uint64_t now_ms;
 
   clock_gettime(CLOCK_MONOTONIC, &now);
 
-  elapsed_ms = (uint64_t)(now.tv_sec - g_start_time.tv_sec) * 1000ULL +
-               (uint64_t)(now.tv_nsec - g_start_time.tv_nsec) / 1000000ULL;
+  /* Bug fix: Convert to milliseconds first to avoid negative nsec_diff */
 
-  return (uint32_t)elapsed_ms;
+  start_ms = (uint64_t)g_start_time.tv_sec * 1000ULL +
+             (uint64_t)g_start_time.tv_nsec / 1000000ULL;
+  now_ms = (uint64_t)now.tv_sec * 1000ULL +
+           (uint64_t)now.tv_nsec / 1000000ULL;
+
+  return (uint32_t)(now_ms - start_ms);
 }
 
 /****************************************************************************
@@ -153,6 +158,8 @@ static int send_metrics_packet(int usb_fd)
   uint32_t uptime_ms;
   uint32_t avg_packet_size;
   uint32_t action_q_depth;
+  uint32_t tcp_avg_send_us = 0;
+  uint32_t tcp_max_send_us = 0;
   int ret;
   frame_buffer_t *buf;
 
@@ -164,6 +171,11 @@ static int send_metrics_packet(int usb_fd)
                   : 0;
   action_q_depth = frame_queue_depth(g_action_queue);
 
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+  /* Get TCP send statistics (Phase 7) */
+  tcp_server_get_stats(&tcp_avg_send_us, &tcp_max_send_us);
+#endif
+
   /* Pack metrics into packet */
 
   ret = mjpeg_pack_metrics(uptime_ms,
@@ -172,6 +184,8 @@ static int send_metrics_packet(int usb_fd)
                            action_q_depth,
                            avg_packet_size,
                            g_total_errors,
+                           tcp_avg_send_us,
+                           tcp_max_send_us,
                            &g_metrics_sequence,
                            metrics_buffer);
 
@@ -766,6 +780,52 @@ void camera_threads_cleanup(void)
   else
     {
       LOG_INFO("USB thread joined successfully");
+    }
+
+  /* Phase 7.1b: Log final metrics to console (safe after thread join)
+   *
+   * This approach avoids race conditions by logging metrics AFTER threads
+   * have joined. Metrics are captured in minicom/serial logs even when
+   * TCP connection fails. No TCP sending involved - just console logging.
+   */
+
+  if (g_thread_ctx != NULL && g_total_camera_frames > 0)
+    {
+      uint32_t uptime_ms;
+      uint32_t avg_packet_size;
+      uint32_t action_q_depth;
+      uint32_t tcp_avg_send_us = 0;
+      uint32_t tcp_max_send_us = 0;
+
+      uptime_ms = get_uptime_ms();
+      avg_packet_size = (g_total_usb_packets > 0)
+                      ? (uint32_t)(g_total_packet_bytes / g_total_usb_packets)
+                      : 0;
+
+      /* Safe to read queue depth now - threads are stopped */
+
+      action_q_depth = frame_queue_depth(g_action_queue);
+
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+      tcp_server_get_stats(&tcp_avg_send_us, &tcp_max_send_us);
+#endif
+
+      /* Log metrics to console for capture via minicom */
+
+      LOG_INFO("=================================================");
+      LOG_INFO("FINAL METRICS (Shutdown/Error Detection)");
+      LOG_INFO("=================================================");
+      LOG_INFO("Uptime: %lu ms", (unsigned long)uptime_ms);
+      LOG_INFO("Camera Frames: %lu", (unsigned long)g_total_camera_frames);
+      LOG_INFO("USB/TCP Packets: %lu", (unsigned long)g_total_usb_packets);
+      LOG_INFO("Action Queue Depth: %lu", (unsigned long)action_q_depth);
+      LOG_INFO("Average Packet Size: %lu bytes", (unsigned long)avg_packet_size);
+      LOG_INFO("Total Errors: %lu", (unsigned long)g_total_errors);
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+      LOG_INFO("TCP Avg Send Time: %lu us", (unsigned long)tcp_avg_send_us);
+      LOG_INFO("TCP Max Send Time: %lu us", (unsigned long)tcp_max_send_us);
+#endif
+      LOG_INFO("=================================================");
     }
 
   /* Cleanup frame queue system */

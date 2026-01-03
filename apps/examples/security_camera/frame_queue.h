@@ -47,7 +47,7 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define MAX_QUEUE_DEPTH 3  /* Maximum number of buffers in queue */
+#define MAX_QUEUE_DEPTH 7  /* Maximum number of buffers in queue (Phase 7.1b: 5→7拡張, 10はメモリ過多) */
 
 /****************************************************************************
  * Public Types

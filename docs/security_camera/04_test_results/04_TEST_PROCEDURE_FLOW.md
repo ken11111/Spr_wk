@@ -26,6 +26,7 @@
 - [Phase 1B: USB CDC データ転送テスト](#phase-1b-全体フローシーケンス図)
 - [Phase 1.5: VGA性能検証テスト（ログ取得あり/なし）](#phase-15-全体フローシーケンス図)
 - [Phase 3.0: VGA GUI Viewer テスト（Windows クロスコンパイル）](#phase-30-全体フローシーケンス図)
+- [Phase 7: WiFi/TCP Transport テスト](#phase-7-全体フローシーケンス図)
 - [Phase 0: 初回セットアップ](#phase-0-初回セットアップ-初回のみ必要)
 - [端末の役割まとめ](#端末の役割まとめ)
 - [USB デバイス構成](#usb-デバイス構成)
@@ -1204,6 +1205,481 @@ dmesg | tail -50 | grep -i "cdc_acm\|ttyACM"
 - **Windows ビルドガイド**: [`/home/ken/Rust_ws/security_camera_viewer/WINDOWS_BUILD.md`](../../../../Rust_ws/security_camera_viewer/WINDOWS_BUILD.md)
 - **VGA テストセットアップ**: [`/home/ken/Rust_ws/security_camera_viewer/VGA_TEST_SETUP.md`](../../../../Rust_ws/security_camera_viewer/VGA_TEST_SETUP.md)
 - **Phase 3.0 計画**: [`/home/ken/Spr_ws/GH_wk_test/docs/security_camera/PHASE3_PLAN.md`](../PHASE3_PLAN.md)
+
+---
+
+## Phase 7: 全体フローシーケンス図
+
+**Phase 7: WiFi/TCP Transport テスト (GS2200M WiFi Module)**
+
+Phase 7 では、USB Serial 通信に加えて、WiFi/TCP 経由での MJPEG streaming をテストします。
+
+### Phase 7: アーキテクチャ概要
+
+```
+Spresense (GS2200M WiFi)          WiFi Network           PC (Windows/Linux)
+┌──────────────────────┐         ┌─────────┐         ┌──────────────────────┐
+│ Camera (640x480)     │         │         │         │                      │
+│ ↓                    │         │  WiFi   │         │ security_camera_     │
+│ MJPEG Pack           │  WiFi   │  Router │  WiFi   │ gui.exe              │
+│ ↓                    │ ←─────→ │    or   │ ←─────→ │                      │
+│ TCP Server           │         │ Mobile  │         │ TCP Client           │
+│ (Port 8888)          │         │   AP    │         │ (192.168.x.x:8888)   │
+│                      │         │         │         │                      │
+│ WiFi IP: 192.168.x.x │         └─────────┘         │ MJPEG Display        │
+└──────────────────────┘                             └──────────────────────┘
+```
+
+### Phase 7-A: WiFi/TCP テスト手順
+
+```plantuml
+@startuml
+title Phase 7 WiFi/TCP Transport テスト
+
+participant "Ubuntu\nTerminal A\n(Spresense Console)" as TermA #LightGreen
+participant "Spresense\n(GS2200M WiFi)" as Spresense #LightSkyBlue
+participant "WiFi\nNetwork" as WiFi #LightYellow
+participant "PC\n(Windows/Linux)" as PC #LightPink
+
+== Phase 1: Spresenseファームウェアフラッシュ ==
+
+note over TermA, Spresense #FFCCCC
+  **前提条件**:
+  - Phase 7 WiFi/TCP対応ファームウェアビルド済み
+  - /dev/ttyUSB0 (フラッシュ用) 接続
+  - GS2200M WiFi モジュール接続
+end note
+
+TermA -> TermA: cd ~/Spr_ws/GH_wk_test/spresense/sdk
+TermA -> TermA: sudo -E PATH=$HOME/spresenseenv/usr/bin:/usr/bin:/bin\n./tools/flash.sh -c /dev/ttyUSB0 ../nuttx/nuttx.spk
+TermA -> Spresense: WiFi/TCP対応ファームウェア書き込み
+Spresense --> TermA: フラッシュ完了
+note right: Spresenseリセット
+
+== Phase 2: シリアルコンソール接続 ==
+
+TermA -> TermA: sudo minicom -D /dev/ttyUSB0 -b 115200
+TermA -> Spresense: シリアルコンソール接続
+Spresense --> TermA: NuttShell (NSH) プロンプト\nnsh>
+
+== Phase 3: WiFi接続 ==
+
+TermA -> Spresense: gs2200m <SSID> <PASSWORD> &
+note right: 例: gs2200m DESKTOP-GPU979R B54p3530 &
+
+Spresense -> WiFi: WiFi接続開始
+WiFi --> Spresense: DHCP IP割り当て
+
+TermA -> Spresense: ifconfig
+Spresense --> TermA: wlan0   Link encap:Ethernet\n        inet addr:192.168.137.210\n        DRaddr:192.168.137.1\n        Mask:255.255.255.0
+
+note over TermA #LIGHTGREEN
+  **重要**: IPアドレスをメモ
+  例: 192.168.137.210
+end note
+
+== Phase 4: Security Cameraアプリ起動 ==
+
+TermA -> Spresense: security_camera &
+note right: バックグラウンド実行
+
+Spresense -> Spresense: [CAM] Security Camera Application Starting (MJPEG)
+Spresense -> Spresense: [CAM] Camera config: 640x480 @ 30 fps
+Spresense -> Spresense: [CAM] WiFi manager initialized
+Spresense -> Spresense: [CAM] Connecting to WiFi: SSID=DESKTOP-GPU979R
+Spresense -> Spresense: [CAM] WiFi connected! IP: 192.168.137.210
+Spresense -> Spresense: [CAM] TCP server initialized on port 8888
+Spresense -> Spresense: [CAM] Waiting for client connection...
+
+Spresense --> TermA: [CAM] TCP server initialized on port 8888\n[CAM] Waiting for client connection...
+
+note over Spresense #LIGHTYELLOW
+  **待機状態**:
+  - TCP Server listening on 0.0.0.0:8888
+  - クライアント接続待ち
+end note
+
+== Phase 5: PC側GUIアプリ起動 ==
+
+note over PC #CCFFFF
+  **PC側セットアップ**:
+  - 同じWiFiネットワークに接続
+  - security_camera_gui.exe (Windows版) または
+    security_camera_gui (Linux版) を起動
+end note
+
+PC -> PC: ./security_camera_gui.exe 起動
+PC -> PC: Transport Type: TCP を選択
+PC -> PC: Host: 192.168.137.210 入力\nPort: 8888 (デフォルト)
+PC -> PC: "Start Capture" ボタンクリック
+
+PC -> WiFi: TCP接続リクエスト\n(192.168.137.210:8888)
+WiFi -> Spresense: TCP接続リクエスト転送
+
+Spresense -> Spresense: [CAM] Client connected! Starting MJPEG streaming...
+Spresense --> TermA: [CAM] Client connected! Starting MJPEG streaming...
+
+alt 接続成功
+    Spresense -> PC: TCP接続確立
+    note left: ✅ 接続成功
+
+    loop MJPEG Streaming
+        Spresense -> Spresense: カメラキャプチャ (JPEG)
+        Spresense -> Spresense: MJPEG パケット作成
+        Spresense -> Spresense: [測定] TCP send時間計測
+        Spresense -> WiFi: TCP send (MJPEG packet)
+        WiFi -> PC: MJPEG packet転送
+
+        PC -> PC: パケット受信
+        PC -> PC: CRC検証
+        PC -> PC: JPEG デコード
+        PC -> PC: 画面更新
+
+        alt 30フレーム毎
+            Spresense -> WiFi: Metrics packet送信
+            WiFi -> PC: Metrics packet転送
+            PC -> PC: Spresenseメトリクス更新\n- Camera FPS\n- Queue Depth\n- TCP Avg/Max Send Time
+        end
+
+        note over PC #LIGHTGREEN
+          **統計表示**:
+          - FPS: 1-2 fps (Phase 7.0時点)
+          - Spresense Camera FPS: 30 fps
+          - TCP Avg Send: ??? ms
+          - TCP Max Send: ??? ms
+          - Queue Depth: 5 (満杯)
+        end note
+    end
+
+else 接続失敗
+    PC --> PC: Error: Connection timeout
+    note right #FFCCCC: トラブルシューティング参照
+end
+
+== Phase 6: テスト終了と切断検出 ==
+
+alt PC側から停止
+    PC -> PC: "Stop Capture" ボタンクリック
+    PC -> WiFi: TCP接続切断
+    WiFi -> Spresense: 切断通知
+
+    Spresense -> Spresense: [CAM] TCP thread: Client disconnected (error -107)
+    Spresense --> TermA: [CAM] TCP thread: Client disconnected (error -107)
+
+else Spresense側エラー
+    Spresense -> Spresense: キュー満杯 / エラー蓄積
+    Spresense -> Spresense: [CAM] No empty buffer for metrics packet
+    Spresense -> Spresense: Shutdown requested by threads
+    Spresense --> TermA: [CAM] Shutdown requested by threads, exiting main loop
+end
+
+Spresense -> Spresense: [CAM] Threading system cleaned up
+Spresense -> Spresense: [CAM] WiFi/TCP transport cleaned up
+Spresense --> TermA: [CAM] Security Camera Application Stopped
+
+== Phase 7: ログ収集と分析 ==
+
+TermA -> TermA: Spresenseコンソールログを保存
+note left: 性能ログ、エラーログを記録
+
+PC -> PC: CSVメトリクスファイル確認
+note right: metrics_YYYYMMDD_HHMMSS.csv\n- tcp_avg_send_ms\n- tcp_max_send_ms\n- serial_read_time_ms
+
+@enduml
+```
+
+---
+
+## Phase 7: 操作手順詳細
+
+### 事前準備
+
+**Spresense側**:
+1. Phase 7 WiFi/TCP対応ファームウェアをビルド
+2. GS2200M WiFi モジュールを接続
+3. /dev/ttyUSB0 でフラッシュ可能な状態
+
+**PC側**:
+1. Windows版またはLinux版GUIアプリをビルド
+2. 同じWiFiネットワークに接続
+
+**WiFiネットワーク**:
+- SSID: 例 `DESKTOP-GPU979R`
+- Password: 例 `B54p3530`
+- PC と Spresense が同じネットワークに接続可能
+
+---
+
+### Step 1: ファームウェアフラッシュ
+
+```bash
+# Ubuntu Terminal A
+cd ~/Spr_ws/GH_wk_test/spresense/sdk
+sudo -E PATH=$HOME/spresenseenv/usr/bin:/usr/bin:/bin ./tools/flash.sh -c /dev/ttyUSB0 ../nuttx/nuttx.spk
+
+# フラッシュ完了後、Spresenseリセット
+```
+
+---
+
+### Step 2: シリアルコンソール接続とWiFi接続
+
+```bash
+# Ubuntu Terminal A
+sudo minicom -D /dev/ttyUSB0 -b 115200
+
+# minicom内で実行
+nsh> gs2200m DESKTOP-GPU979R B54p3530 &
+# 出力例: gs2200m [13:50]
+
+# WiFi接続確認
+nsh> ifconfig
+# 出力例:
+# wlan0   Link encap:Ethernet HWaddr 3c:95:09:00:64:ac at UP mtu 1500
+#         inet addr:192.168.137.210 DRaddr:192.168.137.1 Mask:255.255.255.0
+
+# ⚠️ 重要: IPアドレスをメモ (例: 192.168.137.210)
+```
+
+---
+
+### Step 3: Security Cameraアプリ起動
+
+```bash
+# minicom内で実行
+nsh> security_camera &
+# 出力例: security_camera [14:100]
+
+# 以下のログが表示される:
+# [CAM] Security Camera Application Starting (MJPEG)
+# [CAM] Camera config: 640x480 @ 30 fps, Format=JPEG
+# [CAM] WiFi manager initialized
+# [CAM] Connecting to WiFi: SSID=DESKTOP-GPU979R
+# [CAM] WiFi connected! IP: 192.168.137.210
+# [CAM] TCP server initialized on port 8888
+# [CAM] Waiting for client connection...
+
+# この状態で次のステップへ
+```
+
+---
+
+### Step 4: PC側GUIアプリ起動と接続
+
+**Windows版**:
+```bash
+# WSL2 Ubuntu
+cd /home/ken/Rust_ws/security_camera_viewer
+./target/x86_64-pc-windows-gnu/release/security_camera_gui.exe
+```
+
+**Linux版**:
+```bash
+cd /home/ken/Rust_ws/security_camera_viewer
+cargo run --release --bin security_camera_gui
+```
+
+**GUI操作**:
+1. Transport Type: **TCP** を選択
+2. Host: **192.168.137.210** (Spresense IP) を入力
+3. Port: **8888** (デフォルト)
+4. **"Start Capture"** ボタンをクリック
+
+**接続成功時**:
+- GUI画面にMJPEG映像が表示される
+- 統計情報が更新される (FPS, Queue Depth, TCP Send Time)
+
+---
+
+### Step 5: テスト観察項目
+
+**Spresenseコンソール (Terminal A)**:
+```
+[CAM] Client connected! Starting MJPEG streaming...
+[CAM] JPEG padding removed: 6 bytes (size: 54176 -> 54170)
+[CAM] Packed frame: seq=0, size=54170, crc=0xD3F0, total=54184
+[CAM] Packed metrics: seq=0, cam_frames=7, usb_pkts=2, q_depth=5, avg_size=53
+[CAM] No empty buffer for metrics packet
+```
+
+**観察ポイント**:
+- ✅ `Client connected!` が表示されること
+- ⚠️ `No empty buffer for metrics packet` の頻度
+- ⚠️ `q_depth=5` (キュー満杯) の頻度
+- ⚠️ `Client disconnected (error -107)` の発生
+
+**PC側GUI**:
+
+| 項目 | Phase 7.0実測値 | 目標値 | 備考 |
+|------|----------------|--------|------|
+| **FPS** | 0.57-1.62 fps | 15-25 fps | ❌ 大幅未達 |
+| **serial_read_time_ms** | 355-557 ms | <50 ms | ❌ 7-11倍遅い |
+| **Spresense Camera FPS** | 30 fps | 30 fps | ✅ 正常 |
+| **Queue Depth** | 5 (満杯) | 0-3 | ❌ 常時満杯 |
+| **Metricsパケット受信** | 0 | 30回/秒 | ❌ 未受信 |
+
+**CSVファイル確認**:
+```bash
+# PC側 (Windows または Linux)
+cat metrics_YYYYMMDD_HHMMSS.csv | head -10
+
+# 新しいカラムを確認:
+# - tcp_avg_send_ms (Phase 7.0では未実装のため0)
+# - tcp_max_send_ms (Phase 7.0では未実装のため0)
+```
+
+---
+
+### Step 6: テスト終了
+
+**PC側**:
+- GUI の "Stop Capture" ボタンをクリック
+
+**Spresense側**:
+- 切断ログを確認
+```
+[CAM] TCP thread: Client disconnected (error -107)
+[CAM] Shutdown requested by threads, exiting main loop
+[CAM] Threading system cleaned up successfully
+[CAM] WiFi/TCP transport cleaned up
+[CAM] Security Camera Application Stopped
+```
+
+**minicom終了**:
+- `Ctrl+A` → `X` で minicom を終了
+
+---
+
+## Phase 7: 既知の問題と対策
+
+### 問題1: FPS低下 (1-2 fps, 目標15-25 fps)
+
+**現象**:
+- PC側FPS: 0.57-1.62 fps
+- serial_read_time_ms: 355-557 ms (異常に遅い)
+
+**原因 (仮説)**:
+1. **TCP送信ボトルネック**:
+   - usrsock アーキテクチャのオーバーヘッド (4 context switches)
+   - GS2200M WiFi モジュールの帯域制限
+2. **Sync word検索オーバーヘッド**:
+   - PC側でsync wordが見つからず、1バイトずつスライド検索
+   - 最大10000回試行後にエラー
+
+**対策 (Phase 7.1以降)**:
+- ✅ TCP send時間計測実装済み (Phase 7.0)
+- 🔄 Metricsパケット送信バッファ確保 (TODO)
+- 🔄 キュー深度調整 (5 → 7-10) (TODO)
+- 🔄 異常終了時のMetricsパケット強制送信 (TODO)
+
+---
+
+### 問題2: Metricsパケット未受信
+
+**現象**:
+```
+[CAM] Packed metrics: seq=0, cam_frames=7, usb_pkts=2, q_depth=5, avg_size=53
+[CAM] No empty buffer for metrics packet
+```
+
+**原因**:
+- キューが常に満杯 (depth=5)
+- すべてのバッファがMJPEGパケットで占有
+- Metricsパケット用の空きバッファがない
+
+**対策 (TODO)**:
+1. **キュー深度拡張**: 5 → 7-10 バッファ
+2. **Metricsパケット優先送信**: 空きバッファを1つ常に確保
+3. **異常終了時の強制送信**: シャットダウン前に最終Metricsを送信
+
+---
+
+### 問題3: Sync word not found エラー
+
+**現象**:
+```
+[ERROR] Packet read error: Sync word not found
+[ERROR] Failed to find sync word after 10000 attempts
+[ERROR] Too many consecutive packet errors (10), stopping capture thread
+```
+
+**原因**:
+- TCP接続切断後、データストリームが途切れる
+- sync word検索が失敗し続ける
+- 10回連続エラーで停止
+
+**対策**:
+- 切断検出の改善 (ENOTCONN, ECONNRESET, EPIPE)
+- エラーカウンタの分離 (packet errors vs JPEG decode errors)
+
+---
+
+## Phase 7: トラブルシューティング
+
+### 問題: WiFi接続失敗
+
+**エラーメッセージ**:
+```
+nsh> gs2200m: command not found
+```
+
+**原因**: GS2200M WiFiドライバーが無効
+
+**解決策**:
+1. `.config` で以下を確認:
+   ```
+   CONFIG_WIRELESS_GS2200M=y
+   CONFIG_WL_GS2200M=y
+   ```
+2. 再ビルドとフラッシュ
+
+---
+
+### 問題: TCP接続タイムアウト
+
+**エラーメッセージ (PC側)**:
+```
+[ERROR] Connection timeout: 192.168.137.210:8888
+```
+
+**原因**:
+1. Spresense IPアドレスが間違っている
+2. PCとSpresenseが異なるネットワークに接続
+3. Firewallがブロックしている
+
+**解決策**:
+1. `ifconfig` でSpresense IPを再確認
+2. PCのWiFi接続を確認 (`ipconfig` / `ifconfig`)
+3. pingテスト: `ping 192.168.137.210`
+4. Firewall設定確認 (Windows Defender, iptables)
+
+---
+
+### 問題: キュー満杯 (Queue Depth = 5)
+
+**ログ**:
+```
+[CAM] Packed metrics: seq=X, cam_frames=X, usb_pkts=X, q_depth=5, avg_size=X
+```
+
+**原因**: TCP送信速度 < Camera capture速度
+
+**一時的な対策**:
+1. Camera FPS を下げる (30fps → 20fps)
+2. JPEG品質を下げる (サイズ削減)
+
+**恒久的な対策 (TODO)**:
+- TCP送信パフォーマンス改善
+- WiFi帯域幅の最適化
+
+---
+
+## Phase 7: 関連ドキュメント
+
+- **Phase 7 仕様書**: [`/home/ken/Spr_ws/GH_wk_test/docs/security_camera/PHASE7_WIFI_TCP_SPEC.md`](../PHASE7_WIFI_TCP_SPEC.md)
+- **E2E アーキテクチャ分析**: [`/home/ken/Spr_ws/GH_wk_test/docs/security_camera/04_test_results/15_PHASE7_E2E_ARCHITECTURE_ANALYSIS.md`](15_PHASE7_E2E_ARCHITECTURE_ANALYSIS.md)
+- **Case Study (WiFi WAPI互換性)**: [`/home/ken/Spr_ws/GH_wk_test/docs/case_study/17_PHASE7_WIFI_WAPI_COMPATIBILITY.md`](../../case_study/17_PHASE7_WIFI_WAPI_COMPATIBILITY.md)
+- **PC側 PHASE4 仕様**: [`/home/ken/Rust_ws/security_camera_viewer/PHASE4_SPEC.md`](../../../../Rust_ws/security_camera_viewer/PHASE4_SPEC.md)
 
 ---
 

@@ -31,6 +31,38 @@ typedef struct tcp_server_s
   bool is_running;     /* Server running state */
 } tcp_server_t;
 
+/**
+ * TCP send statistics (Phase 7 metrics)
+ */
+
+typedef struct tcp_stats_s
+{
+  uint64_t total_send_time_us;  /* Total TCP send time (microseconds) */
+  uint32_t send_count;           /* Number of send operations */
+  uint32_t max_send_time_us;     /* Maximum send time (microseconds) */
+} tcp_stats_t;
+
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
+
+#ifdef __cplusplus
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+/* Global TCP statistics */
+
+EXTERN tcp_stats_t g_tcp_stats;
+
+#undef EXTERN
+#ifdef __cplusplus
+}
+#endif
+
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
@@ -103,5 +135,41 @@ void tcp_server_disconnect_client(tcp_server_t *server);
  */
 
 void tcp_server_cleanup(tcp_server_t *server);
+
+/**
+ * Get TCP send statistics
+ *
+ * Parameters:
+ *   avg_us - Output: Average send time (microseconds)
+ *   max_us - Output: Maximum send time (microseconds)
+ *
+ * Returns:
+ *   Number of send operations
+ */
+
+uint32_t tcp_server_get_stats(uint32_t *avg_us, uint32_t *max_us);
+
+/**
+ * Reset TCP send statistics
+ */
+
+void tcp_server_reset_stats(void);
+
+/**
+ * Send data directly to connected client (bypass queue, for shutdown metrics)
+ *
+ * Parameters:
+ *   server - TCP server context
+ *   data   - Data buffer to send
+ *   len    - Data length
+ *
+ * Returns:
+ *   Number of bytes sent on success, negative errno on failure
+ *
+ * Note: This function bypasses the normal queue mechanism and is intended
+ *       for sending final metrics during shutdown.
+ */
+
+int tcp_server_send_direct(tcp_server_t *server, const void *data, size_t len);
 
 #endif /* __APPS_EXAMPLES_SECURITY_CAMERA_TCP_SERVER_H */

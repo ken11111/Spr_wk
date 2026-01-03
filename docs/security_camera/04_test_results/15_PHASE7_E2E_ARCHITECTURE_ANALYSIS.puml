@@ -1,0 +1,143 @@
+@startuml Phase7_E2E_Architecture
+!theme plain
+skinparam backgroundColor white
+skinparam defaultFontSize 10
+skinparam componentStyle rectangle
+
+title Phase 7 WiFi/TCP E2E System Architecture
+
+' ==== Spresense側 ====
+package "Spresense (NuttX RTOS)" {
+    ' Camera Driver Layer
+    component "ISX012\nCamera Driver" as ISX012 #LightBlue
+    component "V4L2\nDriver Layer" as V4L2 #LightBlue
+    database "V4L2 Buffers\n(3 buffers\n64KB each)" as V4L2_BUF #LightGray
+
+    ' Application Layer
+    rectangle "security_camera application" {
+        component "Camera Thread\n(Priority 110)" as CAM_THREAD #LightGreen
+        component "TCP/USB Thread\n(Priority 100)" as USB_THREAD #LightGreen
+
+        queue "Frame Queue\n(5 buffers\n~100KB each)" as FRAME_Q #Yellow
+        queue "Empty Queue\n(返却バッファ)" as EMPTY_Q #LightYellow
+
+        component "MJPEG\nProtocol Packer" as MJPEG_PACK
+        component "Metrics\nCollector" as METRICS
+    }
+
+    ' Transport Layer
+    component "TCP Server\n(tcp_server.c)" as TCP_SERVER #Orange
+    component "USB Serial\n(usb_transport.c)" as USB_SERIAL #Orange
+
+    ' TCP/IP Stack
+    rectangle "NuttX TCP/IP Stack (usrsock architecture)" {
+        component "Socket API\n(send/recv)" as SOCKET_API
+        component "usrsock\nClient" as USRSOCK_CLIENT
+        queue "TCP Send Buffer\n(256KB)" as TCP_SNDBUF #LightCyan
+    }
+
+    ' WiFi Driver
+    component "gs2200m\ndaemon" as GS2200M_DAEMON #Pink
+    component "GS2200M\nWiFi Driver" as GS2200M_DRV #Pink
+    component "SPI DMA\nController" as SPI_DMA
+}
+
+' ==== Network Layer ====
+cloud "WiFi Network\n(802.11n)" as WIFI_NET #LightGray {
+    node "WiFi AP\n192.168.137.x" as WIFI_AP
+}
+
+' ==== PC側 (Windows/Linux) ====
+package "PC Application (Rust)" {
+    ' Network Layer
+    component "TCP Client\n(TcpStream)" as TCP_CLIENT #Orange
+    queue "OS TCP Buffer\n(default)" as PC_TCP_BUF #LightCyan
+
+    ' Application Layer
+    rectangle "security_camera_viewer" {
+        component "Packet Reader\n(tcp_connection.rs)" as PACKET_READER
+        component "Sync Word\nSearch" as SYNC_SEARCH #Red
+        component "Protocol\nParser" as PROTOCOL
+        component "JPEG\nDecoder" as JPEG_DEC
+        component "Metrics\nLogger (CSV)" as METRICS_LOG
+        component "GUI Renderer\n(egui)" as GUI
+    }
+
+    storage "Metrics CSV\nFile" as CSV_FILE
+}
+
+' ==== Data Flow (Camera → PC) ====
+ISX012 -down-> V4L2 : "JPEG data\n(30fps)"
+V4L2 <--> V4L2_BUF : "VIDIOC_DQBUF\nVIDIOC_QBUF"
+V4L2 -down-> CAM_THREAD : "camera_get_frame()\n~2ms"
+
+CAM_THREAD -> MJPEG_PACK : "mjpeg_pack_frame()\n~9ms"
+CAM_THREAD -> METRICS : "update stats"
+MJPEG_PACK -right-> FRAME_Q : "enqueue\n(mutex lock)"
+
+FRAME_Q -down-> USB_THREAD : "dequeue\n(wait on cond)"
+EMPTY_Q -up-> CAM_THREAD : "return buffer"
+
+USB_THREAD -down-> TCP_SERVER : "tcp_server_send()\n[BOTTLENECK]"
+USB_THREAD -down-> USB_SERIAL : "usb_transport_send()\n~30ms"
+
+TCP_SERVER -> SOCKET_API : "write(sockfd)\nNODELAY=1"
+SOCKET_API -> USRSOCK_CLIENT : "usrsock_sendto()"
+USRSOCK_CLIENT <--> TCP_SNDBUF : "buffer data"
+USRSOCK_CLIENT <-left-> GS2200M_DAEMON : "Unix socket\n[OVERHEAD]"
+
+GS2200M_DAEMON -> GS2200M_DRV : "gs2200m_ioctl()"
+GS2200M_DRV <--> SPI_DMA : "SPI transfer\n~40Mbps max"
+GS2200M_DRV -down-> WIFI_NET : "802.11n\n~40-70Mbps"
+
+WIFI_NET --> WIFI_AP
+WIFI_AP -down-> TCP_CLIENT : "TCP/IP"
+
+TCP_CLIENT <--> PC_TCP_BUF : "recv()"
+TCP_CLIENT -> PACKET_READER : "read_packet()"
+PACKET_READER -> SYNC_SEARCH : "find 0xCAFEBABE\n[OVERHEAD]"
+SYNC_SEARCH -> PROTOCOL : "parse header"
+PROTOCOL -> JPEG_DEC : "MJPEG data"
+PROTOCOL -> METRICS_LOG : "Metrics data"
+JPEG_DEC -> GUI : "RGBA pixels"
+METRICS_LOG -> CSV_FILE : "write stats"
+
+' ==== Annotations ====
+note right of FRAME_Q
+  **Current Problem:**
+  - Queue常に満杯 (5/5)
+  - カメラ取得 > TCP送信
+  - メトリクス送信不可
+end note
+
+note right of SYNC_SEARCH
+  **Performance Issue:**
+  - 10KB検索 = ~100ms
+  - 原因: TCP送信遅延で
+    パケット境界ずれ
+end note
+
+note right of USRSOCK_CLIENT
+  **usrsock Overhead:**
+  - User-space socket
+  - Unix domain socket通信
+  - Context switch多発
+  - gs2200mデーモン経由
+end note
+
+note left of TCP_SNDBUF
+  **TCP Settings:**
+  - SO_SNDBUF = 256KB
+  - TCP_NODELAY = 1
+  - しかし送信遅延
+end note
+
+note bottom of GS2200M_DRV
+  **WiFi Throughput:**
+  - GS2200M: 802.11n
+  - 理論値: ~70Mbps
+  - 実測: 要計測
+  - SPI帯域: 40Mbps
+end note
+
+@enduml

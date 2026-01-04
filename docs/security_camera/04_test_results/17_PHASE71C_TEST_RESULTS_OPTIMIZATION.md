@@ -1,88 +1,88 @@
-# Phase 7.1c Test Results & WiFi Optimization Analysis
+# Phase 7.1c テスト結果 & WiFi最適化分析
 
-**Test Date**: 2026-01-03
-**Firmware Version**: Phase 7.1c (Timing bug fixes)
-**Previous Version**: Phase 7.1b (Race condition fix), Phase 7.0 (Initial WiFi/TCP)
+**テスト日**: 2026-01-03
+**ファームウェアバージョン**: Phase 7.1c (タイミングバグ修正)
+**前バージョン**: Phase 7.1b (レースコンディション修正), Phase 7.0 (WiFi/TCP初期実装)
 
 ---
 
-## Executive Summary
+## 要約
 
-### Phase 7.1c Achievements
+### Phase 7.1c の成果
 
-✅ **Critical Bug Fix**: Timing calculation overflow bug fixed in both `tcp_server.c` and `camera_threads.c`
-✅ **Accurate Metrics**: First successful acquisition of true TCP send time statistics
-✅ **Console Logging**: Final metrics successfully logged to Spresense console (captured via minicom)
-✅ **Bottleneck Identified**: TCP send time confirmed as primary bottleneck (233ms avg vs 50ms target)
+✅ **重大バグ修正**: `tcp_server.c` と `camera_threads.c` の両方でタイミング計算オーバーフローバグを修正
+✅ **正確なメトリクス**: TCP送信時間統計の真の値を初めて取得成功
+✅ **コンソールロギング**: 最終メトリクスをSpresenseコンソールへのログ出力に成功（minicom経由で取得）
+✅ **ボトルネック特定**: TCP送信時間が主要ボトルネックと確認（平均233ms vs 目標50ms）
 
-### Performance Summary
+### 性能サマリー
 
-| Metric | Phase 7.0 | Phase 7.1c | Target | Status |
-|--------|-----------|------------|--------|--------|
+| 指標 | Phase 7.0 | Phase 7.1c | 目標値 | 状況 |
+|------|-----------|------------|--------|------|
 | **PC FPS** | 0.57-1.62 | 0.54-1.10 | 15-25 | ❌ 4.4% |
 | **Spresense FPS** | ~2.5 | 4.36 | 30 | ❌ 14.5% |
-| **TCP Send Time** | Unknown | 233ms avg | <50ms | ❌ 4.7x over |
-| **TCP Max Send** | Unknown | 885ms | <100ms | ❌ 8.9x over |
-| **WiFi Throughput** | Unknown | 1.6 Mbps | ~8 Mbps | ❌ 20% |
-| **Queue Depth** | 5 (full) | 7 (full) | <3 | ❌ Saturated |
-| **Metrics Success** | 0% | 12.5% | >90% | ❌ |
+| **TCP送信時間** | 不明 | 平均233ms | <50ms | ❌ 4.7倍超過 |
+| **TCP最大送信時間** | 不明 | 885ms | <100ms | ❌ 8.9倍超過 |
+| **WiFiスループット** | 不明 | 1.6 Mbps | ~8 Mbps | ❌ 20% |
+| **キュー深度** | 5 (満杯) | 7 (満杯) | <3 | ❌ 飽和 |
+| **Metrics成功率** | 0% | 12.5% | >90% | ❌ |
 
-**Conclusion**: WiFi/TCP transport significantly underperforms USB Serial (Phase 2: 37 fps). TCP send bottleneck requires optimization.
+**結論**: WiFi/TCP転送はUSB Serial（Phase 2: 37 fps）と比較して大幅に性能不足。TCP送信ボトルネックの最適化が必要。
 
 ---
 
-## 1. Phase 7.1 Implementation History
+## 1. Phase 7.1 実装履歴
 
-### Phase 7.1b: Race Condition Bug
+### Phase 7.1b: レースコンディションバグ
 
-**Problem**:
-- Forced metrics send in `camera_threads_cleanup()` executed **before** `pthread_join()`
-- USB/TCP thread still running → two threads writing to same TCP socket
-- Result: TCP stream corruption, garbled console output
+**問題**:
+- `camera_threads_cleanup()` での強制メトリクス送信が `pthread_join()` の**前**に実行
+- USB/TCPスレッドがまだ実行中 → 2つのスレッドが同じTCPソケットに同時書き込み
+- 結果: TCPストリーム破損、コンソール出力文字化け
 
-**User Report**:
+**ユーザー報告**:
 > 実行しましたが、PC側で画像とログを受け取れなくなり、Spresense側のログも文字化けして解読不可能になりました。
 
-**Fix**: Disabled forced TCP send, moved metrics logging to console after thread join
+**修正**: 強制TCP送信を無効化し、スレッドjoin後にメトリクスをコンソールログに出力
 
-### Phase 7.1c: Timing Calculation Bug
+### Phase 7.1c: タイミング計算バグ
 
-**Problem**: Overflow in timespec difference calculation
+**問題**: timespec差分計算でのオーバーフロー
 
-**Buggy Code** (tcp_server.c:249, camera_threads.c:136):
+**バグのあるコード** (tcp_server.c:249, camera_threads.c:136):
 ```c
-// Bug: end.tv_nsec - start.tv_nsec can be negative when second rolls over
+// バグ: 秒のロールオーバー時に end.tv_nsec - start.tv_nsec が負になる
 send_time_us = (end.tv_sec - start.tv_sec) * 1000000ULL +
-               (end.tv_nsec - start.tv_nsec) / 1000ULL;  // <- Overflow!
+               (end.tv_nsec - start.tv_nsec) / 1000ULL;  // <- オーバーフロー!
 ```
 
-**Example**:
-- `start.tv_nsec = 900,000,000` (0.9s)
-- `end.tv_nsec = 100,000,000` (1.1s after second rollover)
-- Difference: `100,000,000 - 900,000,000 = -800,000,000`
-- Unsigned arithmetic: Wraps to `18,446,744,073,909,551,616 - 800,000,000 = huge positive`
+**例**:
+- `start.tv_nsec = 900,000,000` (0.9秒)
+- `end.tv_nsec = 100,000,000` (秒ロールオーバー後の1.1秒)
+- 差分: `100,000,000 - 900,000,000 = -800,000,000`
+- unsigned演算: `18,446,744,073,909,551,616 - 800,000,000 = 巨大な正の値`にラップアラウンド
 
-**Result**:
-- TCP Avg Send Time: **1,036,271,915 us** (1036 seconds = 17 minutes) ← Impossible!
-- Uptime: **4,154,515,276 ms** (48 days) ← System ran for 7 seconds
+**結果**:
+- TCP平均送信時間: **1,036,271,915 us** (1036秒 = 17分) ← ありえない！
+- 稼働時間: **4,154,515,276 ms** (48日) ← 実際は7秒稼働
 
-**Fixed Code**:
+**修正後のコード**:
 ```c
-// Convert both to microseconds first, then subtract (always positive)
+// 両方を先にマイクロ秒に変換してから減算（常に正）
 uint64_t start_us = (uint64_t)start.tv_sec * 1000000ULL +
                     (uint64_t)start.tv_nsec / 1000ULL;
 uint64_t end_us = (uint64_t)end.tv_sec * 1000000ULL +
                   (uint64_t)end.tv_nsec / 1000ULL;
-send_time_us = end_us - start_us;  // Correct calculation
+send_time_us = end_us - start_us;  // 正しい計算
 ```
 
 ---
 
-## 2. Phase 7.1c Test Results
+## 2. Phase 7.1c テスト結果
 
-### 2.1 Spresense Log Analysis
+### 2.1 Spresenseログ分析
 
-**System Startup**:
+**システム起動**:
 ```
 WiFi connected! IP: 192.168.137.58
 TCP server initialized on port 8888
@@ -92,59 +92,59 @@ Camera thread priority: 110
 USB thread priority: 100
 ```
 
-**Runtime Behavior**:
-- Total runtime: 7.8 seconds
-- Camera frames processed: 34
-- TCP packets sent: 28
-- Frames remaining in queue: 6 (34 - 28)
-- JPEG validation errors: 0 (100% success)
+**実行時の動作**:
+- 総実行時間: 7.8秒
+- カメラフレーム処理数: 34
+- TCP送信パケット数: 28
+- キューに残ったフレーム: 6 (34 - 28)
+- JPEG検証エラー: 0 (100%成功)
 
-**Metrics Packet Transmission**:
+**Metricsパケット送信**:
 ```
-Metrics attempts: 8 (seq=0 to seq=7)
-Success: 1 (seq=0: "Metrics queued")
-Failure: 7 ("No empty buffer for metrics packet")
-Success rate: 12.5%
+Metrics試行回数: 8回 (seq=0～seq=7)
+成功: 1回 (seq=0: "Metrics queued")
+失敗: 7回 ("No empty buffer for metrics packet")
+成功率: 12.5%
 ```
 
-**Queue Status** (every metrics attempt):
+**キュー状態** (Metrics試行ごと):
 ```
-seq=0: q_depth=4  <- Initial fill
-seq=1: q_depth=7  <- Saturated
+seq=0: q_depth=4  <- 初期充填中
+seq=1: q_depth=7  <- 飽和
 seq=2: q_depth=7
 seq=3: q_depth=7
 seq=4: q_depth=7
 seq=5: q_depth=7
 seq=6: q_depth=7
-seq=7: q_depth=7  <- Constantly full
+seq=7: q_depth=7  <- 常時満杯
 ```
 
-**Termination**:
+**終了**:
 ```
 TCP thread: Client disconnected (error -107)
 Camera thread exiting (processed 34 frames)
 USB thread exiting (sent 28 packets, 1318684 bytes total)
 ```
 
-**FINAL METRICS** (Console Log - Key Achievement!):
+**FINAL METRICS** (コンソールログ - 重要な成果！):
 ```
 =================================================
 FINAL METRICS (Shutdown/Error Detection)
 =================================================
-Uptime: 7804 ms                    <- Correct! (was 4,154,515,276 ms)
+Uptime: 7804 ms                    <- 正確！ (以前は 4,154,515,276 ms)
 Camera Frames: 34
 USB/TCP Packets: 28
 Action Queue Depth: 6
 Average Packet Size: 47095 bytes
 Total Errors: 0
-TCP Avg Send Time: 232959 us      <- 233ms (was 1,036,271,915 us)
-TCP Max Send Time: 884646 us      <- 885ms (was 1,271,484,480 us)
+TCP Avg Send Time: 232959 us      <- 233ms (以前は 1,036,271,915 us)
+TCP Max Send Time: 884646 us      <- 885ms (以前は 1,271,484,480 us)
 =================================================
 ```
 
-### 2.2 PC Log Analysis
+### 2.2 PC側ログ分析
 
-**CSV Data**:
+**CSVデータ**:
 ```csv
 timestamp,pc_fps,spresense_fps,frame_count,serial_read_time_ms
 1767446833.459,1.10,3.24,2,543.11
@@ -152,167 +152,167 @@ timestamp,pc_fps,spresense_fps,frame_count,serial_read_time_ms
 1767446836.415,0.54,3.34,4,235.15
 ```
 
-**PC Side Performance**:
+**PC側性能**:
 - PC FPS: 0.54 - 1.10 fps
-- Spresense FPS (reported by PC): 2.56 - 3.34 fps
-- Frames received: 4 (out of 28 sent = 14.3% delivery rate)
-- TCP read time: 235 - 543ms (avg: 373ms)
+- Spresense FPS（PC報告値）: 2.56 - 3.34 fps
+- 受信フレーム数: 4（送信28のうち = 14.3%配信率）
+- TCP読み込み時間: 235 - 543ms（平均: 373ms）
 
-**Observations**:
-- PC received only 4 frames despite Spresense sending 28
-- Sync word search overhead on PC side
-- TCP connection terminated prematurely
+**所見**:
+- Spresenseが28フレーム送信したにもかかわらず、PCは4フレームのみ受信
+- PC側でのSync word検索オーバーヘッド
+- TCP接続が早期終了
 
 ---
 
-## 3. Performance Analysis
+## 3. 性能分析
 
-### 3.1 TCP Send Time Breakdown
+### 3.1 TCP送信時間の内訳
 
-**Per-packet Timing** (47KB MJPEG packet):
+**パケット毎のタイミング** (47KB MJPEGパケット):
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ E2E Flow for 1 Frame (47KB)                                  │
+│ 1フレームのE2Eフロー (47KB)                                    │
 ├──────────────────────────────────────────────────────────────┤
-│ Camera capture:          ~10ms                               │
-│ JPEG compression:        (Hardware, included in capture)     │
-│ JPEG packing:            ~10ms                               │
-│ Queue enqueue:           <1ms                                │
+│ カメラキャプチャ:      ~10ms                                  │
+│ JPEG圧縮:             (ハードウェア、キャプチャに含まれる)   │
+│ JPEGパッキング:        ~10ms                                  │
+│ キュー挿入:           <1ms                                    │
 │                                                              │
 │ ╔═══════════════════════════════════════════════════════╗   │
-│ ║ TCP send (Spresense):  233ms avg (BOTTLENECK)        ║   │
-│ ║                        885ms max                      ║   │
+│ ║ TCP送信 (Spresense):  平均233ms (ボトルネック)       ║   │
+│ ║                        最大885ms                      ║   │
 │ ╚═══════════════════════════════════════════════════════╝   │
 │                                                              │
-│ Network transmission:    ~10-50ms (WiFi 2.4GHz)             │
-│ TCP read (PC):           373ms total (including send time)   │
+│ ネットワーク伝送:      ~10-50ms (WiFi 2.4GHz)                │
+│ TCP読み込み (PC):      合計373ms (送信時間含む)              │
 └──────────────────────────────────────────────────────────────┘
 
-Total E2E latency: ~400-450ms per frame
-Theoretical max FPS: 2.2-2.5 fps (1000ms / 450ms)
-Actual FPS: 0.54-1.10 fps (PC side)
+総E2E遅延: フレームあたり ~400-450ms
+理論最大FPS: 2.2-2.5 fps (1000ms / 450ms)
+実測FPS: 0.54-1.10 fps (PC側)
 ```
 
-### 3.2 WiFi Throughput Calculation
+### 3.2 WiFiスループット計算
 
-**Measurement**:
-- Packet size: 47,095 bytes = 376,760 bits
-- Average send time: 232,959 microseconds = 0.233 seconds
-- **Throughput**: 376,760 / 0.233 = **1,617,082 bps ≈ 1.6 Mbps**
+**測定値**:
+- パケットサイズ: 47,095バイト = 376,760ビット
+- 平均送信時間: 232,959マイクロ秒 = 0.233秒
+- **スループット**: 376,760 / 0.233 = **1,617,082 bps ≈ 1.6 Mbps**
 
-**Comparison with Theoretical**:
+**理論値との比較**:
 - GS2200M WiFi: 802.11b/g/n (2.4GHz)
-- Theoretical max (802.11b): 11 Mbps
-- Theoretical max (802.11g): 54 Mbps
-- **Actual efficiency**: 1.6 / 11 = **14.5%** (802.11b) ← Very poor!
+- 理論最大値 (802.11b): 11 Mbps
+- 理論最大値 (802.11g): 54 Mbps
+- **実効効率**: 1.6 / 11 = **14.5%** (802.11b) ← 非常に低い！
 
-**Why so slow?**
-1. **usrsock overhead**: 4 context switches per send() vs USB: 1
-2. **GS2200M SPI communication**: VSPI5 with DMA, but still adds latency
-3. **TCP overhead**: Protocol headers, ACKs, retransmissions
-4. **Small packet fragmentation**: 47KB may be fragmented at TCP/IP layer
+**なぜこんなに遅いのか？**
+1. **usrsockオーバーヘッド**: send()毎に4回のコンテキストスイッチ vs USB: 1回
+2. **GS2200M SPI通信**: VSPI5でDMA使用だが、遅延が追加される
+3. **TCPオーバーヘッド**: プロトコルヘッダ、ACK、再送
+4. **小パケット断片化**: 47KBがTCP/IP層で断片化される可能性
 
-### 3.3 Queue Dynamics
+### 3.3 キューの動態
 
-**Buffer Pool**:
-- Total buffers: 7 (Phase 7.0: 5, Phase 7.1: 10→7)
-- Buffer size: 98,318 bytes each
-- **Total memory**: 7 × 98,318 = **688,226 bytes ≈ 672 KB**
+**バッファプール**:
+- 総バッファ数: 7個 (Phase 7.0: 5個, Phase 7.1: 10→7個)
+- バッファサイズ: 各98,318バイト
+- **総メモリ**: 7 × 98,318 = **688,226バイト ≈ 672 KB**
 
-**Queue State Timeline**:
+**キュー状態タイムライン**:
 ```
-Time    Camera  USB/TCP  Action Queue  Empty Queue  Status
+時刻    Camera  USB/TCP  Action Queue  Empty Queue  状態
 ─────────────────────────────────────────────────────────────
-0s      Start   Start    0             7            Normal
-1s      Frame1  -        1             6            Filling
-2s      Frame2  Send1    2             5            Balanced
-3s      Frame5  Send2    5             2            Unbalanced
-4s      Frame8  Send3    7             0            Saturated!
-5-8s    FrameX  SendY    7             0            Always full
+0s      開始    開始     0             7            正常
+1s      Frame1  -        1             6            充填中
+2s      Frame2  Send1    2             5            バランス
+3s      Frame5  Send2    5             2            不均衡
+4s      Frame8  Send3    7             0            飽和！
+5-8s    FrameX  SendY    7             0            常時満杯
 ```
 
-**Root Cause**: USB/TCP thread cannot drain queue fast enough
-- Camera thread: ~30 fps capture rate
-- USB/TCP thread: ~3.6 fps send rate (28 packets / 7.8s)
-- **Imbalance**: 8.3x slower send than capture
+**根本原因**: USB/TCPスレッドがキューを十分速く排出できない
+- Cameraスレッド: ~30 fpsキャプチャレート
+- USB/TCPスレッド: ~3.6 fps送信レート（28パケット / 7.8秒）
+- **不均衡**: 送信がキャプチャより8.3倍遅い
 
-### 3.4 Metrics Packet Transmission Analysis
+### 3.4 Metricsパケット送信分析
 
-**Packet Sizes**:
-- MJPEG packet: ~47KB (98,318 bytes allocated)
-- Metrics packet: 42 bytes (Phase 7.0 extension)
+**パケットサイズ**:
+- MJPEGパケット: ~47KB（98,318バイト割当）
+- Metricsパケット: 42バイト（Phase 7.0拡張）
 
-**Why Metrics Fail**:
-1. Queue always full (depth=7, no empty buffers)
-2. Metrics packet needs an empty buffer from `g_empty_queue`
-3. USB/TCP thread too slow to return empties
-4. Camera thread blocks waiting for empty buffer
-5. Metrics generation skipped with "No empty buffer" warning
+**Metricsが失敗する理由**:
+1. キューが常に満杯（depth=7、空バッファなし）
+2. Metricsパケットは `g_empty_queue` から空バッファが必要
+3. USB/TCPスレッドが空バッファを返すのが遅すぎる
+4. Cameraスレッドが空バッファ待ちでブロック
+5. Metrics生成が「No empty buffer」警告でスキップされる
 
-**Success Case** (seq=0):
-- Queue depth was 4 (not yet saturated)
-- Empty buffer available
-- Metrics successfully queued
+**成功ケース** (seq=0):
+- キュー深度が4（まだ飽和していない）
+- 空バッファが利用可能
+- Metricsが正常にキューイング
 
-**Failure Pattern** (seq=1-7):
-- Queue depth = 7 (saturated)
-- No empty buffers (empty_q=0)
-- All buffers in action queue or USB thread
+**失敗パターン** (seq=1-7):
+- キュー深度 = 7（飽和）
+- 空バッファなし（empty_q=0）
+- すべてのバッファがaction queueまたはUSBスレッドに存在
 
 ---
 
-## 4. Root Cause: TCP Send Bottleneck
+## 4. 根本原因: TCP送信ボトルネック
 
-### 4.1 usrsock Architecture Overhead
+### 4.1 usrsockアーキテクチャのオーバーヘッド
 
-**NuttX usrsock** = User-space socket implementation
+**NuttX usrsock** = ユーザー空間ソケット実装
 
-**Call Flow for `send()`**:
+**`send()` の呼び出しフロー**:
 ```
-Application (security_camera)
-    ↓ 1. System call
-Kernel (NuttX)
-    ↓ 2. usrsock request → Unix socket
-gs2200m daemon (user space)
-    ↓ 3. SPI communication
-GS2200M WiFi module (hardware)
-    ↓ 4. TCP/IP stack (on module)
-WiFi transmission
+アプリケーション (security_camera)
+    ↓ 1. システムコール
+カーネル (NuttX)
+    ↓ 2. usrsockリクエスト → Unixソケット
+gs2200m デーモン (ユーザー空間)
+    ↓ 3. SPI通信
+GS2200M WiFiモジュール (ハードウェア)
+    ↓ 4. TCP/IPスタック（モジュール上）
+WiFi送信
 ```
 
-**Context Switches**:
-- USB Serial: 1 context switch (kernel driver)
-- **TCP usrsock: 4 context switches** (app→kernel→daemon→SPI→module)
-- **Overhead**: ~4x more context switches
+**コンテキストスイッチ**:
+- USB Serial: 1回のコンテキストスイッチ（カーネルドライバ）
+- **TCP usrsock: 4回のコンテキストスイッチ** (app→kernel→daemon→SPI→module)
+- **オーバーヘッド**: コンテキストスイッチが約4倍
 
-**Evidence**:
-- USB Serial (Phase 2): 37 fps → ~27ms per frame
-- TCP usrsock (Phase 7.1c): 3.6 fps → 233ms per frame
-- **Ratio**: 233 / 27 = **8.6x slower**
+**証拠**:
+- USB Serial (Phase 2): 37 fps → フレームあたり~27ms
+- TCP usrsock (Phase 7.1c): 3.6 fps → フレームあたり233ms
+- **比率**: 233 / 27 = **8.6倍遅い**
 
-### 4.2 GS2200M SPI Communication
+### 4.2 GS2200M SPI通信
 
-**SPI Configuration** (from `.config`):
+**SPI設定** (`.config` より):
 ```
-CONFIG_CXD56_DMAC_SPI5_TX=y  # DMA enabled for TX
-CONFIG_CXD56_DMAC_SPI5_RX=y  # DMA enabled for RX
+CONFIG_CXD56_DMAC_SPI5_TX=y  # TX用DMA有効
+CONFIG_CXD56_DMAC_SPI5_RX=y  # RX用DMA有効
 CONFIG_CXD56_SPI5=y
 ```
 
-**Theoretical SPI Speed**:
-- SPI5 clock: Typically 1-10 MHz (Spresense spec)
-- DMA: Reduces CPU load but not latency
-- **Estimated transfer time** for 47KB: ~40-400ms (depends on SPI clock)
+**理論上のSPI速度**:
+- SPI5クロック: 通常1-10 MHz（Spresense仕様）
+- DMA: CPU負荷は軽減するが遅延は変わらない
+- **推定転送時間** 47KBの場合: ~40-400ms（SPIクロックによる）
 
-**Actual**: 233ms average → Within expected range for slower SPI clock
+**実測**: 平均233ms → 低速SPIクロックの想定範囲内
 
-### 4.3 TCP Buffer and Protocol Overhead
+### 4.3 TCPバッファとプロトコルオーバーヘッド
 
-**Current TCP Configuration**:
+**現在のTCP設定**:
 ```c
 // tcp_server.c:158-170
-int sndbuf = 262144;  // 256KB send buffer
+int sndbuf = 262144;  // 256KB送信バッファ
 setsockopt(connfd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
 
 // tcp_server.c:147
@@ -320,239 +320,239 @@ int nodelay = 1;
 setsockopt(connfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 ```
 
-**Buffer Analysis**:
-- Send buffer: 256KB (set via SO_SNDBUF)
-- Actual buffer (getsockopt): May be smaller due to kernel limits
-- Packet size: 47KB = 18.4% of buffer
-- **Issue**: 47KB packet may not fully utilize large buffer
+**バッファ分析**:
+- 送信バッファ: 256KB（SO_SNDBUFで設定）
+- 実際のバッファ（getsockopt）: カーネル制限により小さい可能性
+- パケットサイズ: 47KB = バッファの18.4%
+- **問題**: 47KBパケットが大きなバッファを十分活用できていない
 
 **TCP_NODELAY**:
-- ✅ Enabled (disables Nagle algorithm)
-- ✅ Small packets sent immediately (not buffered)
-- But 47KB is not "small" → less impact
+- ✅ 有効（Nagleアルゴリズムを無効化）
+- ✅ 小パケットが即座に送信（バッファリングされない）
+- しかし47KBは「小さく」ない → 影響は少ない
 
 ---
 
-## 5. Spresense Memory Specifications
+## 5. Spresense メモリ仕様
 
-### 5.1 Spresense Hardware Memory
+### 5.1 Spresenseハードウェアメモリ
 
-**Sony CXD5602 SoC** (Spresense main board):
-- **Total RAM**: 1.5 MB
-- **Application RAM**: ~640 KB (after NuttX kernel and drivers)
+**Sony CXD5602 SoC** (Spresenseメインボード):
+- **総RAM**: 1.5 MB
+- **アプリケーションRAM**: ~640 KB（NuttXカーネルとドライバ除く）
 - **Flash**: 8 MB
 
-**Memory Partitioning** (typical NuttX config):
+**メモリ分割** (典型的なNuttX設定):
 ```
-Total 1.5MB RAM:
-├─ Kernel:          ~400KB (NuttX core, drivers)
-├─ Heap:            ~600KB (application malloc)
-├─ Stack:           ~200KB (thread stacks)
-└─ Reserved:        ~300KB (DMA, buffers, etc.)
-```
-
-### 5.2 Current Memory Usage (Phase 7.1c)
-
-**Frame Queue Buffers**:
-```
-Buffer count:  7
-Buffer size:   98,318 bytes (MJPEG_MAX_PACKET_SIZE)
-Total:         7 × 98,318 = 688,226 bytes ≈ 672 KB
+総RAM 1.5MB:
+├─ カーネル:        ~400KB (NuttXコア、ドライバ)
+├─ ヒープ:          ~600KB (アプリケーションmalloc)
+├─ スタック:        ~200KB (スレッドスタック)
+└─ 予約:            ~300KB (DMA、バッファなど)
 ```
 
-**Camera V4L2 Buffers**:
+### 5.2 現在のメモリ使用量 (Phase 7.1c)
+
+**フレームキューバッファ**:
 ```
-Buffer count:  3 (triple buffering)
-Buffer size:   65,536 bytes (configured sizeimage)
-Total:         3 × 65,536 = 196,608 bytes ≈ 192 KB
+バッファ数:   7個
+バッファサイズ: 98,318バイト (MJPEG_MAX_PACKET_SIZE)
+合計:         7 × 98,318 = 688,226バイト ≈ 672 KB
 ```
 
-**TCP Buffers** (NuttX network stack):
+**Camera V4L2バッファ**:
 ```
-SO_SNDBUF:     256 KB (request, actual may be less)
-SO_RCVBUF:     Default (~16-64 KB)
-Total:         ~256-320 KB
-```
-
-**Application Stack/Heap**:
-```
-Camera thread stack:   8 KB (estimated)
-USB thread stack:      8 KB (estimated)
-Main thread stack:     4 KB (estimated)
-Heap usage:            ~50 KB (misc allocations)
-Total:                 ~70 KB
+バッファ数:   3個（トリプルバッファリング）
+バッファサイズ: 65,536バイト（設定されたsizeimage）
+合計:         3 × 65,536 = 196,608バイト ≈ 192 KB
 ```
 
-**Total Memory Usage**:
+**TCPバッファ** (NuttXネットワークスタック):
 ```
-Frame queue:      672 KB
-Camera buffers:   192 KB
-TCP buffers:      ~280 KB (estimated)
-App stack/heap:   70 KB
+SO_SNDBUF:   256 KB（要求、実際はより少ない可能性）
+SO_RCVBUF:   デフォルト（~16-64 KB）
+合計:        ~256-320 KB
+```
+
+**アプリケーションスタック/ヒープ**:
+```
+Cameraスレッドスタック:  8 KB（推定）
+USBスレッドスタック:     8 KB（推定）
+メインスレッドスタック:  4 KB（推定）
+ヒープ使用量:            ~50 KB（その他割当）
+合計:                    ~70 KB
+```
+
+**総メモリ使用量**:
+```
+フレームキュー:    672 KB
+Cameraバッファ:    192 KB
+TCPバッファ:       ~280 KB（推定）
+Appスタック/ヒープ: 70 KB
 ───────────────────────
-TOTAL:            ~1214 KB ≈ 1.2 MB
+合計:              ~1214 KB ≈ 1.2 MB
 
-Available RAM:    ~640 KB (application space)
-DEFICIT:          -574 KB ← OVER BUDGET!
+利用可能RAM:       ~640 KB（アプリケーション空間）
+不足分:            -574 KB ← 予算オーバー！
 ```
 
-⚠️ **CRITICAL FINDING**: Current configuration likely exceeds available application RAM!
+⚠️ **重大発見**: 現在の設定は利用可能なアプリケーションRAMを超過している可能性が高い！
 
-**Why it still works**:
-- NuttX may be using shared kernel/app memory region
-- Buffers may be allocated from different pools (DMA-capable region)
-- Actual `SO_SNDBUF` may be much smaller than 256KB
+**それでも動作する理由**:
+- NuttXが共有カーネル/アプリメモリ領域を使用している可能性
+- バッファが異なるプール（DMA対応領域）から割り当てられている可能性
+- 実際の `SO_SNDBUF` が256KBよりずっと小さい可能性
 
-### 5.3 Memory Budget for Buffer Expansion
+### 5.3 バッファ拡張のためのメモリ予算
 
-**Safe Memory Budget** (conservative estimate):
+**安全なメモリ予算** (保守的な推定):
 ```
-Available app RAM:      640 KB
-Reserved (safety):      100 KB (kernel overhead, safety margin)
-Available for buffers:  540 KB
+利用可能アプリRAM:      640 KB
+予約（安全性）:         100 KB（カーネルオーバーヘッド、安全マージン）
+バッファ用利用可能:     540 KB
 ```
 
-**Current Allocation**:
+**現在の割当**:
 ```
-Frame queue:      672 KB  ← Already over budget!
-Camera buffers:   192 KB  (V4L2 driver, cannot change)
+フレームキュー:    672 KB  ← すでに予算オーバー！
+Cameraバッファ:    192 KB  (V4L2ドライバ、変更不可)
 ───────────────────────
-Total:            864 KB  ← Exceeds 540 KB budget
+合計:              864 KB  ← 540 KB予算を超過
 ```
 
-**Conclusion**: Cannot increase frame queue depth without reducing buffer size
+**結論**: バッファサイズを削減しないとフレームキュー深度を増やせない
 
-### 5.4 Buffer Size Optimization
+### 5.4 バッファサイズ最適化
 
-**Current**:
+**現在**:
 ```
 #define MJPEG_MAX_PACKET_SIZE (320 * 240 * 2 + 14 + 4)  // 153,618
-// But actually allocated: 98,318 bytes (from code inspection)
+// しかし実際の割当: 98,318バイト（コード検査より）
 ```
 
-**Actual JPEG Size** (from logs):
+**実際のJPEGサイズ** (ログより):
 ```
-Average: 47,095 bytes (47 KB)
-Range:   43,702 - 52,127 bytes
-Max observed: 52,127 bytes
-```
-
-**Optimization**: Reduce buffer size to actual max needed
-```
-MJPEG_MAX_PACKET_SIZE = 60,000 bytes (60KB, with safety margin)
-Buffer count: 7
-Total: 7 × 60,000 = 420,000 bytes ≈ 410 KB
-Savings: 672 - 410 = 262 KB
+平均: 47,095バイト (47 KB)
+範囲: 43,702 - 52,127バイト
+観測最大値: 52,127バイト
 ```
 
-**New Memory Budget** (with optimized buffers):
+**最適化**: 実際の最大値に合わせてバッファサイズを削減
 ```
-Frame queue:      410 KB (reduced from 672 KB)
-Camera buffers:   192 KB (unchanged)
-TCP buffers:      ~280 KB (unchanged)
+MJPEG_MAX_PACKET_SIZE = 60,000バイト（60KB、安全マージン付き）
+バッファ数: 7個
+合計: 7 × 60,000 = 420,000バイト ≈ 410 KB
+節約: 672 - 410 = 262 KB
+```
+
+**新メモリ予算** (最適化バッファ使用):
+```
+フレームキュー:    410 KB（672 KBから削減）
+Cameraバッファ:    192 KB（変更なし）
+TCPバッファ:       ~280 KB（変更なし）
 ───────────────────────
-TOTAL:            882 KB (was 1214 KB)
+合計:              882 KB（1214 KBから減少）
 
-Available RAM:    640 KB
-DEFICIT:          -242 KB ← Still over, but closer
+利用可能RAM:       640 KB
+不足分:            -242 KB ← まだオーバーだが、近づいた
 ```
 
-**Further Optimization**: Reduce queue depth
+**さらなる最適化**: キュー深度を削減
 ```
-Option A: 5 buffers × 60KB = 300 KB (Phase 7.0 queue depth)
-Option B: 4 buffers × 60KB = 240 KB (minimum for triple buffering + 1)
+オプションA: 5バッファ × 60KB = 300 KB (Phase 7.0キュー深度)
+オプションB: 4バッファ × 60KB = 240 KB (トリプルバッファリング+1の最小)
 
-With Option A (5 × 60KB):
-Frame queue:      300 KB
-Camera buffers:   192 KB
-TCP buffers:      ~100 KB (reduce SO_SNDBUF)
+オプションA使用時 (5 × 60KB):
+フレームキュー:    300 KB
+Cameraバッファ:    192 KB
+TCPバッファ:       ~100 KB（SO_SNDBUFを削減）
 ───────────────────────
-TOTAL:            592 KB ← Within 640 KB budget!
+合計:              592 KB ← 640 KB予算内！
 ```
 
 ---
 
-## 6. GS2200M WiFi Module Capabilities
+## 6. GS2200M WiFiモジュール機能
 
-### 6.1 GS2200M Hardware Specifications
+### 6.1 GS2200Mハードウェア仕様
 
-**Manufacturer**: Telit (formerly GainSpan)
-**Part Number**: GS2200M
-**WiFi Standard**: 802.11 b/g/n
-**Frequency**: 2.4 GHz only (no 5GHz support)
-**Interface**: SPI (Serial Peripheral Interface)
+**製造元**: Telit (旧GainSpan)
+**型番**: GS2200M
+**WiFi規格**: 802.11 b/g/n
+**周波数**: 2.4 GHzのみ（5GHzサポートなし）
+**インターフェース**: SPI (Serial Peripheral Interface)
 
-**Key Specifications**:
-- **Data Rate**: Up to 65 Mbps (802.11n with HT40)
-- **Transmit Power**: +18 dBm max (configurable)
-- **Channels**: 1-13 (region dependent)
-- **Security**: WPA/WPA2-PSK, WPA2-Enterprise
-- **Power Modes**: Active, Power Save, Deep Sleep
+**主要仕様**:
+- **データレート**: 最大65 Mbps (802.11n HT40時)
+- **送信電力**: 最大+18 dBm（設定可能）
+- **チャンネル**: 1-13（地域による）
+- **セキュリティ**: WPA/WPA2-PSK, WPA2-Enterprise
+- **電力モード**: Active, Power Save, Deep Sleep
 
-### 6.2 WiFi Channel Configuration
+### 6.2 WiFiチャンネル設定
 
-**NuttX GS2200M Driver Support**: Check driver source
+**NuttX GS2200Mドライバサポート**: ドライバソース要確認
 
-**Channel Fixing** via `gs2200m` command:
-- Current: Auto-channel selection (scans for best channel)
-- **Possible**: Manual channel selection (if driver supports)
+**`gs2200m`コマンド経由のチャンネル固定**:
+- 現在: 自動チャンネル選択（最良チャンネルをスキャン）
+- **可能性**: 手動チャンネル選択（ドライバがサポートする場合）
 
-**AT Command** (GS2200M native):
+**ATコマンド** (GS2200Mネイティブ):
 ```
-AT+WSETC=<channel>    // Set WiFi channel (1-13)
-AT+WGETC              // Get current channel
-```
-
-**NuttX gs2200m wrapper**: Need to verify if exposed to user
-
-**Investigation Required**:
-1. Check `/home/ken/Spr_ws/GH_wk_test/spresense/nuttx/drivers/wireless/gs2200m.c`
-2. Look for channel configuration ioctls
-3. Test with `gs2200m` command options
-
-### 6.3 TX Power Adjustment
-
-**GS2200M Hardware Range**: 0 dBm to +18 dBm
-
-**AT Command** (GS2200M native):
-```
-AT+WP=<power>         // Set TX power (0-18 dBm)
-AT+WP?                // Get current TX power
+AT+WSETC=<channel>    // WiFiチャンネル設定 (1-13)
+AT+WGETC              // 現在のチャンネル取得
 ```
 
-**NuttX Driver Support**: Need to check if exposed
+**NuttX gs2200mラッパー**: ユーザーに公開されているか要確認
 
-**Trade-offs**:
-- **Higher power** (+18 dBm): Better range, more interference, higher power consumption
-- **Lower power** (+10 dBm): Less interference, lower power, shorter range
+**要調査**:
+1. `/home/ken/Spr_ws/GH_wk_test/spresense/nuttx/drivers/wireless/gs2200m.c` を確認
+2. チャンネル設定ioctlを探す
+3. `gs2200m` コマンドオプションでテスト
 
-**Investigation Required**:
-1. Check driver source for power configuration
-2. Verify if configurable via ioctl or config option
-3. Test impact on throughput (may not help if interference is issue)
+### 6.3 TX電力調整
 
-### 6.4 Other GS2200M Optimizations
+**GS2200Mハードウェア範囲**: 0 dBm ～ +18 dBm
 
-**HT40 Mode** (802.11n 40MHz channel width):
-- Doubles throughput (65 Mbps vs 33 Mbps)
-- Requires compatible AP
-- More interference in crowded 2.4GHz band
+**ATコマンド** (GS2200Mネイティブ):
+```
+AT+WP=<power>         // TX電力設定 (0-18 dBm)
+AT+WP?                // 現在のTX電力取得
+```
 
-**Power Save Modes**:
-- Disable power save for maximum performance
-- Check if enabled in current config
+**NuttXドライバサポート**: 公開されているか要確認
 
-**Multicast/Broadcast Filtering**:
-- Reduce unnecessary packet processing
-- May be enabled by default
+**トレードオフ**:
+- **高電力** (+18 dBm): 範囲拡大、干渉増加、消費電力増加
+- **低電力** (+10 dBm): 干渉減少、低消費電力、範囲縮小
+
+**要調査**:
+1. 電力設定用のドライバソース確認
+2. ioctlまたはconfig optionで設定可能か検証
+3. スループットへの影響テスト（干渉が問題の場合は効果なしの可能性）
+
+### 6.4 その他のGS2200M最適化
+
+**HT40モード** (802.11n 40MHzチャンネル幅):
+- スループットが2倍（65 Mbps vs 33 Mbps）
+- 互換性のあるAPが必要
+- 混雑した2.4GHz帯での干渉増加
+
+**パワーセーブモード**:
+- 最大性能のためパワーセーブを無効化
+- 現在の設定で有効になっているか確認
+
+**マルチキャスト/ブロードキャストフィルタリング**:
+- 不要なパケット処理を削減
+- デフォルトで有効の可能性
 
 ---
 
-## 7. TCP/Network Configuration Analysis
+## 7. TCP/ネットワーク設定分析
 
-### 7.1 Current NuttX Network Config
+### 7.1 現在のNuttXネットワーク設定
 
-**Key Settings** (from previous configuration):
+**主要設定** (以前の設定より):
 ```bash
 CONFIG_NET_IPv4=y
 CONFIG_NET_TCP=y
@@ -562,213 +562,213 @@ CONFIG_NET_TCPBACKLOG=y
 CONFIG_NET_USRSOCK_TCP=y
 ```
 
-**TCP Write Buffers**:
+**TCP書き込みバッファ**:
 ```
-CONFIG_NET_TCP_WRITE_BUFFERS=y        # Enable write buffering
-CONFIG_NET_TCP_NWRBCHAINS=?           # Number of write buffer chains (UNKNOWN)
-CONFIG_IOB_BUFSIZE=?                  # I/O buffer size (UNKNOWN)
-CONFIG_IOB_NBUFFERS=?                 # Number of I/O buffers (UNKNOWN)
-```
-
-**Investigation Needed**: Check actual values for buffer config
-
-### 7.2 Buffer Size Expansion Analysis
-
-**Current SO_SNDBUF**: 256 KB (requested)
-
-**Proposed Expansion**: 512 KB
-
-**Memory Impact**:
-```
-Current:   256 KB
-Proposed:  512 KB
-Increase:  +256 KB
-
-Available budget: ~540 KB (from Section 5.3)
-Current usage:    ~880 KB (over budget)
-After expansion:  ~1136 KB (further over budget)
+CONFIG_NET_TCP_WRITE_BUFFERS=y        # 書き込みバッファリング有効
+CONFIG_NET_TCP_NWRBCHAINS=?           # 書き込みバッファチェーン数（不明）
+CONFIG_IOB_BUFSIZE=?                  # I/Oバッファサイズ（不明）
+CONFIG_IOB_NBUFFERS=?                 # I/Oバッファ数（不明）
 ```
 
-❌ **Conclusion**: Cannot expand SO_SNDBUF without reducing frame queue
+**要調査**: バッファ設定の実際の値を確認
 
-**Alternative**: Keep SO_SNDBUF=256KB, optimize frame queue instead
+### 7.2 バッファサイズ拡張分析
 
-### 7.3 Large Packet Batching Proposal
+**現在のSO_SNDBUF**: 256 KB（要求）
 
-**Current**: Send 1 frame per packet (47 KB)
+**拡張提案**: 512 KB
 
-**Proposed**: Batch multiple frames into single TCP send
+**メモリ影響**:
 ```
-Batch size: 3 frames
-Packet size: 3 × 47 KB = 141 KB
-Send time: 233ms × 1.5 = ~350ms (estimated, with overhead)
-Effective FPS: 3 frames / 0.35s = 8.6 fps (vs current 3.6 fps)
+現在:      256 KB
+提案:      512 KB
+増加分:    +256 KB
+
+利用可能予算: ~540 KB（セクション5.3より）
+現在使用量:   ~880 KB（予算オーバー）
+拡張後:       ~1136 KB（さらにオーバー）
 ```
 
-**Benefits**:
-- Reduces context switch overhead (4 switches per batch vs per frame)
-- Better TCP efficiency (fewer ACKs, less protocol overhead)
-- May improve throughput (larger send = better buffer utilization)
+❌ **結論**: フレームキューを削減せずにSO_SNDBUFを拡張できない
 
-**Drawbacks**:
-- Increased latency (3 frames buffered before send)
-- Requires protocol change (PC must parse multi-frame packets)
-- Memory pressure (need larger queue buffers)
+**代替案**: SO_SNDBUF=256KBを維持し、代わりにフレームキューを最適化
 
-**Implementation Complexity**: Medium-High
+### 7.3 大パケットバッチング提案
+
+**現在**: フレームごとに1パケット送信 (47 KB)
+
+**提案**: 複数フレームを1回のTCP送信にバッチ化
+```
+バッチサイズ: 3フレーム
+パケットサイズ: 3 × 47 KB = 141 KB
+送信時間: 233ms × 1.5 = ~350ms（オーバーヘッド込み推定）
+実効FPS: 3フレーム / 0.35秒 = 8.6 fps（現在の3.6 fpsと比較）
+```
+
+**メリット**:
+- コンテキストスイッチオーバーヘッド削減（フレーム毎ではなくバッチ毎に4回スイッチ）
+- TCP効率向上（ACK削減、プロトコルオーバーヘッド削減）
+- スループット改善の可能性（大送信 = バッファ活用向上）
+
+**デメリット**:
+- 遅延増加（送信前に3フレームバッファリング）
+- プロトコル変更が必要（PCがマルチフレームパケットをパースする必要）
+- メモリ圧迫（より大きなキューバッファが必要）
+
+**実装複雑度**: 中～高
 
 ---
 
-## 8. Optimization Roadmap (Option 2)
+## 8. 最適化ロードマップ (オプション2)
 
-### Priority A: Critical - Immediate Wins
+### 優先度A: 重要 - 即効性のある改善
 
-**A1. Reduce Frame Queue Buffer Size** ✅ Recommended
+**A1. フレームキューバッファサイズ削減** ✅ 推奨
 ```
-Current: MJPEG_MAX_PACKET_SIZE = 98,318 bytes
-Actual max JPEG: 52,127 bytes
-Proposed: MJPEG_MAX_PACKET_SIZE = 60,000 bytes
+現在: MJPEG_MAX_PACKET_SIZE = 98,318バイト
+実際の最大JPEG: 52,127バイト
+提案: MJPEG_MAX_PACKET_SIZE = 60,000バイト
 
-Savings: (98,318 - 60,000) × 7 = 268,226 bytes ≈ 262 KB
-Memory: 672 KB → 410 KB
-Status: Within optimization range, test impact on large frames
-```
-
-**A2. Reduce SO_SNDBUF to Free Memory** ✅ Recommended
-```
-Current: 256 KB (likely not fully allocated by kernel)
-Proposed: 128 KB (still 2.7× frame size)
-
-Rationale: 47 KB frame << 256 KB buffer, overkill
-Savings: ~128 KB (kernel space)
-Impact: Minimal (buffer already underutilized)
+節約: (98,318 - 60,000) × 7 = 268,226バイト ≈ 262 KB
+メモリ: 672 KB → 410 KB
+状況: 最適化範囲内、大フレームへの影響をテスト
 ```
 
-**A3. Verify and Reduce Queue Depth if Needed**
+**A2. メモリ解放のためSO_SNDBUF削減** ✅ 推奨
 ```
-Current: 7 buffers
-Test with: 5 buffers (Phase 7.0 level)
+現在: 256 KB（カーネルが完全割当していない可能性）
+提案: 128 KB（フレームサイズの2.7倍で十分）
 
-Rationale: Queue always full anyway, depth doesn't help if drain is slow
-Memory savings: 2 × 60,000 = 120 KB
-Risk: May reduce metrics success rate (12.5% → lower?)
-```
-
-### Priority B: High - Performance Gains
-
-**B1. Investigate WiFi Channel Fixing**
-```
-Action: Check gs2200m driver source for channel config
-Goal: Fix to least congested channel (scan with WiFi analyzer)
-Expected gain: 10-30% throughput improvement (reduce interference)
-Complexity: Low (if driver supports it)
+根拠: 47 KBフレーム << 256 KBバッファ、過剰
+節約: ~128 KB（カーネル空間）
+影響: 最小（バッファはすでに活用不足）
 ```
 
-**B2. Disable GS2200M Power Save Mode**
+**A3. 必要に応じてキュー深度削減を検証**
 ```
-Action: Check if power save is enabled in gs2200m config
-Goal: Maximum performance, no sleep delays
-Expected gain: 5-15% latency reduction
-Complexity: Low (driver config or AT command)
+現在: 7バッファ
+テスト: 5バッファ (Phase 7.0レベル)
+
+根拠: 排出が遅い場合、キューが常に満杯で深度は無意味
+メモリ節約: 2 × 60,000 = 120 KB
+リスク: Metrics成功率低下の可能性（12.5% → より低く？）
 ```
 
-**B3. Optimize TCP Nagle and Delayed ACK**
-```
-Current: TCP_NODELAY=1 (Nagle disabled) ✓
-Additional: Check TCP_QUICKACK on Linux PC side
+### 優先度B: 高 - 性能向上
 
-Action: Disable delayed ACK on PC receiver
-Expected gain: 5-10% latency reduction
-Complexity: Low (PC sysctl setting)
+**B1. WiFiチャンネル固定調査**
 ```
-
-### Priority C: Medium - Advanced Optimizations
-
-**C1. Multi-Frame Batching**
-```
-Description: Send 2-3 frames per TCP packet
-Protocol: Extend MJPEG protocol with frame count field
-Expected gain: 50-100% FPS improvement (3.6 → 5-7 fps)
-Complexity: High (protocol change, PC code change)
-Timeline: 1-2 days implementation
+アクション: gs2200mドライバソースでチャンネル設定を確認
+目標: 最も混雑していないチャンネルに固定（WiFiアナライザでスキャン）
+期待効果: 10-30%スループット改善（干渉削減）
+複雑度: 低（ドライバがサポートする場合）
 ```
 
-**C2. Enable GS2200M HT40 Mode (802.11n)**
+**B2. GS2200Mパワーセーブモード無効化**
 ```
-Description: Use 40MHz channel width for 2× throughput
-Requirement: AP must support 802.11n HT40
-Expected gain: Up to 2× throughput (if not interference-limited)
-Complexity: Medium (driver config, AP config)
-Risk: More interference in 2.4GHz crowded band
-```
-
-**C3. Increase SPI Clock Speed**
-```
-Description: Increase SPI5 clock from default to maximum supported
-Check: CXD56_SPI5_MAXFREQUENCY config option
-Expected gain: 10-30% reduction in SPI transfer time
-Complexity: Low (config change, test stability)
-Risk: Potential signal integrity issues at high speed
+アクション: gs2200m設定でパワーセーブ有効か確認
+目標: 最大性能、スリープ遅延なし
+期待効果: 5-15%遅延削減
+複雑度: 低（ドライバ設定またはATコマンド）
 ```
 
-### Priority D: Low - Experimental
+**B3. TCP NagleとDelayed ACK最適化**
+```
+現在: TCP_NODELAY=1（Nagle無効）✓
+追加: Linux PC側のTCP_QUICKACKを確認
 
-**D1. TX Power Adjustment**
-```
-Description: Test +10 dBm vs +18 dBm
-Expected gain: Minimal (throughput more limited by SPI/usrsock than RF)
-Complexity: Medium (need driver support)
+アクション: PC受信側でdelayed ACKを無効化
+期待効果: 5-10%遅延削減
+複雑度: 低（PC sysctll設定）
 ```
 
-**D2. Zero-Copy Optimization**
+### 優先度C: 中 - 高度な最適化
+
+**C1. マルチフレームバッチング**
 ```
-Description: Reduce buffer copies in usrsock path
-Scope: NuttX kernel modification (advanced)
-Expected gain: 5-10% CPU reduction
-Complexity: Very High (kernel internals)
+説明: 1TCPパケットで2-3フレーム送信
+プロトコル: フレーム数フィールドでMJPEGプロトコル拡張
+期待効果: 50-100% FPS改善 (3.6 → 5-7 fps)
+複雑度: 高（プロトコル変更、PCコード変更）
+タイムライン: 実装に1-2日
+```
+
+**C2. GS2200M HT40モード有効化 (802.11n)**
+```
+説明: スループット2倍のため40MHzチャンネル幅使用
+要件: APが802.11n HT40をサポート
+期待効果: 最大2倍スループット（干渉制限でない場合）
+複雑度: 中（ドライバ設定、AP設定）
+リスク: 混雑した2.4GHz帯での干渉増加
+```
+
+**C3. SPIクロック速度増加**
+```
+説明: SPI5クロックをデフォルトからサポート最大値に増加
+確認: CXD56_SPI5_MAXFREQUENCY設定オプション
+期待効果: SPI転送時間10-30%削減
+複雑度: 低（設定変更、安定性テスト）
+リスク: 高速での信号整合性問題の可能性
+```
+
+### 優先度D: 低 - 実験的
+
+**D1. TX電力調整**
+```
+説明: +10 dBm vs +18 dBmでテスト
+期待効果: 最小（スループットはRFよりSPI/usrsockで制限）
+複雑度: 中（ドライバサポート必要）
+```
+
+**D2. ゼロコピー最適化**
+```
+説明: usrsockパスでのバッファコピー削減
+範囲: NuttXカーネル変更（高度）
+期待効果: CPU削減5-10%
+複雑度: 非常に高（カーネル内部）
 ```
 
 ---
 
-## 9. Investigation Tasks
+## 9. 調査タスク
 
-### Task 1: Verify Memory Configuration
+### タスク1: メモリ設定確認
 
-**Check `.config` for actual buffer settings**:
+**`.config` で実際のバッファ設定を確認**:
 ```bash
 cd /home/ken/Spr_ws/GH_wk_test/spresense/nuttx
 grep -E "IOB_BUFSIZE|IOB_NBUFFERS|TCP_NWRBCHAINS" .config
 ```
 
-**Expected output**:
+**期待される出力**:
 ```
 CONFIG_IOB_BUFSIZE=196
 CONFIG_IOB_NBUFFERS=36
 CONFIG_NET_TCP_NWRBCHAINS=8
 ```
 
-**Analysis**: Calculate total TCP write buffer memory
+**分析**: 総TCP書き込みバッファメモリを計算
 ```
-Total = IOB_BUFSIZE × IOB_NBUFFERS × TCP_NWRBCHAINS
+合計 = IOB_BUFSIZE × IOB_NBUFFERS × TCP_NWRBCHAINS
 ```
 
-### Task 2: Check GS2200M Driver Capabilities
+### タスク2: GS2200Mドライバ機能確認
 
-**Search driver source for channel/power config**:
+**チャンネル/電力設定用のドライバソースを検索**:
 ```bash
 cd /home/ken/Spr_ws/GH_wk_test/spresense/nuttx
 grep -r "SIOCSIWFREQ\|SIOCSIWPOWER\|channel\|txpower" drivers/wireless/gs2200m*
 ```
 
-**Check gs2200m command help**:
+**gs2200mコマンドヘルプ確認**:
 ```bash
-# On Spresense NSH:
+# Spresense NSH上で:
 gs2200m -h
 ```
 
-### Task 3: Measure Actual Memory Usage
+### タスク3: 実際のメモリ使用量測定
 
-**Add memory statistics logging** in `camera_app_main.c`:
+**`camera_app_main.c` にメモリ統計ログを追加**:
 ```c
 #include <sys/resource.h>
 
@@ -777,132 +777,132 @@ printf("Heap used: %d bytes, free: %d bytes\n",
        mem.uordblks, mem.fordblks);
 ```
 
-### Task 4: WiFi Channel Scan
+### タスク4: WiFiチャンネルスキャン
 
-**On PC (Windows)**:
+**PC (Windows) 上で**:
 ```powershell
-# PowerShell: Scan WiFi channels
+# PowerShell: WiFiチャンネルスキャン
 netsh wlan show networks mode=bssid
 ```
 
-**Identify least congested channel** (fewest APs)
+**最も混雑していないチャンネルを特定**（AP数が最少）
 
 ---
 
-## 10. Test Plan for Next Phase
+## 10. 次フェーズのテスト計画
 
-### Phase 7.2 Target: Optimize Memory and WiFi
+### Phase 7.2 目標: メモリとWiFiの最適化
 
-**Changes to Implement**:
-1. ✅ Reduce `MJPEG_MAX_PACKET_SIZE` to 60,000 bytes
-2. ✅ Reduce queue depth to 5 buffers (if memory still tight)
-3. ✅ Reduce `SO_SNDBUF` to 128 KB
-4. ✅ Verify actual `.config` buffer settings
-5. ❓ Fix WiFi channel (if driver supports)
-6. ❓ Disable power save mode (if enabled)
+**実装する変更**:
+1. ✅ `MJPEG_MAX_PACKET_SIZE` を60,000バイトに削減
+2. ✅ キュー深度を5バッファに削減（メモリがまだ厳しい場合）
+3. ✅ `SO_SNDBUF` を128 KBに削減
+4. ✅ 実際の `.config` バッファ設定を検証
+5. ❓ WiFiチャンネル固定（ドライバがサポートする場合）
+6. ❓ パワーセーブモード無効化（有効な場合）
 
-**Expected Outcomes**:
-- Memory usage: Within 640 KB budget
-- TCP send time: 200-220ms (slight improvement from reduced overhead)
-- FPS: 4-5 fps (modest gain)
-- Metrics success rate: 20-30% (more empty buffers)
+**期待される結果**:
+- メモリ使用量: 640 KB予算内
+- TCP送信時間: 200-220ms（オーバーヘッド削減でわずかに改善）
+- FPS: 4-5 fps（適度な向上）
+- Metrics成功率: 20-30%（空バッファ増加）
 
-**Success Criteria**:
-- ✅ No memory allocation failures
-- ✅ Application runs >30 seconds without crash
-- ✅ FPS ≥ 4.0 (current: 3.6)
-- ✅ At least 2 metrics packets successfully transmitted
+**成功基準**:
+- ✅ メモリ割当失敗なし
+- ✅ アプリケーションが30秒以上クラッシュなしで実行
+- ✅ FPS ≥ 4.0（現在: 3.6）
+- ✅ 少なくとも2個のMetricsパケットが正常送信
 
-**Rollback Plan**: If FPS degrades, revert to Phase 7.1c
-
----
-
-## 11. Long-Term Considerations
-
-### Alternative 1: Hybrid WiFi + USB
-
-**Architecture**:
-- WiFi: Control channel (commands, metrics, status)
-- USB Serial: Data channel (MJPEG frames)
-
-**Benefits**:
-- Reliable 37 fps (Phase 2 proven)
-- WiFi for remote monitoring/control
-- Best of both worlds
-
-**Drawbacks**:
-- Requires both connections
-- More complex setup
-
-### Alternative 2: H.264 Video Compression
-
-**Current**: JPEG per-frame (47 KB average)
-**Proposed**: H.264 I-frame (30 KB) + P-frames (5-10 KB)
-
-**Expected**:
-- Average bitrate: 10-15 KB/frame (vs 47 KB JPEG)
-- TCP send time: 50-75ms (vs 233ms)
-- **FPS: 13-20 fps** (vs 3.6 fps)
-
-**Complexity**: Very High
-- Requires H.264 encoder (hardware or software)
-- Spresense CXD5602 has no hardware H.264 encoder
-- Software encoder: High CPU load (may not achieve real-time)
-
-### Alternative 3: Return to USB Serial
-
-**Proven Performance** (Phase 2):
-- FPS: 37 fps (VGA resolution)
-- Latency: ~27ms per frame
-- Reliability: 99.89% success rate (2.7-hour test)
-
-**When to Choose**:
-- If Phase 7.2 optimization fails to reach 10+ fps
-- If WiFi proves unstable in production environment
-- If low latency is critical requirement
+**ロールバック計画**: FPS低下した場合、Phase 7.1cに戻す
 
 ---
 
-## 12. Conclusion
+## 11. 長期的検討事項
 
-### Key Findings
+### 代替案1: WiFi + USBハイブリッド
 
-1. ✅ **Timing bug fix successful**: Accurate TCP metrics now available
-2. ❌ **TCP send is bottleneck**: 233ms avg (4.7× slower than target)
-3. ❌ **Memory usage exceeds budget**: ~1.2 MB used vs ~640 KB available
-4. ❌ **Queue always saturated**: 7-buffer depth insufficient when drain is slow
-5. ✅ **Console metrics logging works**: Final metrics captured via minicom
+**アーキテクチャ**:
+- WiFi: 制御チャンネル（コマンド、メトリクス、ステータス）
+- USB Serial: データチャンネル（MJPEGフレーム）
 
-### Root Causes
+**メリット**:
+- 信頼性の高い37 fps（Phase 2で実証済み）
+- リモート監視/制御用WiFi
+- 両方の長所を活用
 
-1. **usrsock overhead**: 4 context switches vs USB's 1 → 4× slowdown
-2. **GS2200M SPI**: Adds latency for 47KB transfers
-3. **WiFi efficiency**: Only 14.5% of theoretical 11 Mbps (1.6 Mbps actual)
-4. **Memory pressure**: Over-allocated buffers exceed available RAM
+**デメリット**:
+- 両方の接続が必要
+- セットアップがより複雑
 
-### Recommended Path Forward
+### 代替案2: H.264ビデオ圧縮
 
-**Phase 7.2 Optimization** (Option 2):
-1. Reduce buffer sizes (98KB → 60KB)
-2. Optimize TCP buffers (256KB → 128KB)
-3. Investigate WiFi channel fixing
-4. Disable power save mode
-5. Target: 5-7 fps (vs current 3.6 fps)
+**現在**: フレーム毎JPEG（平均47 KB）
+**提案**: H.264 Iフレーム（30 KB）+ Pフレーム（5-10 KB）
 
-**Fallback** (if <5 fps):
-- Consider Alternative 1 (Hybrid WiFi+USB)
-- Or return to USB Serial (proven 37 fps)
+**期待値**:
+- 平均ビットレート: 10-15 KB/フレーム（vs 47 KB JPEG）
+- TCP送信時間: 50-75ms（vs 233ms）
+- **FPS: 13-20 fps**（vs 3.6 fps）
 
-**Next Steps**: Execute Task 1-4 investigations, implement Phase 7.2 changes
+**複雑度**: 非常に高
+- H.264エンコーダが必要（ハードウェアまたはソフトウェア）
+- Spresense CXD5602にハードウェアH.264エンコーダなし
+- ソフトウェアエンコーダ: 高CPU負荷（リアルタイム達成できない可能性）
+
+### 代替案3: USB Serialへの回帰
+
+**実証済み性能** (Phase 2):
+- FPS: 37 fps（VGA解像度）
+- 遅延: フレームあたり~27ms
+- 信頼性: 99.89%成功率（2.7時間テスト）
+
+**選択すべき場合**:
+- Phase 7.2最適化が10+ fps到達に失敗した場合
+- WiFiが本番環境で不安定と判明した場合
+- 低遅延が重要要件の場合
 
 ---
 
-## Appendix A: Full Logs
+## 12. 結論
 
-### Spresense Console Log (Phase 7.1c)
+### 主要発見
+
+1. ✅ **タイミングバグ修正成功**: 正確なTCPメトリクスが利用可能に
+2. ❌ **TCP送信がボトルネック**: 平均233ms（目標の4.7倍遅い）
+3. ❌ **メモリ使用量が予算超過**: ~1.2 MB使用 vs ~640 KB利用可能
+4. ❌ **キューが常に飽和**: 排出が遅い場合、7バッファ深度では不十分
+5. ✅ **コンソールメトリクスログ動作**: 最終メトリクスがminicom経由で取得可能
+
+### 根本原因
+
+1. **usrsockオーバーヘッド**: 4回のコンテキストスイッチ vs USBの1回 → 4倍の遅延
+2. **GS2200M SPI**: 47KB転送に遅延追加
+3. **WiFi効率**: 理論値11 Mbpsの14.5%のみ（実測1.6 Mbps）
+4. **メモリ圧迫**: 過剰割当バッファが利用可能RAMを超過
+
+### 推奨進路
+
+**Phase 7.2最適化** (オプション2):
+1. バッファサイズ削減（98KB → 60KB）
+2. TCPバッファ最適化（256KB → 128KB）
+3. WiFiチャンネル固定を調査
+4. パワーセーブモード無効化
+5. 目標: 5-7 fps（現在3.6 fpsと比較）
+
+**フォールバック** (<5 fpsの場合):
+- 代替案1を検討（WiFi+USBハイブリッド）
+- またはUSB Serialに回帰（実証済み37 fps）
+
+**次のステップ**: タスク1-4の調査を実行し、Phase 7.2変更を実装
+
+---
+
+## 付録A: 完全ログ
+
+### Spresenseコンソールログ (Phase 7.1c)
 
 <details>
-<summary>Click to expand full minicom log</summary>
+<summary>クリックして完全minicomログを展開</summary>
 
 ```
 NuttShell (NSH) NuttX-11.0.0
@@ -955,7 +955,7 @@ nsh> CAM] =================================================
 [CAM] == USB thread started (Step 3: active) ==
 [CAM] USB thread priority: 100
 [CAM] Packed frame: seq=1, size=51584, crc=0xE1B8, total=51598
-[... frame logs omitted for brevity ...]
+[... フレームログ省略 ...]
 [CAM] Camera stats: frame=30, action_q=7, empty_q=0, avg_jpeg=47 KB, jpeg_errors=0 (0.0%)
 [CAM] Packed metrics: seq=7, cam_frames=33, usb_pkts=27, q_depth=7, avg_size=47008, errors=0
 [CAM] No empty buffer for metrics packet
@@ -1004,7 +1004,7 @@ nsh> CAM] =================================================
 
 </details>
 
-### PC CSV Log (Phase 7.1c)
+### PC CSVログ (Phase 7.1c)
 
 ```csv
 timestamp,pc_fps,spresense_fps,frame_count,error_count,decode_time_ms,serial_read_time_ms,texture_upload_time_ms,jpeg_size_kb,spresense_camera_frames,spresense_camera_fps,spresense_usb_packets,action_q_depth,spresense_errors
@@ -1015,6 +1015,6 @@ timestamp,pc_fps,spresense_fps,frame_count,error_count,decode_time_ms,serial_rea
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: 2026-01-03
-**Next Review**: After Phase 7.2 optimization implementation
+**ドキュメントバージョン**: 1.0
+**最終更新**: 2026-01-03
+**次回レビュー**: Phase 7.2最適化実装後

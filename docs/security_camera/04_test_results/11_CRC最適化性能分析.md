@@ -25,9 +25,9 @@
 
 本分析には以下のPlantUML図が含まれています：
 
-1. **[crc_optimization_comparison.puml](crc_optimization_comparison.puml)** - 性能指標の詳細比較
-2. **[crc_optimization_timeline.puml](crc_optimization_timeline.puml)** - 処理タイムラインの比較
-3. **[jpeg_size_performance_relationship.puml](jpeg_size_performance_relationship.puml)** - JPEGサイズと性能の関係
+1. **[crc_optimization_comparison.puml](diagrams/crc_optimization_comparison.puml)** - 性能指標の詳細比較
+2. **[crc_optimization_timeline.puml](diagrams/crc_optimization_timeline.puml)** - 処理タイムラインの比較
+3. **[jpeg_size_performance_relationship.puml](diagrams/jpeg_size_performance_relationship.puml)** - JPEGサイズと性能の関係
 
 > **表示方法**: PlantUMLファイルをVS Code拡張機能やオンラインビューア（plantuml.com）で開いてください。
 

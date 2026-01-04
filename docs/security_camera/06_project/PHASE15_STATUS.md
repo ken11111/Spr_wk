@@ -565,13 +565,13 @@ Phase 1.5を「完了」とみなすための基準:
 - [09_CAMERA_BUFFER_NUM_性能劣化調査.md](./04_test_results/09_CAMERA_BUFFER_NUM_性能劣化調査.md) - **性能劣化原因特定と解決** 🆕 (2025-12-29)
 
 ### PlantUML図（性能分析）
-- [phase15_vga_performance_sequence.puml](./04_test_results/phase15_vga_performance_sequence.puml)
-- [phase15_vga_bottleneck_analysis.puml](./04_test_results/phase15_vga_bottleneck_analysis.puml)
-- [phase15_vga_dataflow.puml](./04_test_results/phase15_vga_dataflow.puml)
+- [phase15_vga_performance_sequence.puml](../04_test_results/diagrams/phase15_vga_performance_sequence.puml)
+- [phase15_vga_bottleneck_analysis.puml](../04_test_results/diagrams/phase15_vga_bottleneck_analysis.puml)
+- [phase15_vga_dataflow.puml](../04_test_results/diagrams/phase15_vga_dataflow.puml)
 
 ### PlantUML図（バッファ分析）
-- [phase15_buffer_starvation_sequence.puml](./04_test_results/phase15_buffer_starvation_sequence.puml) - バッファ枯渇メカニズム
-- [phase15_buffer_comparison.puml](./04_test_results/phase15_buffer_comparison.puml) - 3バッファ vs 5バッファ比較
+- [phase15_buffer_starvation_sequence.puml](../04_test_results/diagrams/phase15_buffer_starvation_sequence.puml) - バッファ枯渇メカニズム
+- [phase15_buffer_comparison.puml](../04_test_results/diagrams/phase15_buffer_comparison.puml) - 3バッファ vs 5バッファ比較
 
 ### 詳細技術ドキュメント
 - [phase15_packet_buffer_analysis.md](./04_test_results/phase15_packet_buffer_analysis.md) - パケットバッファサイズの完全分析

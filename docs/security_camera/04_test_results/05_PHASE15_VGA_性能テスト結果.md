@@ -798,7 +798,7 @@ Phase 2（パイプライン化）の実装を開始:
 
 ### 1. フレーム処理シーケンス図
 
-![フレーム処理シーケンス](./phase15_vga_performance_sequence.puml)
+![フレーム処理シーケンス](./diagrams/phase15_vga_performance_sequence.puml)
 
 **図の説明**:
 
@@ -836,7 +836,7 @@ Phase 2（パイプライン化）の実装を開始:
 
 ### 2. ボトルネック分析タイミング図
 
-![ボトルネック分析](./phase15_vga_bottleneck_analysis.puml)
+![ボトルネック分析](./diagrams/phase15_vga_bottleneck_analysis.puml)
 
 **図の説明**:
 
@@ -877,7 +877,7 @@ Phase 2（パイプライン化）の実装を開始:
 
 ### 3. データフロー図とコンポーネント分析
 
-![データフロー図](./phase15_vga_dataflow.puml)
+![データフロー図](./diagrams/phase15_vga_dataflow.puml)
 
 **図の説明**:
 
@@ -1532,7 +1532,7 @@ nsh> security_camera
 
 #### 1. バッファ枯渇シーケンス図
 
-![バッファ枯渇メカニズム](./phase15_buffer_starvation_sequence.puml)
+![バッファ枯渇メカニズム](./diagrams/phase15_buffer_starvation_sequence.puml)
 
 **図の説明**:
 
@@ -1576,7 +1576,7 @@ USB転送時間（61.23 ms）が長すぎるため、1つのバッファが約2�
 
 #### 2. 3バッファ vs 5バッファ比較図
 
-![バッファ設計比較](./phase15_buffer_comparison.puml)
+![バッファ設計比較](./diagrams/phase15_buffer_comparison.puml)
 
 **図の説明**:
 
@@ -2320,9 +2320,9 @@ cat /dev/ttyACM0 > capture.bin
 ### 付録D: 関連ドキュメント
 
 **本レポート関連の図表**:
-- [phase15_vga_performance_sequence.puml](./phase15_vga_performance_sequence.puml) - フレーム処理シーケンス図
-- [phase15_vga_bottleneck_analysis.puml](./phase15_vga_bottleneck_analysis.puml) - ボトルネック分析タイミング図
-- [phase15_vga_dataflow.puml](./phase15_vga_dataflow.puml) - データフロー図
+- [phase15_vga_performance_sequence.puml](./diagrams/phase15_vga_performance_sequence.puml) - フレーム処理シーケンス図
+- [phase15_vga_bottleneck_analysis.puml](./diagrams/phase15_vga_bottleneck_analysis.puml) - ボトルネック分析タイミング図
+- [phase15_vga_dataflow.puml](./diagrams/phase15_vga_dataflow.puml) - データフロー図
 
 **テスト関連ドキュメント**:
 - [04_TEST_PROCEDURE_FLOW.md](./04_TEST_PROCEDURE_FLOW.md) - 完全なテスト手順

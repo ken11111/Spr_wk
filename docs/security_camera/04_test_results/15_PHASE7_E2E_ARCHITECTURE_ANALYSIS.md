@@ -20,7 +20,7 @@
 
 ## 1. システムアーキテクチャ全体図
 
-![E2E Architecture](15_PHASE7_E2E_ARCHITECTURE_ANALYSIS.puml)
+![E2E Architecture](diagrams/15_PHASE7_E2E_ARCHITECTURE_ANALYSIS.puml)
 
 ### 1.1 レイヤー構成
 
@@ -328,7 +328,7 @@ Unknown: 1000 - 11 - 100 - 15 = 874ms
 
 ### 5.1 ボトルネック優先度
 
-![Bottleneck Timeline](15_PHASE7_E2E_BOTTLENECK_ANALYSIS.puml)
+![Bottleneck Timeline](diagrams/15_PHASE7_E2E_BOTTLENECK_ANALYSIS.puml)
 
 | 優先度 | ボトルネック | 推定影響 | 場所 | 対策難易度 |
 |---|---|---|---|---|

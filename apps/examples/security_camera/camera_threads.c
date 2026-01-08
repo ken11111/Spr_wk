@@ -114,6 +114,18 @@ static struct timespec g_last_metrics_time;
 
 #define METRICS_INTERVAL_MS 1000  /* Send metrics every 1 second */
 
+/* Phase 7.2a: Multi-frame batching support */
+
+static uint32_t g_batch_sequence = 0;
+
+typedef struct frame_batch_s
+{
+  frame_buffer_t *frames[MJPEG_BATCH_SIZE];
+  uint32_t frame_sequences[MJPEG_BATCH_SIZE];
+  int frame_count;
+  uint32_t total_jpeg_size;
+} frame_batch_t;
+
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -455,30 +467,166 @@ void *camera_thread_func(void *arg)
  *
  * Description:
  *   USB thread function (consumer)
- *   Step 3: Send packets via USB
+ *   Step 3: Send packets via USB/TCP
+ *   Phase 7.2a: Multi-frame batching for TCP efficiency
  *
  ****************************************************************************/
 
 void *usb_thread_func(void *arg)
 {
   frame_buffer_t *buffer;
+  frame_batch_t batch;
   int ret;
   uint32_t error_count = 0;
+  struct timespec timeout;
+  int wait_ret;
+  uint8_t *batch_packet = NULL;
+  int i;
 
   /* Step 5: Performance statistics */
 
   uint32_t packet_count = 0;
+  uint32_t frame_count = 0;
+  uint32_t batch_count = 0;
   uint32_t total_bytes = 0;
-  uint32_t stats_interval = 30;  /* Log every 30 packets (~1 sec @ 30fps) */
+  uint32_t stats_interval = 30;  /* Log every 30 frames (~1 sec @ 30fps) */
 
   (void)arg;  /* Unused parameter */
 
   LOG_INFO("== USB thread started (Step 3: active) ==");
   LOG_INFO("USB thread priority: %d", USB_THREAD_PRIORITY);
 
+#if MJPEG_BATCHING_ENABLED
+  LOG_INFO("Phase 7.2a: Multi-frame batching enabled (batch_size=%d, timeout=%dms)",
+           MJPEG_BATCH_SIZE, MJPEG_BATCH_TIMEOUT_MS);
+
+  /* Allocate batch packet buffer (max ~185KB for 3 frames) */
+
+  batch_packet = (uint8_t *)malloc(MJPEG_MAX_BATCH_PACKET);
+  if (batch_packet == NULL)
+    {
+      LOG_ERROR("Failed to allocate batch packet buffer (%d bytes)",
+                MJPEG_MAX_BATCH_PACKET);
+      return NULL;
+    }
+#endif
+
+  memset(&batch, 0, sizeof(batch));
+
   while (!g_shutdown_requested)
     {
-      /* Step 1: Pull buffer from action queue (blocking if none available) */
+#if MJPEG_BATCHING_ENABLED
+      /* Phase 7.2a: Collect frames for batching */
+
+      pthread_mutex_lock(&g_queue_mutex);
+
+      /* Collect up to MJPEG_BATCH_SIZE frames */
+
+      while (batch.frame_count < MJPEG_BATCH_SIZE && !g_shutdown_requested)
+        {
+          /* If queue is empty, wait with timeout */
+
+          if (frame_queue_is_empty(g_action_queue))
+            {
+              /* Calculate timeout (100ms from now) */
+
+              clock_gettime(CLOCK_REALTIME, &timeout);
+              timeout.tv_nsec += MJPEG_BATCH_TIMEOUT_MS * 1000000LL;
+
+              /* Handle nsec overflow */
+
+              if (timeout.tv_nsec >= 1000000000LL)
+                {
+                  timeout.tv_sec += timeout.tv_nsec / 1000000000LL;
+                  timeout.tv_nsec %= 1000000000LL;
+                }
+
+              wait_ret = pthread_cond_timedwait(&g_queue_cond, &g_queue_mutex,
+                                                 &timeout);
+
+              /* If timeout or shutdown, send partial batch */
+
+              if (wait_ret == ETIMEDOUT || g_shutdown_requested)
+                {
+                  break;
+                }
+
+              continue;
+            }
+
+          /* Pull frame from action queue */
+
+          buffer = frame_queue_pull(&g_action_queue);
+          if (buffer != NULL)
+            {
+              batch.frames[batch.frame_count] = buffer;
+              batch.frame_sequences[batch.frame_count] = buffer->id;
+              batch.total_jpeg_size += buffer->used;
+              batch.frame_count++;
+            }
+        }
+
+      pthread_mutex_unlock(&g_queue_mutex);
+
+      /* If no frames collected (shutdown), exit loop */
+
+      if (batch.frame_count == 0)
+        {
+          break;
+        }
+
+      /* Pack batch of frames */
+
+      const uint8_t *frame_data[MJPEG_BATCH_SIZE];
+      uint32_t frame_sizes[MJPEG_BATCH_SIZE];
+
+      for (i = 0; i < batch.frame_count; i++)
+        {
+          frame_data[i] = (const uint8_t *)batch.frames[i]->data;
+          frame_sizes[i] = batch.frames[i]->used;
+        }
+
+      ret = mjpeg_pack_batch(frame_data, frame_sizes, batch.frame_sequences,
+                            batch.frame_count, &g_batch_sequence,
+                            batch_packet, MJPEG_MAX_BATCH_PACKET);
+
+      if (ret < 0)
+        {
+          LOG_ERROR("Failed to pack batch: %d", ret);
+          error_count++;
+
+          /* Return buffers to empty queue */
+
+          pthread_mutex_lock(&g_queue_mutex);
+          for (i = 0; i < batch.frame_count; i++)
+            {
+              frame_queue_push(&g_empty_queue, batch.frames[i]);
+            }
+
+          pthread_cond_signal(&g_queue_cond);
+          pthread_mutex_unlock(&g_queue_mutex);
+
+          memset(&batch, 0, sizeof(batch));
+          continue;
+        }
+
+      /* Send batch packet */
+
+      int batch_size = ret;
+
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+      /* Phase 7: Send via TCP */
+
+      tcp_server_t *tcp_srv = (tcp_server_t *)g_thread_ctx->tcp_server;
+      ret = tcp_server_send(tcp_srv, batch_packet, batch_size);
+#else
+      /* Send via USB */
+
+      ret = usb_transport_send_bytes(batch_packet, batch_size);
+#endif
+
+#else  /* !MJPEG_BATCHING_ENABLED */
+      /* Original single-frame mode */
 
       pthread_mutex_lock(&g_queue_mutex);
       while (frame_queue_is_empty(g_action_queue) && !g_shutdown_requested)
@@ -497,70 +645,76 @@ void *usb_thread_func(void *arg)
 
       if (buffer == NULL)
         {
-          /* Should not happen, but handle gracefully */
-
           LOG_WARN("USB thread: Failed to pull buffer from action queue");
-          usleep(10000);  /* 10ms */
+          usleep(10000);
           continue;
         }
 
-      /* Step 2: Send packet via transport (USB or TCP) */
+      /* Send single frame */
 
 #ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
-      /* Phase 7: Send via TCP */
-
       tcp_server_t *tcp_srv = (tcp_server_t *)g_thread_ctx->tcp_server;
       ret = tcp_server_send(tcp_srv, buffer->data, buffer->used);
 #else
-      /* Send via USB */
-
       ret = usb_transport_send_bytes((uint8_t *)buffer->data, buffer->used);
 #endif
+
+#endif  /* MJPEG_BATCHING_ENABLED */
+
+      /* Handle send errors */
 
       if (ret < 0)
         {
 #ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
-          /* Phase 7: TCP error detection */
-
           if (ret == -ENOTCONN || ret == -ECONNRESET || ret == -EPIPE)
             {
               LOG_ERROR("TCP thread: Client disconnected (error %d)", ret);
-
-              /* Immediate shutdown on TCP disconnect */
 
               pthread_mutex_lock(&g_queue_mutex);
               g_shutdown_requested = true;
               pthread_cond_broadcast(&g_queue_cond);
               pthread_mutex_unlock(&g_queue_mutex);
 
-              /* Return buffer before exiting */
+#if MJPEG_BATCHING_ENABLED
+              pthread_mutex_lock(&g_queue_mutex);
+              for (i = 0; i < batch.frame_count; i++)
+                {
+                  frame_queue_push(&g_empty_queue, batch.frames[i]);
+                }
 
+              pthread_mutex_unlock(&g_queue_mutex);
+#else
               pthread_mutex_lock(&g_queue_mutex);
               frame_queue_push(&g_empty_queue, buffer);
               pthread_mutex_unlock(&g_queue_mutex);
+#endif
               break;
             }
 
           LOG_ERROR("TCP thread: Failed to send packet: %d", ret);
 #else
-          /* Step 4: Enhanced USB error detection */
-
           if (ret == -ENXIO || ret == -EIO || ret == ERR_USB_DISCONNECTED)
             {
               LOG_ERROR("USB thread: USB device disconnected (error %d)", ret);
-
-              /* Immediate shutdown on USB disconnect */
 
               pthread_mutex_lock(&g_queue_mutex);
               g_shutdown_requested = true;
               pthread_cond_broadcast(&g_queue_cond);
               pthread_mutex_unlock(&g_queue_mutex);
 
-              /* Return buffer before exiting */
+#if MJPEG_BATCHING_ENABLED
+              pthread_mutex_lock(&g_queue_mutex);
+              for (i = 0; i < batch.frame_count; i++)
+                {
+                  frame_queue_push(&g_empty_queue, batch.frames[i]);
+                }
 
+              pthread_mutex_unlock(&g_queue_mutex);
+#else
               pthread_mutex_lock(&g_queue_mutex);
               frame_queue_push(&g_empty_queue, buffer);
               pthread_mutex_unlock(&g_queue_mutex);
+#endif
               break;
             }
 
@@ -582,50 +736,104 @@ void *usb_thread_func(void *arg)
               pthread_cond_broadcast(&g_queue_cond);
               pthread_mutex_unlock(&g_queue_mutex);
 
-              /* Return buffer before exiting */
+#if MJPEG_BATCHING_ENABLED
+              pthread_mutex_lock(&g_queue_mutex);
+              for (i = 0; i < batch.frame_count; i++)
+                {
+                  frame_queue_push(&g_empty_queue, batch.frames[i]);
+                }
 
+              pthread_mutex_unlock(&g_queue_mutex);
+#else
               pthread_mutex_lock(&g_queue_mutex);
               frame_queue_push(&g_empty_queue, buffer);
               pthread_mutex_unlock(&g_queue_mutex);
+#endif
               break;
             }
         }
       else
         {
-          error_count = 0;  /* Reset error count on success */
+          error_count = 0;
 
-          /* Phase 4.1: Update global metrics */
-
-          g_total_usb_packets++;
-          g_total_packet_bytes += buffer->used;
-
-          /* Step 5: Collect transmission statistics */
+#if MJPEG_BATCHING_ENABLED
+          /* Update statistics for batching mode */
 
           packet_count++;
-          total_bytes += buffer->used;
+          batch_count++;
+          frame_count += batch.frame_count;
+          total_bytes += ret;
+
+          g_total_usb_packets++;
+          g_total_packet_bytes += ret;
+
+          if (frame_count % stats_interval == 0)
+            {
+              uint32_t avg_packet_size = packet_count > 0 ? total_bytes / packet_count : 0;
+              float avg_batch_size = batch_count > 0 ? (float)frame_count / (float)batch_count : 0.0f;
+
+              LOG_INFO("Batch stats: frames=%lu, batches=%lu, avg_batch_size=%.2f, "
+                       "avg_packet=%lu bytes",
+                       (unsigned long)frame_count, (unsigned long)batch_count,
+                       avg_batch_size,
+                       (unsigned long)avg_packet_size);
+            }
+#else
+          /* Update statistics for single-frame mode */
+
+          packet_count++;
+          total_bytes += ret;
+
+          g_total_usb_packets++;
+          g_total_packet_bytes += ret;
 
           if (packet_count % stats_interval == 0)
             {
               uint32_t avg_packet_size = total_bytes / packet_count;
-              uint32_t throughput_kbps = (total_bytes * 8) / 1000;  /* Approx kbps */
+              uint32_t throughput_kbps = (total_bytes * 8) / 1000;
 
-              LOG_INFO("USB stats: packets=%lu, avg_size=%lu bytes, "
-                       "throughput~%lu kbps",
+              LOG_INFO("USB stats: packets=%lu, avg_size=%lu bytes, throughput~%lu kbps",
                        (unsigned long)packet_count, (unsigned long)avg_packet_size,
                        (unsigned long)throughput_kbps);
             }
+#endif
         }
 
-      /* Step 3: Return buffer to empty queue for camera thread to reuse */
+      /* Return buffers to empty queue */
 
       pthread_mutex_lock(&g_queue_mutex);
+
+#if MJPEG_BATCHING_ENABLED
+      for (i = 0; i < batch.frame_count; i++)
+        {
+          frame_queue_push(&g_empty_queue, batch.frames[i]);
+        }
+#else
       frame_queue_push(&g_empty_queue, buffer);
-      pthread_cond_signal(&g_queue_cond);  /* Wake camera thread */
+#endif
+
+      pthread_cond_signal(&g_queue_cond);
       pthread_mutex_unlock(&g_queue_mutex);
+
+#if MJPEG_BATCHING_ENABLED
+      memset(&batch, 0, sizeof(batch));
+#endif
     }
 
+#if MJPEG_BATCHING_ENABLED
+  if (batch_packet != NULL)
+    {
+      free(batch_packet);
+    }
+
+  LOG_INFO("== USB thread exiting (sent %lu batches, %lu frames, %lu bytes total) ==",
+           (unsigned long)batch_count, (unsigned long)frame_count,
+           (unsigned long)total_bytes);
+#else
   LOG_INFO("== USB thread exiting (sent %lu packets, %lu bytes total) ==",
            (unsigned long)packet_count, (unsigned long)total_bytes);
+#endif
+
   return NULL;
 }
 

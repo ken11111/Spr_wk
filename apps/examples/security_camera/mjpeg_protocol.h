@@ -28,7 +28,7 @@
 #define MJPEG_HEADER_SIZE        12           /* sync + seq + size */
 #define MJPEG_CRC_SIZE           2
 #define MJPEG_OVERHEAD_SIZE      (MJPEG_HEADER_SIZE + MJPEG_CRC_SIZE)
-#define MJPEG_MAX_JPEG_SIZE      98304        /* 96 KB (Phase 1.5: 47% safety margin) */
+#define MJPEG_MAX_JPEG_SIZE      61440        /* 60 KB (Phase 7.2: memory optimization, 18% safety margin over 52KB observed max) */
 #define MJPEG_MAX_PACKET_SIZE    (MJPEG_HEADER_SIZE + MJPEG_MAX_JPEG_SIZE + MJPEG_CRC_SIZE)
 
 /* Metrics packet constants (Phase 4.1 extension) */

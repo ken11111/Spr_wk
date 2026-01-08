@@ -42,6 +42,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <syslog.h>
+#include <malloc.h>  /* Phase 7.2: Memory statistics */
 
 #include "camera_manager.h"
 /* encoder_manager.h removed - using MJPEG from camera */
@@ -173,6 +174,13 @@ int main(int argc, FAR char *argv[])
   LOG_INFO("=================================================");
   LOG_INFO("Security Camera Application Starting (MJPEG)");
   LOG_INFO("=================================================");
+
+  /* Phase 7.2: Log memory usage at startup */
+
+  struct mallinfo mem = mallinfo();
+  LOG_INFO("Memory at startup: Heap used=%d bytes, free=%d bytes, "
+           "largest_free_block=%d bytes",
+           mem.uordblks, mem.fordblks, mem.mxordblk);
 
   /* Setup signal handlers */
 

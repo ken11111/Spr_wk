@@ -154,8 +154,8 @@ int tcp_server_accept(tcp_server_t *server)
       _info("TCP_NODELAY enabled (low latency mode)\n");
     }
 
-  /* 2. Increase send buffer size (256KB for MJPEG streaming) */
-  int sndbuf = 262144;  /* 256KB */
+  /* 2. Increase send buffer size (128KB for MJPEG streaming, Phase 7.2: reduced from 256KB) */
+  int sndbuf = 131072;  /* 128KB */
   ret = setsockopt(connfd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
   if (ret < 0)
     {

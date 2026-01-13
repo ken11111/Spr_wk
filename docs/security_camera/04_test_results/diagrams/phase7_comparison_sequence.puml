@@ -1,0 +1,220 @@
+@startuml phase7_comparison_sequence
+title Phase 7.2c vs 7.3 vs 7.3.1 vs 7.3.2 - Sequence Comparison
+
+participant "Spresense\n(GS2200M WiFi)" as Spresense #FFE5CC
+participant "TCP Stream\n(byte stream)" as TCP #CCE5FF
+participant "PC\n(tcp_connection.rs)" as PC #E5FFCC
+
+note over Spresense, PC #FFFFCC
+**バッファ/キュー構成**
+========================================
+**Spresense側:**
+- JPEGバッファ: 65,536 bytes (ISX012制限)
+- 1パケットサイズ: 14 + JPEG(52-61KB) + 2 = 約57KB
+
+**TCP Stream:**
+- バイトストリーム (境界なし)
+- GS2200M送信: 160-300ms/packet
+
+**PC側 (Phase 7.3以降):**
+- internal_buffer: 256,000 bytes (250KB容量)
+- 初回読み込み: 150KB (待ち行列構築)
+- 補充読み込み: 64KB単位
+- buffer_pos: 読み取り位置管理
+end note
+
+== Phase 7.2c: Stateless (毎回sync検索) ==
+
+note over PC #FFFFCC
+**Phase 7.2c バッファ構成:**
+- internal_buffer: なし
+- 毎回TCP read()でsync検索
+- バッファサイズ: 不定 (TCP任せ)
+end note
+
+Spresense -> TCP: Packet #1 (57KB)\n[CA FE BA BE][Header][JPEG][CRC]
+note right of TCP: GS2200M送信時間:\n160-300ms/packet
+
+PC -> TCP: TCP read()
+TCP --> PC: **3 bytes** returned\n[CA FE BA]
+note right of PC: ❌ Sync word途中\n検索失敗
+
+PC -> TCP: TCP read()
+TCP --> PC: Remaining bytes\n[BE][Header][JPEG][CRC]
+
+note right of PC
+❌ Sync word検出失敗
+- 1バイトスライド検索
+- 最大100KB検索
+- 次のパケットのsync検出
+- しかし既にパケット途中
+**=> JPEG decodeエラー (79%)**
+end note
+
+== Phase 7.3: Stateful (初回のみsync検索) ==
+
+note over PC #FFFFCC
+**Phase 7.3 バッファ構成:**
+- internal_buffer: **250KB容量** (Vec<u8>)
+- 初回読み込み: **150KB** (待ち行列構築)
+- 補充読み込み: **64KB単位**
+- buffer_pos: パケット境界管理
+end note
+
+note over PC: 接続時（初回のみ）
+PC -> TCP: find_initial_sync()
+TCP --> PC: [CA FE BA BE]
+note right of PC: ✅ Sync発見
+
+PC -> TCP: TCP read(**150KB**)
+Spresense -> TCP: Packet #1, #2, #3...
+TCP --> PC: **150KB** data
+note right of PC #FFFFCC
+✅ 待ち行列構築
+**internal_buffer: 150KB**
+buffer_pos: 0
+sync_established = true
+end note
+
+note over PC: 以降のパケット読み取り
+PC -> PC: read_packet()
+note right of PC
+✅ Sync検索スキップ
+✅ buffer_posから読む
+✅ packet_size情報使用
+**(14 + jpeg_size + 2)**
+end note
+
+PC -> PC: buffer_pos += packet_size
+PC -> TCP: ensure_buffer_has() (必要時のみ)
+TCP --> PC: **64KB** data (バッファ補充)
+note right of PC #FFFFCC
+補充後のバッファ:
+残りデータ + 64KB
+=> 常に十分な量を保持
+end note
+
+== Phase 7.3.1: 2バイトずれ (偶然の性能向上) ==
+
+note over PC #FFFFCC
+**Phase 7.3.1 バッファ構成:**
+- internal_buffer: **250KB容量**
+- 初回読み込み: **150KB**
+- ❌ **バグ: CRC 2バイト欠落**
+- 毎パケット後に150KB再読み込み発生
+end note
+
+Spresense -> TCP: Packet #1 (57KB)\n[CA FE BA BE][Header][JPEG][CRC]
+
+PC -> PC: read_packet()
+note right of PC
+packet_size = **14 + 57289**
+(❌ **CRC 2バイト削除**)
+end note
+
+PC -> PC: buffer_pos += **57303**
+note right of PC: 実際は**57305**必要\n(**2バイトずれ発生**)
+
+Spresense -> TCP: Packet #2 (58KB)\n[CA FE BA BE][Header][JPEG][CRC]
+
+PC -> PC: sync_word = buffer[57303..57307]\n= [**CRC 2**][CA FE]\n= 0x**????CAFE**
+note right of PC
+❌ 不明なsync word
+sync_established = false
+find_initial_sync()
+end note
+
+PC -> TCP: TCP read(**150KB**)
+Spresense -> TCP: Packet #2, #3, #4...
+TCP --> PC: **150KB** data
+note right of PC #FFFFCC
+✅ 待ち行列再構築
+**internal_buffer: 150KB**
+✅ 副作用: バッファリング
+- **複数パケット一括読み込み**
+- **FPS向上 (3.3 fps)**
+- 但し毎パケット150KB再読み込み
+end note
+
+== Phase 7.3.2: 正確なパケット境界 ==
+
+note over PC #FFFFCC
+**Phase 7.3.2 バッファ構成:**
+- internal_buffer: **250KB容量**
+- 初回読み込み: **150KB**
+- 補充読み込み: **64KB単位** (必要時のみ)
+- ✅ **正確なパケット境界保持**
+- buffer_pos管理が完全に正しい
+end note
+
+note over PC: 接続時（初回のみ）
+PC -> TCP: find_initial_sync()
+TCP --> PC: [CA FE BA BE]
+note right of PC: ✅ Sync発見
+
+PC -> TCP: TCP read(**150KB**)
+Spresense -> TCP: Packet #1, #2, #3...
+TCP --> PC: **150KB** data
+note right of PC #FFFFCC
+✅ 待ち行列構築
+**internal_buffer: 150KB**
+buffer_pos: 0
+sync_established = true
+end note
+
+note over PC: Packet #1 処理
+PC -> PC: read_packet()
+note right of PC
+packet_size = **14 + 57289 + 2**
+✅ **CRC 2バイト含む**
+end note
+
+PC -> PC: buffer_pos += **57305** ✅
+note right of PC #FFFFCC
+バッファ状態:
+buffer_pos: 0 => **57305**
+残り: **150KB - 57KB = 93KB**
+=> 次のパケットに十分
+end note
+
+note over PC: Packet #2 処理
+Spresense -> TCP: Packet #2 (58KB)\n[CA FE BA BE][Header][JPEG][CRC]
+
+PC -> PC: sync_word = buffer[57305..57309]\n= [**CA FE BA BE**]\n= 0x**CAFEBABE** ✅
+note right of PC
+✅ 正しいsync word
+✅ Sync再検索なし
+✅ パケット境界完全保持
+end note
+
+PC -> PC: packet_size = **14 + 58123 + 2**
+PC -> PC: buffer_pos += **58139** ✅
+note right of PC #FFFFCC
+バッファ状態:
+buffer_pos: 57305 => **115444**
+残り: **93KB - 58KB = 35KB**
+=> 次のパケット(57KB)には不足
+end note
+
+note over PC: Packet #3 処理前にバッファ補充
+PC -> PC: ensure_buffer_has(57KB)
+note right of PC: 残り35KB < 必要57KB\n=> TCP読み込み必要
+
+PC -> TCP: TCP read()
+Spresense -> TCP: Packet #3, #4...
+TCP --> PC: **64KB** data
+note right of PC #FFFFCC
+バッファ補充完了:
+残り35KB + 64KB = 99KB
+=> Packet #3処理可能
+end note
+
+note over Spresense, PC
+✅ 全てのフレームが正しく処理される
+✅ JPEG validation errorが正しく検出される
+✅ バッファ効率: 150KB初回 + 64KB補充 (必要時)
+✅ 無駄な再読み込み: なし
+✅ TCP読み込み: 必要な時のみ発生
+end note
+
+@enduml

@@ -154,8 +154,8 @@ int tcp_server_accept(tcp_server_t *server)
       _info("TCP_NODELAY enabled (low latency mode)\n");
     }
 
-  /* 2. Increase send buffer size (128KB for MJPEG streaming, Phase 7.2: reduced from 256KB) */
-  int sndbuf = 131072;  /* 128KB */
+  /* 2. Increase send buffer size (256KB for MJPEG streaming, Phase 7.2a: Increased for batch packets) */
+  int sndbuf = 262144;  /* 256KB */
   ret = setsockopt(connfd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
   if (ret < 0)
     {
@@ -202,10 +202,28 @@ int tcp_server_send(tcp_server_t *server, const void *data, size_t len)
   /* Start timing */
   clock_gettime(CLOCK_MONOTONIC, &start);
 
+  /* Phase 7.2b: Reduced logging for better performance */
+  _info("TCP send: %zu bytes (client_fd=%d)\n", len, server->client_fd);
+
+  /* Track progress for logging (every 10%) */
+  size_t last_logged_progress = 0;
+
   /* Loop until all data is sent (handle partial writes) */
   while (total_sent < len)
     {
       sent = write(server->client_fd, ptr + total_sent, len - total_sent);
+
+      /* Phase 7.2b: Log only every 10% progress to reduce overhead */
+      if (sent > 0)
+        {
+          size_t progress_pct = (total_sent + sent) * 100 / len;
+          if (progress_pct >= last_logged_progress + 10 || (total_sent + sent) == len)
+            {
+              _info("TCP progress: %zu/%zu (%zu%%)\n",
+                    total_sent + sent, len, progress_pct);
+              last_logged_progress = progress_pct;
+            }
+        }
 
       if (sent < 0)
         {
@@ -214,26 +232,30 @@ int tcp_server_send(tcp_server_t *server, const void *data, size_t len)
             {
               if (retry_count++ < MAX_RETRIES)
                 {
+                  _warn("TCP buffer full, retrying (%d/%d)...\n",
+                        retry_count, MAX_RETRIES);
                   /* Wait briefly for TCP buffer to drain */
                   usleep(10000);  /* 10ms */
                   continue;
                 }
               else
                 {
-                  _err("ERROR: TCP send timeout (buffer full)\n");
+                  _err("TCP send timeout after %d retries\n", MAX_RETRIES);
                   return -ETIMEDOUT;
                 }
             }
 
           /* Fatal error - disconnect client */
-          _err("ERROR: Failed to send data: %d\n", errno);
+          _err("TCP write error %d (sent %zu/%zu bytes)\n",
+               errno, total_sent, len);
           tcp_server_disconnect_client(server);
           return -errno;
         }
       else if (sent == 0)
         {
           /* Connection closed by peer */
-          _warn("WARNING: Connection closed by peer\n");
+          _warn("TCP connection closed by peer (sent %zu/%zu)\n",
+                total_sent, len);
           tcp_server_disconnect_client(server);
           return -ENOTCONN;
         }

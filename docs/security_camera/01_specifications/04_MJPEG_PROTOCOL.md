@@ -398,3 +398,404 @@ fn receive_frame(port: &mut SerialPort) -> Result<Vec<u8>> {
 ✅ **拡張可能**: 将来の機能追加に対応
 
 次のステップ: 実装!
+
+---
+
+## Phase 7.2a: マルチフレームバッチングプロトコル拡張
+
+**バージョン**: 1.1 (Phase 7.2a)
+**日付**: 2026-01-08
+**目的**: TCP転送効率向上のため、複数フレームを1パケットにバッチ化
+
+### 背景と目的
+
+Phase 7のWiFi/TCP実装において、usrsock TCPスタックのコンテキストスイッチオーバーヘッドがボトルネックとなり、FPSが3.6 fpsに低下しました（目標15-25 fps）。
+
+**問題点**:
+- usrsockスタック: 4回のコンテキストスイッチ（app→kernel→daemon→SPI→module）
+- 各フレーム送信に233ms（うち100ms以上がusrsockオーバーヘッド）
+- 単一フレーム送信では効率が悪い
+
+**解決策**:
+複数フレーム（1-3フレーム）を1つのバッチパケットにまとめることで、usrsockコールを削減し、TCP送信効率を向上させる。
+
+**期待効果**:
+- FPS: 3.6 fps → 8-9 fps (+122% ~ +150%)
+- usrsockコール: フレーム毎 → バッチ毎（-66%削減）
+- TCP送信時間: 233ms/フレーム → 350ms/3フレーム
+
+### バッチパケットフォーマット
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  Batch Packet Structure                      │
+├─────────────────────────────────────────────────────────────┤
+│ Batch Header (16 bytes)                                      │
+├──────────┬──────────┬──────────┬──────────┐                 │
+│ SYNC     │ BATCH_SEQ│FRAME_CNT │TOTAL_SIZE│                 │
+│(4 bytes) │(4 bytes) │(4 bytes) │(4 bytes) │                 │
+├──────────┴──────────┴──────────┴──────────┤                 │
+│ 0xCAFE     uint32     uint32     uint32    │                 │
+│ BABF    (batch seq) (1-3)    (sum of JPEGs)│                 │
+└──────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ Frame 1 Metadata (8 bytes)                                   │
+├──────────┬──────────┐                                        │
+│FRAME_SEQ │FRAME_SIZE│                                        │
+│(4 bytes) │(4 bytes) │                                        │
+├──────────┴──────────┤                                        │
+│  uint32    uint32   │                                        │
+└───────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ Frame 1 JPEG Data (FRAME_SIZE bytes)                        │
+│ [0xFF 0xD8 ... 0xFF 0xD9]                                   │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ Frame 2 Metadata (8 bytes)                                   │
+│ ... (same structure)                                         │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ Frame 2 JPEG Data (FRAME_SIZE bytes)                        │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ ... (Frame 3 if exists)                                      │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ CRC16 (2 bytes)                                              │
+│ CRC-16-CCITT over entire packet (header to last JPEG byte)  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**総サイズ**: 16 (header) + Σ(8 + JPEG_SIZE) + 2 (CRC)
+
+### バッチヘッダーフィールド詳細
+
+#### 1. SYNC_WORD (4 bytes)
+
+**目的**: バッチパケット識別
+
+```c
+#define MJPEG_BATCH_SYNC_WORD  0xCAFEBABF  // バッチパケット
+```
+
+- **値**: `0xCAFEBABF` (固定、末尾が0xBFで単一フレームと区別)
+- **エンディアン**: Little Endian
+- **バイト配列**: `[0xBF, 0xBA, 0xFE, 0xCA]`
+
+**既存プロトコルとの区別**:
+- `0xCAFEBABE`: 単一フレーム（既存）
+- `0xCAFEBABF`: バッチフレーム（新規、Phase 7.2a）
+- `0xCAFEBEEF`: メトリクスパケット（Phase 4.1）
+
+#### 2. BATCH_SEQUENCE (4 bytes)
+
+**目的**: バッチパケットのシーケンス番号
+
+- **型**: `uint32_t`
+- **範囲**: 0 ~ 2^32-1
+- **初期値**: 0
+- **動作**: バッチ送信毎にインクリメント（+1）
+
+**注意**: 個別フレームのシーケンス番号とは別管理
+
+#### 3. FRAME_COUNT (4 bytes)
+
+**目的**: このバッチに含まれるフレーム数
+
+- **型**: `uint32_t`
+- **範囲**: 1 ~ 3
+- **妥当性チェック**: 受信側で範囲外の場合はエラー
+
+#### 4. TOTAL_SIZE (4 bytes)
+
+**目的**: 全フレームのJPEG dataの合計サイズ
+
+- **型**: `uint32_t`
+- **計算**: Σ(FRAME_SIZE[i]) for i=0 to FRAME_COUNT-1
+- **最大値**: ~180,000 bytes (3フレーム × 60KB)
+
+### フレームメタデータフィールド
+
+各フレームのメタデータ（8バイト）:
+
+#### 1. FRAME_SEQUENCE (4 bytes)
+
+**目的**: 個別フレームのシーケンス番号
+
+- **型**: `uint32_t`
+- **管理**: Camera threadで管理される元のフレームシーケンス番号
+- **用途**: フレーム順序保証、ロス検出
+
+#### 2. FRAME_SIZE (4 bytes)
+
+**目的**: このフレームのJPEG dataサイズ
+
+- **型**: `uint32_t`
+- **範囲**: 1 ~ 61,440 bytes (60KB、Phase 7.2メモリ最適化後)
+- **用途**: JPEG data境界の特定
+
+### JPEG データ
+
+各フレームのJPEG data:
+- **サイズ**: FRAME_SIZE bytes
+- **フォーマット**: 標準JPEG（SOI: 0xFF 0xD8、EOI: 0xFF 0xD9）
+- **検証**: Phase 4.1.1のJPEG validation適用済み
+
+### CRC16
+
+**目的**: パケット全体の完全性検証
+
+- **範囲**: Batch header ~ 最後のJPEG byte（CRC自身は除外）
+- **アルゴリズム**: CRC-16-CCITT (Polynomial 0x1021, Init 0xFFFF)
+- **サイズ**: 2 bytes
+
+### パケットサイズ計算
+
+**最小サイズ**（1フレーム、1KB JPEG）:
+```
+16 + 8 + 1024 + 2 = 1,050 bytes
+```
+
+**標準サイズ**（3フレーム、各47KB JPEG）:
+```
+16 + (8 + 47000) × 3 + 2 = 141,042 bytes ≈ 138 KB
+```
+
+**最大サイズ**（3フレーム、各60KB JPEG）:
+```
+16 + (8 + 61440) × 3 + 2 = 184,370 bytes ≈ 180 KB
+```
+
+### プロトコル定数
+
+```c
+/* Phase 7.2a: Multi-frame batching constants */
+#define MJPEG_BATCH_SYNC_WORD    0xCAFEBABF  /* Batched frames */
+#define MJPEG_BATCHING_ENABLED   1           /* 0: disabled, 1: enabled */
+#define MJPEG_BATCH_SIZE         3           /* Number of frames per batch (1-3) */
+#define MJPEG_BATCH_TIMEOUT_MS   100         /* Timeout for partial batch (ms) */
+#define MJPEG_BATCH_HEADER_SIZE  16          /* batch header size */
+#define MJPEG_FRAME_META_SIZE    8           /* per-frame metadata size */
+#define MJPEG_MAX_BATCH_PACKET   (MJPEG_BATCH_HEADER_SIZE + \
+                                  (MJPEG_FRAME_META_SIZE + MJPEG_MAX_JPEG_SIZE) * MJPEG_BATCH_SIZE + \
+                                  MJPEG_CRC_SIZE)  /* Max: ~185 KB */
+```
+
+### データ構造（C言語）
+
+```c
+/* Batch packet header */
+typedef struct mjpeg_batch_header_s
+{
+  uint32_t sync_word;        /* 0xCAFEBABF */
+  uint32_t batch_sequence;   /* Batch sequence number */
+  uint32_t frame_count;      /* Number of frames (1-3) */
+  uint32_t total_size;       /* Total JPEG data size */
+} __attribute__((packed)) mjpeg_batch_header_t;
+
+/* Frame metadata within batch */
+typedef struct mjpeg_frame_meta_s
+{
+  uint32_t frame_sequence;   /* Individual frame sequence */
+  uint32_t frame_size;       /* JPEG data size */
+} __attribute__((packed)) mjpeg_frame_meta_t;
+
+/* Complete batch packet structure */
+typedef struct mjpeg_batch_packet_s
+{
+  mjpeg_batch_header_t header;
+  uint8_t data[];            /* [meta1][jpeg1][meta2][jpeg2]...[crc] */
+} __attribute__((packed)) mjpeg_batch_packet_t;
+```
+
+### バッチング動作仕様
+
+#### 収集ロジック（Spresense側）
+
+1. **フレーム収集**:
+   - Action queueから最大3フレームを収集
+   - `pthread_cond_timedwait()`で100msタイムアウト
+   - タイムアウト時は部分バッチ（1-2フレーム）を送信
+
+2. **バッチパケット作成**:
+   - `mjpeg_pack_batch()`でパケット化
+   - CRC16計算（全データ）
+   - 最大パケットサイズチェック
+
+3. **送信**:
+   - TCP/USB経由でバッチパケット送信
+   - 送信後、全バッファをempty queueへ返却
+
+#### パース処理（PC側）
+
+1. **Sync word検出**:
+   - `0xCAFEBABF`を検出してバッチパケット識別
+
+2. **ヘッダー読み込み**:
+   - バッチヘッダー（16バイト）読み込み
+   - `frame_count`, `total_size`取得
+
+3. **フレーム読み込み**:
+   - 各フレームのメタデータ（8バイト）読み込み
+   - JPEG data読み込み
+   - ループを`frame_count`回繰り返し
+
+4. **CRC検証**:
+   - 全データのCRC16計算
+   - パケット末尾のCRC16と比較
+
+5. **フレーム処理**:
+   - 各フレームを個別に処理（表示/保存）
+
+### エラーハンドリング
+
+#### Spresense側
+
+1. **バッチパック失敗**:
+   - 全バッファを即座にempty queueへ返却
+   - エラーカウント更新
+
+2. **TCP送信失敗**:
+   - 接続切断検出（ENOTCONN, ECONNRESET, EPIPE）
+   - バッチ内全バッファを返却後シャットダウン
+
+3. **連続エラー**:
+   - 10回連続エラーで自動シャットダウン
+
+#### PC側
+
+1. **パケット読み込みエラー**:
+   - タイムアウト、接続切断検出
+   - リトライまたは終了
+
+2. **バッチパース失敗**:
+   - ヘッダー検証失敗、CRC不一致
+   - パケット破棄、次のsync wordから再同期
+
+3. **フレーム検証失敗**:
+   - JPEG マーカー（SOI/EOI）検証失敗
+   - 警告ログ、フレームスキップ
+
+### パフォーマンス特性
+
+#### TCP送信時間削減
+
+**単一フレームモード（既存）**:
+```
+1フレーム送信 = 233ms
+├─ usrsockオーバーヘッド: ~100ms (4回コンテキストスイッチ)
+├─ GS2200M SPI転送:       ~80ms
+└─ TCPプロトコル:          ~53ms
+
+FPS = 1000ms / 233ms = 4.3 fps
+```
+
+**バッチングモード（Phase 7.2a）**:
+```
+3フレームバッチ送信 = 350ms (推定)
+├─ usrsockオーバーヘッド: ~100ms (1回のみ！)
+├─ GS2200M SPI転送:       ~180ms (3倍)
+└─ TCPプロトコル:          ~70ms (1.3倍)
+
+実効FPS = 3 × (1000ms / 350ms) = 8.6 fps
+```
+
+**改善率**:
+- FPS: +138% (3.6 fps → 8.6 fps)
+- usrsockコール: -66% (フレーム毎 → バッチ毎)
+- コンテキストスイッチ: -66%
+
+#### メモリ使用量
+
+**バッチバッファ**: ~185 KB (一時バッファ、送信後即解放)
+**キュー深度影響**: Phase 7.2で5バッファに削減（-120KB）
+
+### 後方互換性
+
+バッチングは**完全に後方互換**:
+
+| Sync Word | パケットタイプ | 処理 |
+|-----------|----------------|------|
+| `0xCAFEBABE` | 単一フレーム | 既存コードで処理 ✅ |
+| `0xCAFEBABF` | バッチフレーム | 新コードで処理 ✅ |
+| `0xCAFEBEEF` | メトリクス | 既存コードで処理 ✅ |
+
+PC側は3種類のパケットを自動判別して処理。
+
+### 設定オプション
+
+```c
+/* mjpeg_protocol.h */
+#define MJPEG_BATCHING_ENABLED   1  /* 0: 無効化して単一フレームモードに戻す */
+#define MJPEG_BATCH_SIZE         3  /* 1-3: バッチサイズ調整 */
+#define MJPEG_BATCH_TIMEOUT_MS   100 /* タイムアウト調整（ms） */
+```
+
+### 実装ファイル
+
+#### Spresense側
+
+- `apps/examples/security_camera/mjpeg_protocol.h`: 構造体定義、定数
+- `apps/examples/security_camera/mjpeg_protocol.c`: `mjpeg_pack_batch()`実装
+- `apps/examples/security_camera/camera_threads.c`: バッチング収集ロジック
+
+#### PC側（Rust）
+
+- `src/protocol.rs`: `BatchPacket`構造体、`BatchPacket::parse()`
+- `src/tcp_connection.rs`: バッチパケット読み込み
+- `src/main.rs`: バッチパケット処理
+
+### テスト仕様
+
+#### 機能テスト
+
+1. **バッチ送受信**:
+   - 3フレームバッチの正常送受信
+   - 部分バッチ（1-2フレーム）の送受信
+
+2. **CRC検証**:
+   - 正常パケットのCRC検証成功
+   - 破損パケットのCRC検証失敗検出
+
+3. **エラーハンドリング**:
+   - TCP切断時の正常終了
+   - パケット破損時の再同期
+
+#### 性能テスト
+
+1. **FPS測定**:
+   - 目標: 8-9 fps達成確認
+   - 測定期間: 最低5分間
+
+2. **メモリ使用量**:
+   - バッチバッファのメモリ影響確認
+   - 640KB予算内の確認
+
+3. **エラー率**:
+   - バッチパケット成功率 > 95%
+   - CRC検証成功率 > 99%
+
+### 制限事項
+
+1. **バッチサイズ**: 最大3フレーム（メモリ制約）
+2. **パケットサイズ**: 最大~185KB（TCP MTUより大きい、分割送信される）
+3. **遅延**: バッチ待機により最大100ms遅延追加
+4. **メモリ**: バッチバッファ~185KB必要
+
+### まとめ
+
+Phase 7.2aマルチフレームバッチングプロトコルは:
+
+✅ **高効率**: usrsockコール -66%削減
+✅ **高速化**: FPS +138%向上（3.6 → 8.6 fps目標）
+✅ **後方互換**: 既存パケットと共存可能
+✅ **堅牢**: CRC16検証、完全なエラーハンドリング
+✅ **柔軟**: バッチサイズ、タイムアウト調整可能
+
+**次のステップ**: 実機テストで性能検証!

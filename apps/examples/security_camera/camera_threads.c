@@ -618,7 +618,29 @@ void *usb_thread_func(void *arg)
       /* Phase 7: Send via TCP */
 
       tcp_server_t *tcp_srv = (tcp_server_t *)g_thread_ctx->tcp_server;
-      ret = tcp_server_send(tcp_srv, batch_packet, batch_size);
+
+      /* Phase 7.2a: Check connection status before send */
+      bool has_client = tcp_server_has_client(tcp_srv);
+      LOG_INFO("Pre-send check: has_client=%d, batch_size=%d bytes", has_client, batch_size);
+
+      if (!has_client)
+        {
+          LOG_ERROR("No client connected before send attempt!");
+          ret = -ENOTCONN;
+        }
+      else
+        {
+          LOG_INFO("Sending batch via TCP: %d bytes", batch_size);
+          ret = tcp_server_send(tcp_srv, batch_packet, batch_size);
+          if (ret > 0)
+            {
+              LOG_INFO("TCP send successful: %d bytes", ret);
+            }
+          else
+            {
+              LOG_ERROR("TCP send failed: ret=%d, errno=%d", ret, errno);
+            }
+        }
 #else
       /* Send via USB */
 

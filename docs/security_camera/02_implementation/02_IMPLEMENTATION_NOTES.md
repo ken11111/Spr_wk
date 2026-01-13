@@ -419,3 +419,153 @@ int camera_manager_cleanup(void)
 
 **作成者**: Claude Code (Sonnet 4.5)
 **最終更新**: 2025-12-16
+
+---
+
+## Phase 7.3.3: エラーハンドリングモード実装 (2026-01-13)
+
+### 背景
+
+**Phase 7.1cで発見された問題**:
+- 7個のバッファプールが満杯になるとSpresense側のキューが飽和
+- PC側でエラーが発生すると10回の連続エラーで処理停止
+- PC側が停止するとSpresense側も停止（連続運転不可）
+
+**要件**:
+1. エラーがあっても処理を継続（連続運転）
+2. デバッグモードは現在の動作を維持
+3. GUI/CLIで簡単に切り替え可能
+
+### 実装内容
+
+#### 1. ErrorHandlingMode enum定義
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ErrorHandlingMode {
+    /// 本番モード: エラーがあっても処理継続（連続運転優先）
+    Production,
+    /// デバッグモード: 重大なエラーで停止（問題早期発見）
+    Debug,
+}
+```
+
+#### 2. CameraApp構造体にフィールド追加
+
+```rust
+struct CameraApp {
+    // ...existing fields...
+    
+    // Phase 7.3.3: Error handling mode
+    error_handling_mode: ErrorHandlingMode,
+}
+```
+
+#### 3. GUI切り替えスイッチ
+
+**Settings パネル**に配置:
+- 🟢 Production: "Production (連続運転)"
+- 🔴 Debug: "Debug (エラーで停止)"
+
+```rust
+ui.label("Error Handling:");
+ui.horizontal(|ui| {
+    ui.radio_value(&mut self.error_handling_mode, ErrorHandlingMode::Production, "🟢 Production");
+    ui.radio_value(&mut self.error_handling_mode, ErrorHandlingMode::Debug, "🔴 Debug");
+});
+```
+
+#### 4. capture_threadエラー処理修正
+
+**修正箇所**: `src/gui_main.rs:1391-1403`
+
+```rust
+if packet_error_count >= 10 {
+    if error_handling_mode.is_debug() {
+        // Debug mode: Stop on critical errors
+        error!("Too many consecutive packet errors ({}), stopping capture thread (Debug mode)", packet_error_count);
+        tx.send(AppMessage::ConnectionStatus("Too many packet errors".to_string())).ok();
+        break;
+    } else {
+        // Production mode: Log and continue
+        warn!("Too many consecutive packet errors ({}), continuing (Production mode)", packet_error_count);
+        // Don't break - continue operation for continuous running
+    }
+}
+```
+
+### モード別動作
+
+| 項目 | Production Mode | Debug Mode |
+|------|-----------------|------------|
+| **Packet read error (10回)** | 警告ログ + 継続 | エラーログ + 停止 |
+| **JPEG decode error** | ログ記録 + 継続 | ログ記録 + 継続 |
+| **Metrics欠落** | 警告 + 継続 | 警告 + 継続 |
+| **デフォルト** | ✅ | - |
+| **用途** | 本番運用、長時間運転 | 開発、デバッグ |
+
+### テスト計画
+
+#### TC1: Production Mode - パケットエラー継続
+1. Production Modeに設定
+2. USB/TCP接続を不安定にする
+3. 10回以上のパケットエラーが発生
+4. **期待結果**: 処理が継続、警告ログが出力
+
+#### TC2: Debug Mode - パケットエラー停止
+1. Debug Modeに設定
+2. USB/TCP接続を不安定にする
+3. 10回連続パケットエラーが発生
+4. **期待結果**: 処理が停止、"Too many packet errors"表示
+
+#### TC3: Production Mode - 長時間運転
+1. Production Modeに設定
+2. 2時間以上連続運転
+3. 途中でエラーが発生しても継続
+4. **期待結果**: 2時間後も正常動作
+
+### ビルド結果
+
+```bash
+cd /home/ken/Rust_ws/security_camera_viewer
+cargo build --release --features gui --bin security_camera_gui
+```
+
+**結果**: ✅ 成功（warning のみ）
+
+### ファイル変更
+
+**PC側（Rust）**:
+- `src/gui_main.rs`:
+  - ErrorHandlingMode enum定義（63-94行目）
+  - CameraApp構造体にフィールド追加（203行目）
+  - GUI切り替えスイッチ（763-770行目）
+  - capture_thread シグネチャ修正（969行目）
+  - エラー処理ロジック修正（1391-1403行目）
+
+### 今後の拡張候補
+
+#### Phase 7.4: エラー統計の可視化
+- エラーカウンター追加（累積パケットエラー、JPEG decodeエラー、Metrics欠落）
+- GUI表示（エラー数、エラー率）
+- CSV記録（後から分析可能）
+
+#### Phase 7.5: 自動リカバリー
+- 接続自動再確立（TCP/USB切断時）
+- バッファフラッシュ（同期ずれ自動修正）
+
+### まとめ
+
+Phase 7.3.3では、エラーハンドリングモードを導入し、連続運転を実現しました。
+
+**達成したこと**:
+- ✅ Production/Debug モードの実装
+- ✅ GUI切り替えスイッチ
+- ✅ capture_threadエラー処理修正
+- ✅ ビルド成功
+
+**メリット**:
+- 商品性向上（連続運転可能）
+- デバッグ効率維持（Debug mode）
+- 柔軟な運用（モード切り替え）
+

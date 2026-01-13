@@ -36,6 +36,18 @@
 #define METRICS_SYNC_WORD        0xCAFEBEEF
 #define METRICS_PACKET_SIZE      42           /* Total size including CRC (Phase 7: +4 bytes for TCP stats) */
 
+/* Phase 7.2a: Multi-frame batching constants */
+
+#define MJPEG_BATCH_SYNC_WORD    0xCAFEBABF  /* Batched frames (末尾0xBF) */
+#define MJPEG_BATCHING_ENABLED   0           /* 0: disabled, 1: enabled - Phase 7.2a: Temporarily disabled for debugging */
+#define MJPEG_BATCH_SIZE         2           /* Number of frames per batch (1-3) - Phase 7.2a: Reduced to 2 for reliable TCP transmission (<100KB) */
+#define MJPEG_BATCH_TIMEOUT_MS   100         /* Timeout for partial batch (ms) */
+#define MJPEG_BATCH_HEADER_SIZE  16          /* batch header size */
+#define MJPEG_FRAME_META_SIZE    8           /* per-frame metadata size */
+#define MJPEG_MAX_BATCH_PACKET   (MJPEG_BATCH_HEADER_SIZE + \
+                                  (MJPEG_FRAME_META_SIZE + MJPEG_MAX_JPEG_SIZE) * MJPEG_BATCH_SIZE + \
+                                  MJPEG_CRC_SIZE)  /* Max: ~185 KB */
+
 /****************************************************************************
  * Public Types
  ****************************************************************************/
@@ -73,6 +85,34 @@ typedef struct metrics_packet_s
   uint32_t tcp_max_send_us;                   /* Maximum TCP send time (microseconds, Phase 7) */
   uint16_t crc16;                             /* CRC-16-CCITT checksum */
 } __attribute__((packed)) metrics_packet_t;
+
+/* Phase 7.2a: Multi-frame batching structures */
+
+/* Batch packet header */
+
+typedef struct mjpeg_batch_header_s
+{
+  uint32_t sync_word;                         /* Magic number: 0xCAFEBABF */
+  uint32_t batch_sequence;                    /* Batch sequence number */
+  uint32_t frame_count;                       /* Number of frames in this batch (1-3) */
+  uint32_t total_size;                        /* Total size of all frame data (sum of JPEG sizes) */
+} __attribute__((packed)) mjpeg_batch_header_t;
+
+/* Frame metadata within batch */
+
+typedef struct mjpeg_frame_meta_s
+{
+  uint32_t frame_sequence;                    /* Individual frame sequence number */
+  uint32_t frame_size;                        /* JPEG data size for this frame */
+} __attribute__((packed)) mjpeg_frame_meta_t;
+
+/* Complete batch packet structure */
+
+typedef struct mjpeg_batch_packet_s
+{
+  mjpeg_batch_header_t header;                /* Batch header */
+  uint8_t data[];                             /* Flexible array: [meta1][jpeg1][meta2][jpeg2]...[crc] */
+} __attribute__((packed)) mjpeg_batch_packet_t;
 
 /****************************************************************************
  * Public Function Prototypes
@@ -173,6 +213,34 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
                        uint32_t tcp_max_send_us,
                        uint32_t *sequence,
                        uint8_t *packet);
+
+/****************************************************************************
+ * Name: mjpeg_pack_batch
+ *
+ * Description:
+ *   Pack multiple JPEG frames into a batch packet (Phase 7.2a)
+ *
+ * Parameters:
+ *   frames          - Array of frame data pointers
+ *   frame_sizes     - Array of frame sizes
+ *   frame_sequences - Array of frame sequence numbers
+ *   frame_count     - Number of frames in batch (1-3)
+ *   batch_sequence  - Pointer to batch sequence number (will be incremented)
+ *   packet          - Output buffer for packed batch packet
+ *   packet_max_size - Maximum size of packet buffer
+ *
+ * Returns:
+ *   Total packet size on success, negative errno on failure
+ *
+ ****************************************************************************/
+
+int mjpeg_pack_batch(const uint8_t **frames,
+                     const uint32_t *frame_sizes,
+                     const uint32_t *frame_sequences,
+                     uint32_t frame_count,
+                     uint32_t *batch_sequence,
+                     uint8_t *packet,
+                     size_t packet_max_size);
 
 #ifdef __cplusplus
 }

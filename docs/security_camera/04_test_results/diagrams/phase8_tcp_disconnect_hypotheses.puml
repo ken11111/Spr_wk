@@ -1,0 +1,46 @@
+@startuml phase8_tcp_disconnect_hypotheses
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 200
+
+title Phase 8 TCP切断: 3つの仮説シーケンス比較
+
+participant "Camera\n(ISX012)" as CAM
+participant "action_queue\n(MAX=7)" as AQ #LightYellow
+participant "TCP Thread\n(Spresense)" as TCP_SP
+participant "GS2200M\nWiFi Module" as WIFI #LightBlue
+participant "WiFi AP\n(Router)" as AP #LightCyan
+participant "OS TCP\nBuffer (PC)" as OS_BUF #LightYellow
+participant "TCP Reader\n(PC)" as TCP_PC #LightGreen
+participant "GUI Thread\n(PC)" as GUI
+
+== 正常動作 (48分間, 18,942フレーム) ==
+CAM -> AQ: push(frame)
+note over AQ: depth=4 (安定)
+AQ -> TCP_SP: pull()
+TCP_SP -> WIFI: send(28KB avg)
+note over WIFI: 134ms平均\nバッファ使用中
+WIFI -> AP: 802.11g\n1-2Mbps
+AP -> OS_BUF: TCP segments
+OS_BUF -> TCP_PC: read()
+TCP_PC -> GUI: DecodedFrame
+
+note over WIFI,TCP_PC #LightGreen
+**正常動作統計**
+- PC FPS: 6.74fps
+- TCP avg: 134ms
+- Error: 0
+end note
+
+== ■■■ 切断発生 (seq=27603, 48分後) ■■■ ==
+
+note over CAM,GUI #Pink
+**観測事実**
+- PC側: "Connection closed (need 56788 bytes, have 21960)"
+  → パケットの38.7%受信時点で切断
+- Spresense側: "error -107 (ENOTCONN)"
+  → 送信中にソケット切断検出
+end note
+
+@enduml

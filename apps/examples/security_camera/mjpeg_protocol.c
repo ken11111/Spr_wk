@@ -285,6 +285,8 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
                        uint32_t errors,
                        uint32_t tcp_avg_send_us,
                        uint32_t tcp_max_send_us,
+                       uint32_t dropped_frames,
+                       uint32_t drop_events,
                        uint32_t *sequence,
                        uint8_t *packet)
 {
@@ -312,8 +314,10 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
   metrics->errors = errors;
   metrics->tcp_avg_send_us = tcp_avg_send_us;
   metrics->tcp_max_send_us = tcp_max_send_us;
+  metrics->dropped_frames = dropped_frames;     /* Phase 7.3.3 */
+  metrics->drop_events = drop_events;           /* Phase 7.3.3 */
 
-  /* Calculate CRC over all fields except crc16 itself (40 bytes) */
+  /* Calculate CRC over all fields except crc16 itself (48 bytes) */
 
   crc = mjpeg_crc16_ccitt(packet, METRICS_PACKET_SIZE - sizeof(uint16_t));
   metrics->crc16 = crc;
@@ -323,13 +327,15 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
   (*sequence)++;
 
   LOG_DEBUG("Packed metrics: seq=%lu, cam_frames=%lu, usb_pkts=%lu, "
-            "q_depth=%lu, avg_size=%lu, errors=%lu, crc=0x%04X",
+            "q_depth=%lu, avg_size=%lu, errors=%lu, dropped=%lu, drop_events=%lu, crc=0x%04X",
             (unsigned long)metrics->sequence,
             (unsigned long)camera_frames,
             (unsigned long)usb_packets,
             (unsigned long)action_q_depth,
             (unsigned long)avg_packet_size,
             (unsigned long)errors,
+            (unsigned long)dropped_frames,
+            (unsigned long)drop_events,
             crc);
 
   return METRICS_PACKET_SIZE;

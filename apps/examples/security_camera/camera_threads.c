@@ -114,6 +114,41 @@ static struct timespec g_last_metrics_time;
 
 #define METRICS_INTERVAL_MS 1000  /* Send metrics every 1 second */
 
+/* Phase 7.3.3c: Unified frame drop logic with OR condition
+ *
+ * Frame drop strategy (OR condition):
+ *   Drop frames if: (slow_send_count >= 3) OR (queue_depth >= 6)
+ *
+ * Rationale:
+ * - Phase 7.3.3b had separate time-based and queue-based checks
+ * - Problem: Independent checks caused counter inconsistency
+ *   - Queue drop didn't reset slow_send_count
+ *   - Time drop didn't prevent subsequent queue saturation
+ * - Solution: Unified check with OR condition
+ *   - Single drop logic triggered by either condition
+ *   - Both counters reset after drop
+ *   - Clear logging of trigger reason
+ *
+ * Drop conditions:
+ * 1. Time-based: TCP send > 250ms for 3 consecutive frames
+ * 2. Queue-based: Queue depth >= 6 (approaching max 7)
+ *
+ * Drop action:
+ * - Pull 3 oldest frames from action queue
+ * - Push to empty queue for recycling
+ * - Reset slow_send_count
+ * - Log drop reason (time vs queue)
+ */
+
+static uint32_t g_dropped_frames = 0;       /* Total dropped frames */
+static uint32_t g_drop_events = 0;          /* Number of drop events */
+
+/* Drop condition parameters */
+#define SLOW_SEND_THRESHOLD_MS     250  /* Slow send threshold (ms) */
+#define SLOW_SEND_COUNT_MAX        3    /* Consecutive slow sends to trigger drop */
+#define QUEUE_SATURATION_THRESHOLD 6    /* Drop when queue depth >= 6 (max is 7) */
+#define DROP_FRAME_COUNT           3    /* Number of frames to drop per event */
+
 /* Phase 7.2a: Multi-frame batching support */
 
 static uint32_t g_batch_sequence = 0;
@@ -198,6 +233,8 @@ static int send_metrics_packet(int usb_fd)
                            g_total_errors,
                            tcp_avg_send_us,
                            tcp_max_send_us,
+                           g_dropped_frames,      /* Phase 7.3.3 */
+                           g_drop_events,         /* Phase 7.3.3 */
                            &g_metrics_sequence,
                            metrics_buffer);
 
@@ -409,10 +446,11 @@ void *camera_thread_func(void *arg)
           float jpeg_error_rate = (float)jpeg_validation_error_count / (float)frame_count * 100.0f;
 
           LOG_INFO("Camera stats: frame=%lu, action_q=%d, empty_q=%d, "
-                   "avg_jpeg=%lu KB, jpeg_errors=%lu (%.2f%%)",
+                   "avg_jpeg=%lu KB, jpeg_errors=%lu (%.2f%%), dropped=%lu (events=%lu)",
                    (unsigned long)frame_count, action_depth, empty_depth,
                    (unsigned long)avg_jpeg_kb,
-                   (unsigned long)jpeg_validation_error_count, jpeg_error_rate);
+                   (unsigned long)jpeg_validation_error_count, jpeg_error_rate,
+                   (unsigned long)g_dropped_frames, (unsigned long)g_drop_events);
         }
 
       pthread_mutex_unlock(&g_queue_mutex);
@@ -490,6 +528,11 @@ void *usb_thread_func(void *arg)
   uint32_t batch_count = 0;
   uint32_t total_bytes = 0;
   uint32_t stats_interval = 30;  /* Log every 30 frames (~1 sec @ 30fps) */
+
+  /* Phase 7.3.3: Frame drop on slow TCP send */
+
+  uint32_t slow_send_count = 0;
+  struct timespec send_start, send_end;
 
   (void)arg;  /* Unused parameter */
 
@@ -630,11 +673,77 @@ void *usb_thread_func(void *arg)
         }
       else
         {
+          /* Phase 7.3.3: Start send time measurement */
+          clock_gettime(CLOCK_MONOTONIC, &send_start);
+
           LOG_INFO("Sending batch via TCP: %d bytes", batch_size);
           ret = tcp_server_send(tcp_srv, batch_packet, batch_size);
+
+          /* Phase 7.3.3: End send time measurement */
+          clock_gettime(CLOCK_MONOTONIC, &send_end);
+
           if (ret > 0)
             {
               LOG_INFO("TCP send successful: %d bytes", ret);
+
+              /* Phase 7.3.3: Calculate send time and check for frame drop */
+              uint64_t send_time_us = ((uint64_t)send_end.tv_sec * 1000000ULL +
+                                       (uint64_t)send_end.tv_nsec / 1000ULL) -
+                                      ((uint64_t)send_start.tv_sec * 1000000ULL +
+                                       (uint64_t)send_start.tv_nsec / 1000ULL);
+              uint64_t send_time_ms = send_time_us / 1000ULL;
+
+              LOG_INFO("TCP send time: %lu ms", (unsigned long)send_time_ms);
+
+              /* Check for slow send */
+              if (send_time_ms > SLOW_SEND_THRESHOLD_MS)
+                {
+                  slow_send_count++;
+                  LOG_WARN("Slow TCP send detected (%lu ms), count=%lu",
+                           (unsigned long)send_time_ms,
+                           (unsigned long)slow_send_count);
+
+                  if (slow_send_count >= SLOW_SEND_COUNT_MAX)
+                    {
+                      LOG_WARN("TCP send is consistently slow, dropping old frames...");
+
+                      /* Drop old frames from action queue */
+                      int dropped = 0;
+                      pthread_mutex_lock(&g_queue_mutex);
+
+                      for (i = 0; i < DROP_FRAME_COUNT; i++)
+                        {
+                          frame_buffer_t *old_frame = frame_queue_pull(&g_action_queue);
+                          if (old_frame != NULL)
+                            {
+                              frame_queue_push(&g_empty_queue, old_frame);
+                              dropped++;
+                              g_dropped_frames++;
+                            }
+                          else
+                            {
+                              break;  /* Queue is empty */
+                            }
+                        }
+
+                      pthread_mutex_unlock(&g_queue_mutex);
+
+                      if (dropped > 0)
+                        {
+                          g_drop_events++;
+                          LOG_WARN("Dropped %d frames (total: %lu, events: %lu)",
+                                   dropped,
+                                   (unsigned long)g_dropped_frames,
+                                   (unsigned long)g_drop_events);
+                        }
+
+                      slow_send_count = 0;  /* Reset counter */
+                    }
+                }
+              else
+                {
+                  slow_send_count = 0;  /* Reset on normal send */
+                }
             }
           else
             {
@@ -675,8 +784,97 @@ void *usb_thread_func(void *arg)
       /* Send single frame */
 
 #ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+      /* Phase 7.3.3: Start send time measurement */
+      clock_gettime(CLOCK_MONOTONIC, &send_start);
+
       tcp_server_t *tcp_srv = (tcp_server_t *)g_thread_ctx->tcp_server;
       ret = tcp_server_send(tcp_srv, buffer->data, buffer->used);
+
+      /* Phase 7.3.3: End send time measurement */
+      clock_gettime(CLOCK_MONOTONIC, &send_end);
+
+      if (ret > 0)
+        {
+          /* Phase 7.3.3: Calculate send time and check for frame drop */
+          uint64_t send_time_us = ((uint64_t)send_end.tv_sec * 1000000ULL +
+                                   (uint64_t)send_end.tv_nsec / 1000ULL) -
+                                  ((uint64_t)send_start.tv_sec * 1000000ULL +
+                                   (uint64_t)send_start.tv_nsec / 1000ULL);
+          uint64_t send_time_ms = send_time_us / 1000ULL;
+
+          LOG_INFO("TCP send time: %lu ms", (unsigned long)send_time_ms);
+
+          /* Phase 7.3.3c: Unified frame drop logic (OR condition)
+           * Drop frames if:
+           *   1. TCP send time > 250ms (slow send detected)
+           *   2. Queue depth >= 6 (approaching saturation)
+           */
+
+          /* Check for slow send and update counter */
+          if (send_time_ms > SLOW_SEND_THRESHOLD_MS)
+            {
+              slow_send_count++;
+              LOG_WARN("Slow TCP send detected (%lu ms), count=%lu",
+                       (unsigned long)send_time_ms,
+                       (unsigned long)slow_send_count);
+            }
+          else
+            {
+              slow_send_count = 0;  /* Reset on normal send */
+            }
+
+          /* Get current queue depth for unified drop decision */
+          pthread_mutex_lock(&g_queue_mutex);
+          int current_depth = frame_queue_depth(g_action_queue);
+          pthread_mutex_unlock(&g_queue_mutex);
+
+          /* Unified drop condition: (slow send x3) OR (queue depth >= 6) */
+          bool should_drop = (slow_send_count >= SLOW_SEND_COUNT_MAX) ||
+                             (current_depth >= QUEUE_SATURATION_THRESHOLD);
+
+          if (should_drop)
+            {
+              const char *reason = (slow_send_count >= SLOW_SEND_COUNT_MAX) ?
+                                   "slow TCP send" : "queue saturation";
+              LOG_WARN("Frame drop triggered by %s (send_count=%lu, depth=%d)",
+                       reason,
+                       (unsigned long)slow_send_count,
+                       current_depth);
+
+              /* Drop old frames from action queue */
+              int dropped = 0;
+              pthread_mutex_lock(&g_queue_mutex);
+
+              for (int j = 0; j < DROP_FRAME_COUNT; j++)
+                {
+                  frame_buffer_t *old_frame = frame_queue_pull(&g_action_queue);
+                  if (old_frame != NULL)
+                    {
+                      frame_queue_push(&g_empty_queue, old_frame);
+                      dropped++;
+                      g_dropped_frames++;
+                    }
+                  else
+                    {
+                      break;  /* Queue is empty */
+                    }
+                }
+
+              pthread_mutex_unlock(&g_queue_mutex);
+
+              if (dropped > 0)
+                {
+                  g_drop_events++;
+                  LOG_WARN("Dropped %d frames (total: %lu, events: %lu)",
+                           dropped,
+                           (unsigned long)g_dropped_frames,
+                           (unsigned long)g_drop_events);
+                }
+
+              /* Reset slow send counter after drop */
+              slow_send_count = 0;
+            }
+        }
 #else
       ret = usb_transport_send_bytes((uint8_t *)buffer->data, buffer->used);
 #endif
@@ -1055,6 +1253,8 @@ void camera_threads_cleanup(void)
       LOG_INFO("TCP Avg Send Time: %lu us", (unsigned long)tcp_avg_send_us);
       LOG_INFO("TCP Max Send Time: %lu us", (unsigned long)tcp_max_send_us);
 #endif
+      LOG_INFO("Dropped Frames: %lu", (unsigned long)g_dropped_frames);
+      LOG_INFO("Drop Events: %lu", (unsigned long)g_drop_events);
       LOG_INFO("=================================================");
     }
 

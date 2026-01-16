@@ -34,7 +34,7 @@
 /* Metrics packet constants (Phase 4.1 extension) */
 
 #define METRICS_SYNC_WORD        0xCAFEBEEF
-#define METRICS_PACKET_SIZE      42           /* Total size including CRC (Phase 7: +4 bytes for TCP stats) */
+#define METRICS_PACKET_SIZE      50           /* Total size including CRC (Phase 7: +4 bytes for TCP stats, Phase 7.3.3: +8 bytes for frame drop stats) */
 
 /* Phase 7.2a: Multi-frame batching constants */
 
@@ -69,7 +69,7 @@ typedef struct mjpeg_packet_s
   uint8_t data[];                             /* Flexible array: JPEG data + CRC */
 } __attribute__((packed)) mjpeg_packet_t;
 
-/* Metrics packet structure (Phase 4.1 extension, Phase 7 TCP stats added) */
+/* Metrics packet structure (Phase 4.1 extension, Phase 7 TCP stats added, Phase 7.3.3 frame drop stats added) */
 
 typedef struct metrics_packet_s
 {
@@ -83,6 +83,8 @@ typedef struct metrics_packet_s
   uint32_t errors;                            /* Total error count */
   uint32_t tcp_avg_send_us;                   /* Average TCP send time (microseconds, Phase 7) */
   uint32_t tcp_max_send_us;                   /* Maximum TCP send time (microseconds, Phase 7) */
+  uint32_t dropped_frames;                    /* Total dropped frames (Phase 7.3.3) */
+  uint32_t drop_events;                       /* Number of drop events (Phase 7.3.3) */
   uint16_t crc16;                             /* CRC-16-CCITT checksum */
 } __attribute__((packed)) metrics_packet_t;
 
@@ -195,6 +197,8 @@ int mjpeg_validate_header(const mjpeg_header_t *header);
  *   errors           - Total error count
  *   tcp_avg_send_us  - Average TCP send time (microseconds, Phase 7)
  *   tcp_max_send_us  - Maximum TCP send time (microseconds, Phase 7)
+ *   dropped_frames   - Total dropped frames (Phase 7.3.3)
+ *   drop_events      - Number of drop events (Phase 7.3.3)
  *   sequence         - Pointer to sequence number (will be incremented)
  *   packet           - Output buffer for packed packet
  *
@@ -211,6 +215,8 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
                        uint32_t errors,
                        uint32_t tcp_avg_send_us,
                        uint32_t tcp_max_send_us,
+                       uint32_t dropped_frames,
+                       uint32_t drop_events,
                        uint32_t *sequence,
                        uint8_t *packet);
 

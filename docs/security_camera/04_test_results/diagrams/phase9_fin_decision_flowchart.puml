@@ -1,0 +1,58 @@
+@startuml phase9_fin_decision_flowchart
+!theme plain
+skinparam backgroundColor white
+skinparam activityDiamondBackgroundColor white
+
+title GS2200M TCP: 重複ACK後のFIN発生決定フローチャート
+
+start
+
+:重複ACK検出\n(パケットロス);
+
+if (Fast Retransmit\n成功?) then (成功\n< 500ms)
+  #lightgreen:早期再送実行;
+  #lightgreen:回復成功;
+  note right
+    **94.6%のケース**
+    - 96ms ~ 406ms で再送
+    - 接続継続
+  end note
+  stop
+else (失敗)
+  :RTOタイマー\n起動;
+
+  :RTOタイムアウト\n待機 (≧1秒);
+
+  #orange:内部エラー状態\nに遷移;
+
+  :RTO再送実行;
+
+  if (再送成功?) then (成功)
+    note right
+      再送は成功するが
+      既にFIN決定済み
+    end note
+  else (失敗)
+  endif
+
+  #pink:FIN送信;
+  note right
+    **5.4%のケース**
+    - 1000ms ~ 2900ms で再送
+    - FIN送信で切断
+  end note
+
+  :TCP切断;
+
+  if (Phase 9\n自動再接続?) then (有効)
+    #lightblue:Spresense:\naccept()待機;
+    #lightblue:PC:\nreconnect();
+    #lightgreen:再接続成功\n(約2秒);
+    stop
+  else (無効)
+    #red:アプリケーション\n停止;
+    stop
+  endif
+endif
+
+@enduml

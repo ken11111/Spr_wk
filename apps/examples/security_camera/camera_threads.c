@@ -207,6 +207,8 @@ static int send_metrics_packet(int usb_fd)
   uint32_t action_q_depth;
   uint32_t tcp_avg_send_us = 0;
   uint32_t tcp_max_send_us = 0;
+  uint32_t tcp_health_moving_avg = 0;
+  uint32_t tcp_health_total_spikes = 0;
   int ret;
   frame_buffer_t *buf;
 
@@ -221,6 +223,9 @@ static int send_metrics_packet(int usb_fd)
 #ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
   /* Get TCP send statistics (Phase 7) */
   tcp_server_get_stats(&tcp_avg_send_us, &tcp_max_send_us);
+
+  /* Phase 9.2: Get TCP health metrics */
+  tcp_health_get_metrics(&tcp_health_moving_avg, NULL, &tcp_health_total_spikes, NULL);
 #endif
 
   /* Pack metrics into packet */
@@ -233,8 +238,10 @@ static int send_metrics_packet(int usb_fd)
                            g_total_errors,
                            tcp_avg_send_us,
                            tcp_max_send_us,
-                           g_dropped_frames,      /* Phase 7.3.3 */
-                           g_drop_events,         /* Phase 7.3.3 */
+                           g_dropped_frames,          /* Phase 7.3.3 */
+                           g_drop_events,             /* Phase 7.3.3 */
+                           tcp_health_moving_avg,     /* Phase 9.2 */
+                           tcp_health_total_spikes,   /* Phase 9.2 */
                            &g_metrics_sequence,
                            metrics_buffer);
 
@@ -677,7 +684,9 @@ void *usb_thread_func(void *arg)
           clock_gettime(CLOCK_MONOTONIC, &send_start);
 
           LOG_INFO("Sending batch via TCP: %d bytes", batch_size);
-          ret = tcp_server_send(tcp_srv, batch_packet, batch_size);
+
+          /* Phase 9: Use auto-reconnect enabled send */
+          ret = tcp_server_send_with_reconnect(tcp_srv, batch_packet, batch_size);
 
           /* Phase 7.3.3: End send time measurement */
           clock_gettime(CLOCK_MONOTONIC, &send_end);
@@ -784,11 +793,40 @@ void *usb_thread_func(void *arg)
       /* Send single frame */
 
 #ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+      tcp_server_t *tcp_srv = (tcp_server_t *)g_thread_ctx->tcp_server;
+
+      /* Phase 9.2: Check for preventive reconnect before send */
+
+      if (tcp_health_should_reconnect())
+        {
+          LOG_WARN("TCP health degraded - initiating preventive reconnect");
+
+          /* Trigger preventive reconnect */
+
+          if (tcp_server_handle_disconnect(tcp_srv) == 0)
+            {
+              if (tcp_server_wait_reconnect(tcp_srv) == 0)
+                {
+                  LOG_INFO("Preventive reconnect successful");
+                  tcp_health_clear_reconnect_flag();
+                  tcp_health_reset();  /* Reset health monitor */
+                }
+            }
+
+          /* Return buffer and try next frame */
+
+          pthread_mutex_lock(&g_queue_mutex);
+          frame_queue_push(&g_empty_queue, buffer);
+          pthread_cond_signal(&g_queue_cond);
+          pthread_mutex_unlock(&g_queue_mutex);
+          continue;
+        }
+
       /* Phase 7.3.3: Start send time measurement */
       clock_gettime(CLOCK_MONOTONIC, &send_start);
 
-      tcp_server_t *tcp_srv = (tcp_server_t *)g_thread_ctx->tcp_server;
-      ret = tcp_server_send(tcp_srv, buffer->data, buffer->used);
+      /* Phase 9: Use auto-reconnect enabled send */
+      ret = tcp_server_send_with_reconnect(tcp_srv, buffer->data, buffer->used);
 
       /* Phase 7.3.3: End send time measurement */
       clock_gettime(CLOCK_MONOTONIC, &send_end);
@@ -886,9 +924,42 @@ void *usb_thread_func(void *arg)
       if (ret < 0)
         {
 #ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+          /* Phase 9: Handle reconnect success (-EAGAIN) */
+
+          if (ret == -EAGAIN)
+            {
+              LOG_INFO("TCP reconnected successfully, skipping current frame");
+
+              /* Phase 9.2: Reset health monitor after reconnect */
+
+              tcp_health_reset();
+
+              /* Return buffers and continue with next frame */
+
+#if MJPEG_BATCHING_ENABLED
+              pthread_mutex_lock(&g_queue_mutex);
+              for (i = 0; i < batch.frame_count; i++)
+                {
+                  frame_queue_push(&g_empty_queue, batch.frames[i]);
+                }
+
+              pthread_cond_signal(&g_queue_cond);
+              pthread_mutex_unlock(&g_queue_mutex);
+              memset(&batch, 0, sizeof(batch));
+#else
+              pthread_mutex_lock(&g_queue_mutex);
+              frame_queue_push(&g_empty_queue, buffer);
+              pthread_cond_signal(&g_queue_cond);
+              pthread_mutex_unlock(&g_queue_mutex);
+#endif
+              continue;  /* Continue with next frame */
+            }
+
+          /* Phase 9: Handle unrecoverable disconnect (reconnect failed) */
+
           if (ret == -ENOTCONN || ret == -ECONNRESET || ret == -EPIPE)
             {
-              LOG_ERROR("TCP thread: Client disconnected (error %d)", ret);
+              LOG_ERROR("TCP thread: Client disconnected and reconnect failed (error %d)", ret);
 
               pthread_mutex_lock(&g_queue_mutex);
               g_shutdown_requested = true;
@@ -1084,6 +1155,12 @@ int camera_threads_init(thread_context_t *ctx)
   clock_gettime(CLOCK_MONOTONIC, &g_start_time);
   g_last_metrics_time = g_start_time;
 
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+  /* Phase 9.2: Initialize TCP health monitor */
+
+  tcp_health_init();
+#endif
+
   /* Initialize frame queue system */
 
   ret = frame_queue_init();
@@ -1252,6 +1329,23 @@ void camera_threads_cleanup(void)
 #ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
       LOG_INFO("TCP Avg Send Time: %lu us", (unsigned long)tcp_avg_send_us);
       LOG_INFO("TCP Max Send Time: %lu us", (unsigned long)tcp_max_send_us);
+
+      /* Phase 9.2: Log health metrics */
+
+      uint32_t health_moving_avg_ms;
+      uint8_t health_consecutive_spikes;
+      uint32_t health_total_spikes;
+      bool health_degradation_alert;
+
+      tcp_health_get_metrics(&health_moving_avg_ms,
+                             &health_consecutive_spikes,
+                             &health_total_spikes,
+                             &health_degradation_alert);
+
+      LOG_INFO("TCP Health Moving Avg: %lu ms", (unsigned long)health_moving_avg_ms);
+      LOG_INFO("TCP Health Total Spikes: %lu", (unsigned long)health_total_spikes);
+      LOG_INFO("TCP Health Degradation Alert: %s",
+               health_degradation_alert ? "YES" : "NO");
 #endif
       LOG_INFO("Dropped Frames: %lu", (unsigned long)g_dropped_frames);
       LOG_INFO("Drop Events: %lu", (unsigned long)g_drop_events);

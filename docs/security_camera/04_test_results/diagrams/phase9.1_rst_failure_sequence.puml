@@ -1,0 +1,74 @@
+@startuml phase9.1_rst_failure_sequence
+!theme plain
+skinparam backgroundColor white
+
+title GS2200M RST拒否失敗シーケンス (2026-01-17 14:54-14:55)
+
+participant "PC\n(192.168.137.135)" as PC
+participant "GS2200M\n(192.168.137.106)" as GS
+
+== 正常な再接続フェーズ (12:28-14:54) ==
+
+note over PC, GS
+  接続#1: 15分安定
+  接続#2: 79分安定 ✅
+  接続#3: 52分安定 ✅
+end note
+
+== 異常発生フェーズ: 連続短命接続 ==
+
+PC -> GS: SYN (port 64625)
+GS --> PC: SYN-ACK
+note right of GS: 接続#4 確立
+...10秒後...
+GS -> PC: FIN
+note right of GS #orange: 短時間で切断
+
+PC -> GS: SYN (port 64633)
+GS --> PC: SYN-ACK
+note right of GS: 接続#5 確立
+...4秒後...
+GS -> PC: FIN
+note right of GS #orange: さらに短命
+
+PC -> GS: SYN (port 64634)
+GS --> PC: SYN-ACK
+note right of GS: 接続#6 確立
+...10秒後...
+GS -> PC: FIN
+
+PC -> GS: SYN (port 64638)
+GS --> PC: SYN-ACK
+note right of GS: 接続#7 確立
+...21秒後...
+GS -> PC: FIN
+note right of GS #red: リソース枯渇開始
+
+== RST拒否フェーズ ==
+
+loop 8回 (port 64639-64650)
+  PC -> GS: SYN
+  GS -> PC: **RST** (win=0)
+  note right of GS #red: 新規接続拒否
+  ...500ms待機...
+  PC -> GS: SYN (再試行)
+  GS -> PC: RST
+end
+
+note over PC, GS #pink
+  **40回のSYN全てがRST拒否**
+
+  error -107: ENOTCONN
+  "Transport endpoint is not connected"
+end note
+
+PC -> PC: 再接続失敗\nアプリケーション終了
+
+note over GS #red
+  GS2200M状態:
+  - ソケットリソース枯渇
+  - accept()不可能
+  - 再起動必要
+end note
+
+@enduml

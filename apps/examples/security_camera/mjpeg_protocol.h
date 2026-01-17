@@ -34,7 +34,7 @@
 /* Metrics packet constants (Phase 4.1 extension) */
 
 #define METRICS_SYNC_WORD        0xCAFEBEEF
-#define METRICS_PACKET_SIZE      50           /* Total size including CRC (Phase 7: +4 bytes for TCP stats, Phase 7.3.3: +8 bytes for frame drop stats) */
+#define METRICS_PACKET_SIZE      58           /* Total size including CRC (Phase 9.2: +8 bytes for health metrics) */
 
 /* Phase 7.2a: Multi-frame batching constants */
 
@@ -69,7 +69,7 @@ typedef struct mjpeg_packet_s
   uint8_t data[];                             /* Flexible array: JPEG data + CRC */
 } __attribute__((packed)) mjpeg_packet_t;
 
-/* Metrics packet structure (Phase 4.1 extension, Phase 7 TCP stats added, Phase 7.3.3 frame drop stats added) */
+/* Metrics packet structure (Phase 4.1 extension, Phase 7 TCP stats, Phase 7.3.3 drop stats, Phase 9.2 health) */
 
 typedef struct metrics_packet_s
 {
@@ -85,6 +85,8 @@ typedef struct metrics_packet_s
   uint32_t tcp_max_send_us;                   /* Maximum TCP send time (microseconds, Phase 7) */
   uint32_t dropped_frames;                    /* Total dropped frames (Phase 7.3.3) */
   uint32_t drop_events;                       /* Number of drop events (Phase 7.3.3) */
+  uint32_t tcp_health_moving_avg_ms;          /* TCP health: moving average send time (Phase 9.2) */
+  uint32_t tcp_health_total_spikes;           /* TCP health: total spike count (Phase 9.2) */
   uint16_t crc16;                             /* CRC-16-CCITT checksum */
 } __attribute__((packed)) metrics_packet_t;
 
@@ -189,18 +191,20 @@ int mjpeg_validate_header(const mjpeg_header_t *header);
  *   Pack metrics data into metrics protocol packet (Phase 4.1 extension)
  *
  * Parameters:
- *   timestamp_ms     - Spresense uptime in milliseconds
- *   camera_frames    - Total camera frames captured
- *   usb_packets      - Total USB packets sent
- *   action_q_depth   - Current action queue depth (0-3)
- *   avg_packet_size  - Average MJPEG packet size
- *   errors           - Total error count
- *   tcp_avg_send_us  - Average TCP send time (microseconds, Phase 7)
- *   tcp_max_send_us  - Maximum TCP send time (microseconds, Phase 7)
- *   dropped_frames   - Total dropped frames (Phase 7.3.3)
- *   drop_events      - Number of drop events (Phase 7.3.3)
- *   sequence         - Pointer to sequence number (will be incremented)
- *   packet           - Output buffer for packed packet
+ *   timestamp_ms            - Spresense uptime in milliseconds
+ *   camera_frames           - Total camera frames captured
+ *   usb_packets             - Total USB packets sent
+ *   action_q_depth          - Current action queue depth (0-3)
+ *   avg_packet_size         - Average MJPEG packet size
+ *   errors                  - Total error count
+ *   tcp_avg_send_us         - Average TCP send time (microseconds, Phase 7)
+ *   tcp_max_send_us         - Maximum TCP send time (microseconds, Phase 7)
+ *   dropped_frames          - Total dropped frames (Phase 7.3.3)
+ *   drop_events             - Number of drop events (Phase 7.3.3)
+ *   tcp_health_moving_avg   - TCP health moving average send time (Phase 9.2)
+ *   tcp_health_total_spikes - TCP health total spike count (Phase 9.2)
+ *   sequence                - Pointer to sequence number (will be incremented)
+ *   packet                  - Output buffer for packed packet
  *
  * Returns:
  *   Packet size (METRICS_PACKET_SIZE) on success, negative errno on failure
@@ -217,6 +221,8 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
                        uint32_t tcp_max_send_us,
                        uint32_t dropped_frames,
                        uint32_t drop_events,
+                       uint32_t tcp_health_moving_avg,
+                       uint32_t tcp_health_total_spikes,
                        uint32_t *sequence,
                        uint8_t *packet);
 

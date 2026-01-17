@@ -1,0 +1,51 @@
+@startuml phase9_test_timeline
+!theme plain
+skinparam backgroundColor white
+
+title Phase 9 テストタイムライン (71.8分間)
+
+concise "TCP接続状態" as TCP
+concise "ポート番号" as PORT
+
+@0
+TCP is "接続中"
+PORT is "52171"
+
+@49
+TCP is {-}
+note top of TCP: 切断 #1\nGS2200M FIN
+
+@49.03
+TCP is "再接続中"
+
+@49.07
+TCP is "接続中"
+PORT is "53336"
+note top of TCP: 再接続成功\n(2秒)
+
+@59
+TCP is {-}
+note top of TCP: 切断 #2\nGS2200M FIN
+
+@59.03
+TCP is "再接続中"
+
+@59.07
+TCP is "接続中"
+PORT is "52181"
+note top of TCP: 再接続成功\n(2秒)
+
+@62
+TCP is {-}
+note top of TCP: 終了\n(ユーザー操作)
+
+@64
+TCP is "接続中"
+PORT is "63114"
+note top of TCP: 手動再起動
+
+@64.2
+TCP is {-}
+note top of TCP: 終了\n(ユーザー操作)
+
+@enduml

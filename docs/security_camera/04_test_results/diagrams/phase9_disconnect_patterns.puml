@@ -1,0 +1,39 @@
+@startuml phase9_disconnect_patterns
+!theme plain
+skinparam backgroundColor white
+
+title GS2200M 切断パターン比較
+
+left to right direction
+
+rectangle "第1回切断 (12:08:37)" as D1 {
+  card "重複ACK: 14回" as D1_ACK
+  card "RTO待機: 3秒" as D1_RTO
+  card "再送後FIN: 即時" as D1_FIN
+}
+
+rectangle "第2回切断 (12:18:30)" as D2 {
+  card "重複ACK: 8回" as D2_ACK
+  card "RTO待機: 1秒" as D2_RTO
+  card "再送後FIN: 5秒後" as D2_FIN
+}
+
+rectangle "共通パターン" as COMMON {
+  card "1. バースト送信" as C1
+  card "2. パケットロス" as C2
+  card "3. 重複ACK" as C3
+  card "4. RTO再送" as C4
+  card "5. GS2200M FIN" as C5
+}
+
+D1_ACK --> COMMON
+D2_ACK --> COMMON
+
+note bottom of COMMON
+  GS2200Mの動作:
+  - Fast Retransmit未実装
+  - 重複ACK検出でFIN送信を決定
+  - 再送成功しても接続終了
+end note
+
+@enduml

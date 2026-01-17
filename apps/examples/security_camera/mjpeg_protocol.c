@@ -287,6 +287,8 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
                        uint32_t tcp_max_send_us,
                        uint32_t dropped_frames,
                        uint32_t drop_events,
+                       uint32_t tcp_health_moving_avg,
+                       uint32_t tcp_health_total_spikes,
                        uint32_t *sequence,
                        uint8_t *packet)
 {
@@ -314,10 +316,12 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
   metrics->errors = errors;
   metrics->tcp_avg_send_us = tcp_avg_send_us;
   metrics->tcp_max_send_us = tcp_max_send_us;
-  metrics->dropped_frames = dropped_frames;     /* Phase 7.3.3 */
-  metrics->drop_events = drop_events;           /* Phase 7.3.3 */
+  metrics->dropped_frames = dropped_frames;                   /* Phase 7.3.3 */
+  metrics->drop_events = drop_events;                         /* Phase 7.3.3 */
+  metrics->tcp_health_moving_avg_ms = tcp_health_moving_avg;  /* Phase 9.2 */
+  metrics->tcp_health_total_spikes = tcp_health_total_spikes; /* Phase 9.2 */
 
-  /* Calculate CRC over all fields except crc16 itself (48 bytes) */
+  /* Calculate CRC over all fields except crc16 itself (56 bytes) */
 
   crc = mjpeg_crc16_ccitt(packet, METRICS_PACKET_SIZE - sizeof(uint16_t));
   metrics->crc16 = crc;
@@ -327,7 +331,8 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
   (*sequence)++;
 
   LOG_DEBUG("Packed metrics: seq=%lu, cam_frames=%lu, usb_pkts=%lu, "
-            "q_depth=%lu, avg_size=%lu, errors=%lu, dropped=%lu, drop_events=%lu, crc=0x%04X",
+            "q_depth=%lu, avg_size=%lu, errors=%lu, dropped=%lu, drop_events=%lu, "
+            "health_avg=%lu ms, health_spikes=%lu, crc=0x%04X",
             (unsigned long)metrics->sequence,
             (unsigned long)camera_frames,
             (unsigned long)usb_packets,
@@ -336,6 +341,8 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
             (unsigned long)errors,
             (unsigned long)dropped_frames,
             (unsigned long)drop_events,
+            (unsigned long)tcp_health_moving_avg,
+            (unsigned long)tcp_health_total_spikes,
             crc);
 
   return METRICS_PACKET_SIZE;

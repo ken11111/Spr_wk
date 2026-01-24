@@ -1,0 +1,231 @@
+@startuml deployment_diagram
+!theme plain
+
+title Phase 9.2統合システム デプロイメント図
+
+skinparam node {
+    BackgroundColor lightblue
+    BorderColor darkblue
+    FontSize 11
+}
+
+skinparam database {
+    BackgroundColor lightyellow
+    BorderColor orange
+}
+
+skinparam cloud {
+    BackgroundColor lightgreen
+    BorderColor darkgreen
+}
+
+node "Spresense Edge Device\n(ARM Cortex-M4F @ 156MHz)" as SpresenseNode {
+    component "NuttX RTOS\n(Real-time OS)" as NuttX {
+        artifact "camera_app\n(11fps VGA)" as CameraApp
+        artifact "health_monitor\n(100ms cycle)" as HealthApp
+        artifact "adaptive_controller\n(Phase 9.2 core)" as AdaptiveApp
+        artifact "streaming_service\n(MJPEG over TCP)" as StreamApp
+        artifact "config_manager\n(Settings persistence)" as ConfigApp
+    }
+
+    component "Hardware Layer" as SpresenseHW {
+        artifact "ISX012 Camera\n(JPEG hardware encoder)" as ISX012
+        artifact "GS2200M WiFi\n(802.11b/g/n)" as GS2200M
+        artifact "CXD5602 SoC\n(1.5MB SRAM, 8MB Flash)" as CXD5602
+        artifact "Extension Boards\n(Camera + WiFi)" as Extensions
+    }
+
+    database "Local Storage\n(8MB Flash)" as SpresenseStorage {
+        artifact "System firmware" as Firmware
+        artifact "Application binaries" as AppBin
+        artifact "Configuration data" as SpresenseConfig
+        artifact "Health logs (circular)" as HealthLogs
+    }
+}
+
+cloud "Network Infrastructure" as Network {
+    component "WiFi Access Point\n(802.11n)" as WiFiAP {
+        artifact "SSID: SecurityCam\n(WPA2-PSK)" as WiFiConfig
+        artifact "DHCP Server\n(192.168.1.x)" as DHCP
+        artifact "QoS Configuration\n(Video prioritization)" as QoS
+    }
+
+    component "Internet Gateway\n(Optional)" as Gateway {
+        artifact "Firewall Rules\n(Port restrictions)" as Firewall
+        artifact "NAT Configuration\n(Port forwarding)" as NAT
+        artifact "VPN Access\n(Remote monitoring)" as VPN
+    }
+}
+
+node "PC Host System\n(Multi-core x64, 16GB RAM)" as PCNode {
+    component "Docker Container Platform" as Docker {
+
+        component "Phase 9.2 Intelligence Services" as Phase92Services {
+            artifact "health-analysis\n(Real-time processing)" as HealthService
+            artifact "predictive-engine\n(ML models: LSTM, RF)" as PredictiveService
+            artifact "adaptation-controller\n(Recommendation engine)" as AdaptService
+            artifact "alert-manager\n(Notification service)" as AlertService
+        }
+
+        component "Media Processing Services" as MediaServices {
+            artifact "stream-receiver\n(MJPEG ingestion)" as StreamService
+            artifact "recording-engine\n(Multi-format support)" as RecordService
+            artifact "quality-processor\n(Enhancement pipeline)" as QualityService
+            artifact "storage-manager\n(Tiered storage)" as StorageService
+        }
+
+        component "API & Dashboard Services" as APIServices {
+            artifact "web-dashboard\n(React/TypeScript)" as DashboardService
+            artifact "websocket-gateway\n(Real-time updates)" as WSService
+            artifact "rest-api-server\n(Configuration)" as APIService
+            artifact "authentication-service\n(JWT-based)" as AuthService
+        }
+
+        component "Infrastructure Services" as InfraServices {
+            artifact "nginx\n(Reverse proxy)" as Nginx
+            artifact "redis\n(Caching layer)" as Redis
+            artifact "message-queue\n(RabbitMQ)" as MessageQueue
+            artifact "log-aggregator\n(ELK Stack)" as LogAggregator
+        }
+    }
+
+    component "Host Operating System\n(Ubuntu 20.04 LTS)" as HostOS {
+        artifact "Docker Engine\n(Container runtime)" as DockerEngine
+        artifact "System Monitoring\n(Prometheus + Grafana)" as SystemMonitor
+        artifact "Backup Services\n(Automated)" as BackupService
+        artifact "Security Updates\n(Unattended upgrades)" as SecurityUpdates
+    }
+}
+
+component "Storage Infrastructure" as StorageInfra {
+    database "Tier 1: Hot Storage\n(NVMe SSD - 500GB)" as HotStorage {
+        artifact "Recent recordings\n(Last 24 hours)" as RecentVideos
+        artifact "Real-time buffers\n(Active streams)" as RealtimeBuffers
+        artifact "Health metrics cache\n(High-speed access)" as MetricsCache
+    }
+
+    database "Tier 2: Warm Storage\n(SATA SSD - 2TB)" as WarmStorage {
+        artifact "Weekly recordings\n(Last 7 days)" as WeeklyVideos
+        artifact "Processed analytics\n(ML features)" as Analytics
+        artifact "Configuration backups\n(Versioned)" as ConfigBackups
+    }
+
+    database "Tier 3: Cold Storage\n(HDD - 8TB)" as ColdStorage {
+        artifact "Long-term archive\n(Compressed)" as Archive
+        artifact "Historical health data\n(Time series)" as HistoricalHealth
+        artifact "ML training datasets\n(Model development)" as TrainingData
+    }
+}
+
+database "External Databases" as ExternalDB {
+    database "InfluxDB\n(Time Series)" as InfluxDB {
+        artifact "Health metrics\n(High resolution)" as TSMetrics
+        artifact "Performance KPIs\n(Aggregated)" as TSKPI
+        artifact "Prediction results\n(ML outputs)" as TSPredictions
+    }
+
+    database "PostgreSQL\n(Relational)" as PostgreSQL {
+        artifact "System configuration\n(Structured)" as ConfigData
+        artifact "User management\n(Authentication)" as UserData
+        artifact "Alert definitions\n(Rules engine)" as AlertData
+    }
+
+    database "MongoDB\n(Document)" as MongoDB {
+        artifact "Video metadata\n(Flexible schema)" as VideoMeta
+        artifact "ML model store\n(Serialized models)" as MLModels
+        artifact "Event logs\n(System history)" as EventLogs
+    }
+}
+
+node "Client Devices" as ClientDevices {
+    component "Web Browser\n(Chrome/Firefox/Safari)" as WebBrowser {
+        artifact "Dashboard Interface\n(Responsive)" as WebInterface
+        artifact "Real-time Video\n(WebRTC)" as WebRTCClient
+        artifact "Configuration Panel\n(Administrative)" as ConfigPanel
+        artifact "Alert Notifications\n(Push/Email)" as NotificationClient
+    }
+
+    component "Mobile Applications\n(iOS/Android)" as MobileApps {
+        artifact "Live View App\n(Native)" as LiveViewApp
+        artifact "Alert Manager\n(Push notifications)" as MobileAlerts
+        artifact "Quick Controls\n(Basic settings)" as QuickControls
+        artifact "Offline Viewer\n(Cached content)" as OfflineViewer
+    }
+}
+
+' Network Connections
+SpresenseNode --> Network : "WiFi Connection\n(MJPEG + Health telemetry)"
+Network --> PCNode : "Ethernet/WiFi\n(High bandwidth)"
+
+' Service Dependencies
+CameraApp --> HealthApp : "Performance metrics"
+HealthApp --> AdaptiveApp : "Health classification"
+AdaptiveApp --> StreamApp : "Quality adaptation"
+StreamApp --> ConfigApp : "Settings persistence"
+
+' Hardware Dependencies
+CameraApp --> ISX012 : "JPEG encoding"
+StreamApp --> GS2200M : "Network transmission"
+HealthApp --> CXD5602 : "System monitoring"
+
+' PC Service Dependencies
+StreamService --> HealthService : "Health data extraction"
+HealthService --> PredictiveService : "Real-time analysis"
+PredictiveService --> AdaptService : "ML predictions"
+AdaptService --> AlertService : "Recommendations"
+
+RecordService --> StorageService : "Storage requests"
+StorageService --> QualityService : "Quality processing"
+
+DashboardService --> WSService : "Real-time updates"
+WSService --> APIService : "Data integration"
+APIService --> AuthService : "Authentication"
+
+' Storage Tiering
+RecordService --> HotStorage : "Active recordings"
+HotStorage --> WarmStorage : "Age-based migration"
+WarmStorage --> ColdStorage : "Long-term archive"
+
+' Database Connections
+HealthService --> InfluxDB : "Health time series"
+ConfigApp --> PostgreSQL : "System configuration"
+RecordService --> MongoDB : "Video metadata"
+
+' Client Connections
+WebBrowser --> Nginx : "HTTPS (443)"
+MobileApps --> APIService : "REST API (HTTPS)"
+WebInterface --> WSService : "WebSocket (WSS)"
+
+note top of SpresenseNode
+<b>Edge Computing:</b>
+• Real-time health monitoring
+• Adaptive quality control
+• Preventive reconnection
+• Power-efficient operation
+end note
+
+note left of Phase92Services
+<b>Phase 9.2 Intelligence Hub:</b>
+• LSTM network degradation prediction
+• Random Forest failure classification
+• Real-time adaptation recommendations
+• 95% downtime reduction achievement
+end note
+
+note bottom of StorageInfra
+<b>Intelligent Storage Tiering:</b>
+• Hot: Real-time access (< 1ms)
+• Warm: Fast retrieval (< 100ms)
+• Cold: Batch processing (< 10s)
+• ML-based importance scoring
+end note
+
+note right of Network
+<b>Network Requirements:</b>
+• Minimum: 2Mbps sustained
+• Recommended: 10Mbps burst
+• Latency: < 50ms optimal
+• Phase 9.2: Adaptive bandwidth
+end note
+
+@enduml

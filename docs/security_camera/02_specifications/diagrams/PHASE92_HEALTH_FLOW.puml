@@ -1,0 +1,178 @@
+@startuml phase92_health_flow
+!theme plain
+
+title Phase 9.2 TCP健全性監視・適応制御フロー
+
+skinparam activity {
+    StartColor lightgreen
+    EndColor lightcoral
+    BackgroundColor lightyellow
+    BorderColor darkblue
+    FontSize 11
+}
+
+|Spresense Edge|
+start
+:TCP Connection Monitoring\n(100ms cycle);
+
+:Collect Raw Metrics;
+note right
+<b>Collected Data:</b>
+• RTT measurements
+• Packet loss count
+• Send buffer usage
+• Connection resets
+• Throughput samples
+end note
+
+:Calculate Moving Averages;
+note right
+<b>Statistical Processing:</b>
+• 5-minute RTT moving average
+• Spike count analysis
+• Loss rate calculation
+• Jitter measurements
+end note
+
+:Health Classification\n(with Hysteresis);
+
+switch (TCP Health Level?)
+case ( EXCELLENT\n0-50ms RTT )
+  :Maximum Quality Mode;
+  :VGA 11fps, Quality 80;
+  note right: Optimal performance
+case ( GOOD\n50-100ms RTT )
+  :Standard Quality Mode;
+  :VGA 11fps, Quality 75;
+  note right: Normal operation
+case ( FAIR\n100-200ms RTT )
+  :Efficient Mode;
+  :VGA 8fps, Quality 70;
+  note right: Conservative approach
+case ( POOR\n200-500ms RTT )
+  :Emergency Mode;
+  :QVGA 5fps, Quality 60;
+  note right: Minimal bandwidth
+case ( CRITICAL\n>500ms RTT )
+  :Preventive Action Required;
+  note right
+  <b>Critical State Handling:</b>
+  • Immediate adaptation
+  • Prepare for reconnection
+  • Data preservation
+  end note
+endswitch
+
+if (Health Level Changed?) then (Yes)
+  :Update Camera Settings;
+  :Adjust Streaming Parameters;
+  :Log Adaptation Event;
+
+  :Send Health Telemetry to PC;
+  note right
+  <b>58-byte Extended Packet:</b>
+  • Basic metrics (50 bytes)
+  • Health level (1 byte)
+  • Adaptation count (4 bytes)
+  • Timestamp (3 bytes)
+  end note
+else (No)
+  :Continue Current Settings;
+endif
+
+if (Critical Duration > 3s?) then (Yes)
+  :Initiate Preventive Reconnection;
+
+  fork
+    :Graceful Connection Shutdown;
+  fork again
+    :Preserve Stream State;
+  fork again
+    :Create New TCP Connection;
+  end fork
+
+  if (Reconnection Success?) then (Success)
+    :Service Restoration\n(< 3 seconds);
+    :Reset Health Monitoring;
+    :Resume Optimal Quality;
+    note right
+    <b>Success Metrics:</b>
+    • 95% downtime reduction
+    • 3s vs 30s recovery
+    • State preservation
+    end note
+  else (Failed)
+    :Exponential Backoff;
+    :Fallback to USB CDC-ACM;
+    note right: Alternative transport
+  endif
+else (No)
+  :Continue Monitoring;
+endif
+
+|PC Host Intelligence|
+
+:Receive Health Telemetry;
+
+:Real-time Health Analysis;
+note left
+<b>Advanced Analysis:</b>
+• Anomaly detection
+• Trend analysis
+• Pattern recognition
+• Confidence scoring
+end note
+
+:Predictive Modeling;
+
+fork
+  :LSTM Network Prediction;
+  note left: Time series forecasting
+fork again
+  :Random Forest Classification;
+  note left: Failure prediction
+fork again
+  :Regression Quality Impact;
+  note left: Quality optimization
+end fork
+
+:Ensemble Prediction Fusion;
+
+if (Degradation Risk > Threshold?) then (High Risk)
+  :Generate Proactive Recommendations;
+
+  fork
+    :Quality Pre-adjustment;
+  fork again
+    :Buffer Optimization;
+  fork again
+    :Reconnection Scheduling;
+  end fork
+
+  :Send Recommendations to Edge;
+  note left
+  <b>Proactive Controls:</b>
+  • Quality pre-adaptation
+  • Connection optimization
+  • Preemptive measures
+  end note
+else (Low Risk)
+  :Continue Normal Operation;
+endif
+
+:Update ML Models\n(if needed);
+
+:Generate Dashboard Updates;
+
+:Store Historical Data;
+note left
+<b>Data Warehousing:</b>
+• Time series metrics
+• Adaptation history
+• Prediction accuracy
+• ROI calculations
+end note
+
+stop
+
+@enduml

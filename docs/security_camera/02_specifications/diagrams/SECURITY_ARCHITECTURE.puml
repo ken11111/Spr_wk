@@ -1,0 +1,215 @@
+@startuml phase92_security_architecture
+!define RECTANGLE class
+
+title Phase 9.2 Multi-Layer Security Architecture
+
+skinparam backgroundColor #FAFAFA
+skinparam class {
+    BackgroundColor #E8F4FD
+    BorderColor #2E86AB
+    ArrowColor #2E86AB
+}
+
+package "L7: Application Security Layer" as L7 #FFE5CC {
+    RECTANGLE "JWT Authentication" as JWT {
+        +token_validation()
+        +permission_check()
+        +session_management()
+    }
+
+    RECTANGLE "Authorization Manager" as AuthMgr {
+        +role_based_access()
+        +permission_matrix()
+        +audit_logging()
+    }
+
+    RECTANGLE "Security Dashboard" as Dashboard {
+        +threat_monitoring()
+        +real_time_alerts()
+        +security_metrics()
+    }
+}
+
+package "L6: Data Security Layer" as L6 #E5F3FF {
+    RECTANGLE "AES-256-GCM Engine" as AES {
+        +encrypt_mjpeg()
+        +decrypt_stream()
+        +integrity_verification()
+    }
+
+    RECTANGLE "Key Management" as KeyMgmt {
+        +key_generation()
+        +key_rotation()
+        +secure_storage()
+    }
+
+    RECTANGLE "Digital Signatures" as DigSig {
+        +frame_signing()
+        +signature_verification()
+        +certificate_validation()
+    }
+}
+
+package "L5: Session Security Layer" as L5 #F0F8E5 {
+    RECTANGLE "TLS 1.3 Handler" as TLS {
+        +handshake_negotiation()
+        +cipher_suite_selection()
+        +session_resumption()
+    }
+
+    RECTANGLE "Certificate Manager" as CertMgr {
+        +cert_chain_validation()
+        +revocation_checking()
+        +expiry_monitoring()
+    }
+
+    RECTANGLE "Session Context" as SessionCtx {
+        +security_parameters()
+        +connection_state()
+        +renegotiation_control()
+    }
+}
+
+package "L4: Transport Security Layer" as L4 #FFF0E5 {
+    RECTANGLE "TCP Health Monitor" as TCPHealth {
+        +connection_monitoring()
+        +preventive_reconnection()
+        +health_metrics_integration()
+    }
+
+    RECTANGLE "Secure Transport" as SecTransport {
+        +connection_validation()
+        +traffic_analysis()
+        +anomaly_detection()
+    }
+}
+
+package "L3: Network Security Layer" as L3 #F5E5FF {
+    RECTANGLE "WiFi Security" as WiFiSec {
+        +wpa2_authentication()
+        +mac_filtering()
+        +network_isolation()
+    }
+
+    RECTANGLE "Firewall Rules" as Firewall {
+        +ip_filtering()
+        +port_blocking()
+        +rate_limiting()
+    }
+
+    RECTANGLE "Intrusion Detection" as IDS {
+        +traffic_monitoring()
+        +pattern_recognition()
+        +threat_classification()
+    }
+}
+
+package "L2: Device Security Layer" as L2 #E5FFE5 {
+    RECTANGLE "Secure Boot" as SecBoot {
+        +bootloader_verification()
+        +firmware_integrity()
+        +chain_of_trust()
+    }
+
+    RECTANGLE "Firmware Protection" as FWProtect {
+        +code_signing()
+        +version_control()
+        +rollback_protection()
+    }
+
+    RECTANGLE "Memory Protection" as MemProtect {
+        +secure_regions()
+        +access_control()
+        +encryption_keys_isolation()
+    }
+}
+
+package "L1: Hardware Security Layer" as L1 #FFE5E5 {
+    RECTANGLE "Hardware Security Module" as HSM {
+        +device_unique_keys()
+        +hardware_random_generation()
+        +tamper_detection()
+    }
+
+    RECTANGLE "Crypto Coprocessor" as CryptoCP {
+        +aes_acceleration()
+        +sha_acceleration()
+        +key_storage()
+    }
+
+    RECTANGLE "Physical Protection" as PhysProtect {
+        +enclosure_integrity()
+        +debug_interface_disable()
+        +side_channel_protection()
+    }
+}
+
+' Spresense Device Boundary
+package "Spresense Security Domain" as SpresenseSecure #F8F8F8 {
+    L1
+    L2
+    note right of L2: "Trusted Execution\nEnvironment"
+}
+
+' Network Boundary
+package "Network Security Domain" as NetworkSecure #F0F0F0 {
+    L3
+    L4
+    note right of L3: "Semi-Trusted\nNetwork Zone"
+}
+
+' PC Application Boundary
+package "PC Application Security Domain" as PCSecure #E8E8E8 {
+    L5
+    L6
+    L7
+    note right of L7: "Application\nSecurity Zone"
+}
+
+' Security Data Flow
+JWT --> AuthMgr: authorization_request
+AuthMgr --> Dashboard: security_events
+
+AES --> KeyMgmt: key_request
+KeyMgmt --> DigSig: signing_keys
+DigSig --> AES: integrity_tags
+
+TLS --> CertMgr: certificate_validation
+CertMgr --> SessionCtx: security_context
+SessionCtx --> TLS: session_parameters
+
+TCPHealth --> SecTransport: health_metrics
+SecTransport --> WiFiSec: transport_security
+
+WiFiSec --> Firewall: network_access
+Firewall --> IDS: traffic_analysis
+IDS --> SecTransport: threat_intelligence
+
+SecBoot --> FWProtect: boot_verification
+FWProtect --> MemProtect: secure_execution
+MemProtect --> TCPHealth: protected_communication
+
+HSM --> CryptoCP: hardware_keys
+CryptoCP --> PhysProtect: crypto_operations
+PhysProtect --> SecBoot: hardware_trust_anchor
+
+' Cross-layer Security Integration
+HSM ..> KeyMgmt: hardware_key_derivation
+CryptoCP ..> AES: hardware_acceleration
+SecBoot ..> TLS: trusted_certificates
+AuthMgr ..> TCPHealth: authenticated_connections
+
+' Security Metrics Flow
+Dashboard --> IDS: security_dashboard_feed
+IDS --> TCPHealth: network_threat_indicators
+TCPHealth --> HSM: health_attestation
+
+note top of L7: "Application-level security controls\nJWT authentication, RBAC, audit logs"
+note top of L6: "Data protection and encryption\nAES-256-GCM, digital signatures, key mgmt"
+note top of L5: "Session and transport encryption\nTLS 1.3, certificate validation, session security"
+note top of L4: "Transport layer security monitoring\nTCP health monitoring, connection validation"
+note top of L3: "Network perimeter security\nWPA2-PSK, firewall, intrusion detection"
+note top of L2: "Device firmware and software security\nSecure boot, firmware protection, memory isolation"
+note top of L1: "Hardware-based security foundation\nHSM, crypto acceleration, physical protection"
+
+@enduml

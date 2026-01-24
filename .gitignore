@@ -31,3 +31,8 @@ target/
 Cargo.lock
 apps/examples/aps00_sandbox/
 apps/examples/asmpApp/
+
+# Large data files - evidence/logs
+*.pcap
+*.pcapng
+docs/security_camera/06_evidence/raw_data/pcap_captures/

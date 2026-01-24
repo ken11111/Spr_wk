@@ -1,0 +1,182 @@
+@startuml phase8_disconnect_pcap_analysis
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 200
+
+title 仮説D: pcap分析による詳細シーケンス (重複ACKエラーカウント蓄積)
+
+participant "Camera\n(30fps)" as CAM
+participant "action_queue\n(MAX=7)" as AQ #LightYellow
+participant "TCP Thread" as TCP_SP
+participant "GS2200M\nInternal Buffer\n(256KB)" as WIFI_BUF #Orange
+participant "GS2200M\nWiFi TX" as WIFI_TX #LightBlue
+participant "WiFi AP" as AP
+participant "PC" as PC
+
+== 正常動作 (48分間, 21:59:40.943まで) ==
+
+loop 27,603回繰り返し
+    CAM -> AQ: push(frame)\n28KB avg
+    AQ -> TCP_SP: pull()
+    TCP_SP -> WIFI_BUF: write(28KB)
+    WIFI_BUF -> WIFI_TX: DMA転送
+    WIFI_TX -> AP: 802.11g送信\nseq 166755965
+    AP -> PC: TCP stream
+    PC -> AP: ACK 166755965
+    AP -> WIFI_TX: ACK中継
+end
+
+note over WIFI_BUF #LightGreen
+**正常状態**
+error_count = 0
+end note
+
+== パケットロス発生 (360msギャップ) ==
+
+note over AP #Orange
+**360ms のギャップ**
+WiFi電波干渉?
+パケットロス発生
+end note
+
+TCP_SP -> WIFI_BUF: write()
+WIFI_BUF -> WIFI_TX: DMA転送
+WIFI_TX ->x AP: **パケットロス**\n1464バイト欠落
+note over WIFI_TX #Red: seq 166755965-166757429\n消失
+
+== 順序外パケット到着 + 重複ACK (21:59:41.351) ==
+
+TCP_SP -> WIFI_BUF: write()
+WIFI_BUF -> WIFI_TX: DMA転送
+WIFI_TX -> AP: seq 166757429
+AP -> PC: TCP stream\n(seq gap検出)
+
+note over PC #Orange
+**seq gap検出**
+期待: 166755965
+実際: 166757429
+end note
+
+PC -> AP: **重複ACK #1**\nack 166755965
+AP -> WIFI_TX: ACK中継
+WIFI_TX -> WIFI_BUF: error通知
+
+note over WIFI_BUF #Orange: error_count = 1
+
+== バースト送信 (同一タイムスタンプ 351200) ==
+
+TCP_SP -> WIFI_BUF: write() x12
+note over WIFI_BUF: 12パケットバースト\nseq 166757429→166766213
+
+WIFI_BUF -> WIFI_TX: DMA転送
+WIFI_TX -> AP: 12 TCP segments
+AP -> PC: TCP stream
+
+loop 重複ACK #2-#11 (計11回)
+    PC -> AP: 重複ACK\nack 166755965
+    AP -> WIFI_TX: ACK中継
+    WIFI_TX -> WIFI_BUF: error通知
+    note over WIFI_BUF #Orange: error_count++
+end
+
+note over WIFI_BUF #Red
+**GS2200M内部状態**
+error_count = 11
+Fast Retransmit未実装
+RTOタイマー待ち (1.5秒)
+end note
+
+note over PC #LightGreen
+**PC側は正常動作**
+- 重複ACKは正しいTCP応答
+- RFC準拠の動作
+end note
+
+== RTO再送 (21:59:42.843, 1.5秒後) ==
+
+note over WIFI_TX: RTO発火\n1.5秒経過
+WIFI_TX -> AP: **再送**\nseq 166755965
+AP -> PC: 再送パケット
+PC -> AP: ACK 166757425
+AP -> WIFI_TX: ACK中継
+
+note over PC #LightGreen: 再送受信OK
+
+== 累積ACK (21:59:43.813) ==
+
+WIFI_TX -> AP: seq 166757425
+AP -> PC: TCP stream
+PC -> AP: **累積ACK**\nack 166766213
+AP -> WIFI_TX: ACK中継
+
+note over PC #LightGreen: 全データ受信確認\n(バースト分含む)
+
+== 通常送信再開 (21:59:43.873-875) ==
+
+TCP_SP -> WIFI_BUF: write()
+WIFI_BUF -> WIFI_TX: DMA転送
+WIFI_TX -> AP: seq 166766213→166769141
+AP -> PC: TCP stream
+PC -> AP: ACK 166769141
+
+== FIN送信 (21:59:43.911, 再送成功の36ms後) ==
+
+note over WIFI_BUF #Red
+**GS2200M内部チェック**
+error_count = 11
+閾値超過と判断
+**接続終了を決定**
+end note
+
+WIFI_TX -> AP: **FIN送信**\nFlags [F.]
+AP -> PC: FIN中継
+
+note over WIFI_TX #Red: GS2200Mが\n**能動的に接続終了**
+
+PC -> AP: ACK (FIN確認)
+PC -> AP: FIN (PC側も終了)
+AP -> WIFI_TX: ACK + FIN中継
+WIFI_TX -> AP: ACK
+
+== エラー検出 ==
+
+WIFI_BUF --> TCP_SP: usrsock error
+note over TCP_SP #Red
+**Spresense検出**
+send() → error -107
+(ENOTCONN)
+end note
+
+note over PC #Pink
+**PC検出**
+"Connection closed
+(need 56788, have 21960)"
+EOF受信
+end note
+
+== 根拠 ==
+
+note over WIFI_BUF #LightYellow
+**この仮説を支持する証拠 (pcap分析)**
+
+1. 重複ACK 11回をpcapで確認
+   → 各ACKがerror_countを増加?
+
+2. 再送は成功 (累積ACKで確認)
+   → データ転送に問題なし
+
+3. 再送成功の36ms後にFIN送信
+   → 内部チェックで「エラー多」と判断
+
+4. Fast Retransmit未実装
+   → 3回重複ACKで即再送すべき
+   → 実際: 1.5秒RTOまで待機
+
+5. GS2200M TCPスタックは変更不可
+   → ファームウェア内に実装
+end note
+
+== 可能性: 50% ==
+
+@enduml

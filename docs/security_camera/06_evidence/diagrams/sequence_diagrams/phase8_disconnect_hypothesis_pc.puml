@@ -1,0 +1,99 @@
+@startuml phase8_disconnect_hypothesis_pc
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 200
+
+title 仮説B: PC側要因による切断
+
+participant "Spresense" as SP
+participant "GS2200M" as WIFI #LightBlue
+participant "WiFi AP" as AP
+participant "OS TCP\nRecv Buffer" as OS_BUF #LightYellow
+participant "TCP Reader\nThread" as TCP_PC #LightGreen
+participant "jpeg_channel" as JQ #LightYellow
+participant "GUI Thread" as GUI
+
+== 仮説B-1: PC側タイムアウト ==
+
+SP -> WIFI: send(frame)
+WIFI -> AP: TCP stream
+AP -> OS_BUF: segments
+
+note over TCP_PC #Orange
+**タイムアウト設定**
+read_timeout: 30秒
+end note
+
+TCP_PC -> OS_BUF: read() blocking
+note over OS_BUF: データ待ち...
+
+alt タイムアウト発生?
+    OS_BUF --> TCP_PC: Timeout Error
+    note over TCP_PC #Red: close() 呼び出し
+    TCP_PC --> SP: RST packet
+else 実際の観測
+    OS_BUF -> TCP_PC: 21960 bytes
+    note over TCP_PC #Pink: EOF検出\n(close()は呼んでいない)
+end
+
+note over TCP_PC #LightGreen
+**この仮説を否定する証拠**
+
+1. タイムアウトは30秒設定
+   → 切断は数秒以内に発生
+
+2. PC側はread()中にEOF検出
+   → PC側から能動的close()なし
+
+3. エラーメッセージが
+   "Connection closed" (受動的)
+   であり
+   "Timeout" (能動的) ではない
+end note
+
+== 仮説B-2: PC側メモリ/リソース枯渇 ==
+
+loop 長時間運転
+    TCP_PC -> JQ: send(JpegFrame)
+    note over JQ: unbounded channel\nメモリ蓄積?
+    JQ -> GUI: recv()
+end
+
+note over JQ #Orange
+**unbounded channelの懸念**
+- メモリ制限なし
+- 長時間でOOM?
+end note
+
+alt メモリ枯渇?
+    JQ --> JQ: OOM Error
+    note over TCP_PC #Red: panic/crash
+else 実際の観測
+    note over GUI #LightGreen: 正常動作継続\nGUI停止なし
+end
+
+note over JQ #LightGreen
+**この仮説を否定する証拠**
+
+1. GUI Threadは切断後も動作
+   → PC側crashなし
+
+2. エラーはTCP読み込み時のみ
+   → メモリ問題ではない
+
+3. 48分間エラー0で安定動作
+   → リソースリークなし
+end note
+
+== 可能性: 5% (低い) ==
+
+note over SP,GUI #LightYellow
+**結論**
+PC側が切断の起点である可能性は低い。
+- タイムアウトではない
+- メモリ枯渇ではない
+- PC側は受動的にEOFを検出しただけ
+end note
+
+@enduml

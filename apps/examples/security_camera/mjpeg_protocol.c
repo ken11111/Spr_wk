@@ -283,6 +283,12 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
                        uint32_t action_q_depth,
                        uint32_t avg_packet_size,
                        uint32_t errors,
+                       uint32_t tcp_avg_send_us,
+                       uint32_t tcp_max_send_us,
+                       uint32_t dropped_frames,
+                       uint32_t drop_events,
+                       uint32_t tcp_health_moving_avg,
+                       uint32_t tcp_health_total_spikes,
                        uint32_t *sequence,
                        uint8_t *packet)
 {
@@ -308,9 +314,14 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
   metrics->action_q_depth = action_q_depth;
   metrics->avg_packet_size = avg_packet_size;
   metrics->errors = errors;
-  metrics->reserved = 0;
+  metrics->tcp_avg_send_us = tcp_avg_send_us;
+  metrics->tcp_max_send_us = tcp_max_send_us;
+  metrics->dropped_frames = dropped_frames;                   /* Phase 7.3.3 */
+  metrics->drop_events = drop_events;                         /* Phase 7.3.3 */
+  metrics->tcp_health_moving_avg_ms = tcp_health_moving_avg;  /* Phase 9.2 */
+  metrics->tcp_health_total_spikes = tcp_health_total_spikes; /* Phase 9.2 */
 
-  /* Calculate CRC over all fields except crc16 itself (36 bytes) */
+  /* Calculate CRC over all fields except crc16 itself (56 bytes) */
 
   crc = mjpeg_crc16_ccitt(packet, METRICS_PACKET_SIZE - sizeof(uint16_t));
   metrics->crc16 = crc;
@@ -320,14 +331,140 @@ int mjpeg_pack_metrics(uint32_t timestamp_ms,
   (*sequence)++;
 
   LOG_DEBUG("Packed metrics: seq=%lu, cam_frames=%lu, usb_pkts=%lu, "
-            "q_depth=%lu, avg_size=%lu, errors=%lu, crc=0x%04X",
+            "q_depth=%lu, avg_size=%lu, errors=%lu, dropped=%lu, drop_events=%lu, "
+            "health_avg=%lu ms, health_spikes=%lu, crc=0x%04X",
             (unsigned long)metrics->sequence,
             (unsigned long)camera_frames,
             (unsigned long)usb_packets,
             (unsigned long)action_q_depth,
             (unsigned long)avg_packet_size,
             (unsigned long)errors,
+            (unsigned long)dropped_frames,
+            (unsigned long)drop_events,
+            (unsigned long)tcp_health_moving_avg,
+            (unsigned long)tcp_health_total_spikes,
             crc);
 
   return METRICS_PACKET_SIZE;
+}
+
+/****************************************************************************
+ * Name: mjpeg_pack_batch
+ *
+ * Description:
+ *   Pack multiple JPEG frames into a batch packet (Phase 7.2a)
+ *
+ ****************************************************************************/
+
+int mjpeg_pack_batch(const uint8_t **frames,
+                     const uint32_t *frame_sizes,
+                     const uint32_t *frame_sequences,
+                     uint32_t frame_count,
+                     uint32_t *batch_sequence,
+                     uint8_t *packet,
+                     size_t packet_max_size)
+{
+  mjpeg_batch_header_t *header;
+  mjpeg_frame_meta_t *meta;
+  uint8_t *ptr;
+  uint32_t total_size = 0;
+  uint32_t i;
+  uint16_t crc;
+  size_t required_size;
+
+  /* Validate input parameters */
+
+  if (frames == NULL || frame_sizes == NULL || frame_sequences == NULL ||
+      frame_count == 0 || frame_count > MJPEG_BATCH_SIZE ||
+      batch_sequence == NULL || packet == NULL)
+    {
+      return -EINVAL;
+    }
+
+  /* Calculate total JPEG data size */
+
+  for (i = 0; i < frame_count; i++)
+    {
+      if (frames[i] == NULL || frame_sizes[i] == 0 || frame_sizes[i] > MJPEG_MAX_JPEG_SIZE)
+        {
+          LOG_ERROR("Invalid frame %lu: size=%lu", (unsigned long)i, (unsigned long)frame_sizes[i]);
+          return -EINVAL;
+        }
+      total_size += frame_sizes[i];
+    }
+
+  /* Calculate required packet size */
+
+  required_size = MJPEG_BATCH_HEADER_SIZE +
+                  (MJPEG_FRAME_META_SIZE + 0) * frame_count +  /* metadata */
+                  total_size +                                  /* JPEG data */
+                  MJPEG_CRC_SIZE;
+
+  /* Add actual frame sizes to required_size */
+
+  for (i = 0; i < frame_count; i++)
+    {
+      required_size += frame_sizes[i];
+    }
+
+  /* Recalculate properly */
+
+  required_size = MJPEG_BATCH_HEADER_SIZE +
+                  MJPEG_FRAME_META_SIZE * frame_count +
+                  total_size +
+                  MJPEG_CRC_SIZE;
+
+  if (required_size > packet_max_size)
+    {
+      LOG_ERROR("Batch packet too large: required=%lu, max=%lu",
+                (unsigned long)required_size, (unsigned long)packet_max_size);
+      return -ENOMEM;
+    }
+
+  /* Fill batch header */
+
+  header = (mjpeg_batch_header_t *)packet;
+  header->sync_word = MJPEG_BATCH_SYNC_WORD;
+  header->batch_sequence = *batch_sequence;
+  header->frame_count = frame_count;
+  header->total_size = total_size;
+
+  ptr = packet + MJPEG_BATCH_HEADER_SIZE;
+
+  /* Pack each frame */
+
+  for (i = 0; i < frame_count; i++)
+    {
+      /* Frame metadata */
+
+      meta = (mjpeg_frame_meta_t *)ptr;
+      meta->frame_sequence = frame_sequences[i];
+      meta->frame_size = frame_sizes[i];
+      ptr += MJPEG_FRAME_META_SIZE;
+
+      /* JPEG data */
+
+      memcpy(ptr, frames[i], frame_sizes[i]);
+      ptr += frame_sizes[i];
+    }
+
+  /* Calculate and append CRC */
+
+  crc = mjpeg_crc16_ccitt(packet, ptr - packet);
+  memcpy(ptr, &crc, sizeof(crc));
+  ptr += sizeof(crc);
+
+  /* Increment batch sequence */
+
+  (*batch_sequence)++;
+
+  LOG_DEBUG("Packed batch: seq=%lu, frames=%lu, total_size=%lu, "
+            "packet_size=%ld, crc=0x%04X",
+            (unsigned long)header->batch_sequence,
+            (unsigned long)frame_count,
+            (unsigned long)total_size,
+            (long)(ptr - packet),
+            crc);
+
+  return ptr - packet;  /* Total packet size */
 }

@@ -1,0 +1,85 @@
+@startuml phase8_disconnect_hypothesis_gs2200m
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 200
+
+title 仮説A: GS2200M WiFiモジュール内部バッファ枯渇 (最有力)
+
+participant "Camera\n(30fps)" as CAM
+participant "action_queue\n(MAX=7)" as AQ #LightYellow
+participant "TCP Thread" as TCP_SP
+participant "GS2200M\nInternal Buffer\n(256KB)" as WIFI_BUF #Orange
+participant "GS2200M\nWiFi TX" as WIFI_TX #LightBlue
+participant "WiFi AP" as AP
+participant "PC" as PC
+
+== 長時間高負荷運転 (48分間) ==
+
+loop 27,603回繰り返し
+    CAM -> AQ: push(frame)\n28KB avg
+    AQ -> TCP_SP: pull()
+    TCP_SP -> WIFI_BUF: write(28KB)
+    note over WIFI_BUF: バッファ蓄積中
+    WIFI_BUF -> WIFI_TX: DMA転送
+    WIFI_TX -> AP: 802.11g送信
+    AP -> PC: TCP stream
+end
+
+note over WIFI_BUF #Orange
+**バッファ状態の悪化**
+- 送信速度 < 書き込み速度
+- 内部バッファ徐々に蓄積
+- TCP Max Send: 134ms→2713ms
+end note
+
+== 切断トリガー (seq=27603) ==
+
+CAM -> AQ: push(frame #27604)
+AQ -> TCP_SP: pull()
+TCP_SP -> WIFI_BUF: write(56KB)
+
+note over WIFI_BUF #Red
+**バッファ枯渇**
+- 256KB上限到達
+- 新規データ受付不可
+- 内部エラー発生
+end note
+
+WIFI_BUF -> WIFI_TX: 部分送信(21KB/56KB)
+WIFI_TX -> AP: 38.7%のみ送信
+AP -> PC: 不完全データ
+
+WIFI_BUF --> WIFI_BUF: **内部エラー**
+note over WIFI_BUF #Red: ソケット強制クローズ
+
+WIFI_BUF --> TCP_SP: usrsock error
+note over TCP_SP #Red: error -107\n(ENOTCONN)
+
+PC --> PC: recv() EOF
+note over PC #Red: "need 56788,\nhave 21960"
+
+== 根拠 ==
+
+note over WIFI_BUF #LightYellow
+**この仮説を支持する証拠**
+
+1. TCP Max Send Time: 2713ms (異常に長い)
+   → バッファ待ちで送信遅延
+
+2. 両端が受動的エラー検出
+   → PC/Spresenseどちらも能動的close()なし
+
+3. パケット途中で切断 (38.7%)
+   → 送信処理中にエラー発生
+
+4. GS2200Mは低帯域IoT向け
+   → 高負荷連続運転は想定外
+
+5. 43分の長時間運転後に発生
+   → 蓄積型の問題
+end note
+
+== 可能性: 95% (最有力) ==
+
+@enduml

@@ -1,0 +1,148 @@
+@startuml CRC最適化による性能改善比較
+!theme plain
+skinparam defaultFontName "Noto Sans CJK JP, Arial"
+skinparam monochrome false
+skinparam backgroundColor white
+skinparam shadowing false
+
+title CRC最適化による性能改善比較 (2025-12-29)
+
+' Define custom colors
+!define COLOR_BEFORE #FF6B6B
+!define COLOR_AFTER #51CF66
+!define COLOR_IMPROVEMENT #4DABF7
+
+' Performance metrics comparison
+rectangle "性能指標の比較" {
+
+    ' FPS comparison
+    card "FPS (Frames Per Second)" as fps #FFFFFF {
+        rectangle "最適化前" as fps_before COLOR_BEFORE
+        note right of fps_before
+            **9.8 fps**
+            フレーム間隔: 102 ms
+        end note
+
+        rectangle "最適化後" as fps_after COLOR_AFTER
+        note right of fps_after
+            **11.0 fps**
+            フレーム間隔: 91 ms
+        end note
+
+        rectangle "改善" as fps_improvement COLOR_IMPROVEMENT
+        note right of fps_improvement
+            **+1.2 fps (+12.2%)**
+            -11 ms間隔短縮
+        end note
+    }
+
+    ' Packet processing time
+    card "パケット処理時間" as packet #FFFFFF {
+        rectangle "最適化前" as packet_before COLOR_BEFORE
+        note right of packet_before
+            **23.3 ms**
+            CRC計算: ~15-18 ms
+            その他: ~5-8 ms
+        end note
+
+        rectangle "最適化後" as packet_after COLOR_AFTER
+        note right of packet_after
+            **8.7 ms**
+            CRC計算: ~2 ms
+            その他: ~6-7 ms
+        end note
+
+        rectangle "改善" as packet_improvement COLOR_IMPROVEMENT
+        note right of packet_improvement
+            **-14.6 ms (-62.7%)**
+            CRC計算: 約8倍高速化
+        end note
+    }
+
+    ' Total latency
+    card "総レイテンシ" as latency #FFFFFF {
+        rectangle "最適化前" as latency_before COLOR_BEFORE
+        note right of latency_before
+            **58.6 ms**
+            カメラ: 5.1 ms
+            パケット: 23.3 ms
+            USB: 30.2 ms
+        end note
+
+        rectangle "最適化後" as latency_after COLOR_AFTER
+        note right of latency_after
+            **47.9 ms**
+            カメラ: 5.1 ms
+            パケット: 8.7 ms
+            USB: 30.2 ms
+        end note
+
+        rectangle "改善" as latency_improvement COLOR_IMPROVEMENT
+        note right of latency_improvement
+            **-10.7 ms (-18.3%)**
+            パケット処理のみ改善
+        end note
+    }
+}
+
+' Bottleneck analysis
+rectangle "ボトルネック分析" #FFFACD {
+    card "最適化前の内訳" as bottleneck_before {
+        rectangle "USB書込\n30.2 ms\n(51.5%)" as usb_before #FFE0E0
+        rectangle "パケット処理\n23.3 ms\n(39.8%)" as pack_before #FFB0B0
+        rectangle "カメラ\n5.1 ms\n(8.7%)" as cam_before #FFC0C0
+    }
+
+    card "最適化後の内訳" as bottleneck_after {
+        rectangle "USB書込\n30.2 ms\n(63.0%)" as usb_after #FFE0E0
+        rectangle "パケット処理\n8.7 ms\n(18.2%)" as pack_after #C0FFC0
+        rectangle "カメラ\n5.1 ms\n(10.6%)" as cam_after #E0FFE0
+    }
+
+    note right of bottleneck_after
+        **新たな最適化ターゲット**
+        USB書き込み (30.2 ms, 63.0%)
+        が主要ボトルネックに
+    end note
+}
+
+' Optimization technique
+rectangle "最適化手法" #E3F2FD {
+    card "CRC計算アルゴリズム" as algorithm {
+        rectangle "ビットバイビット方式" as bitwise #FFCCCC
+        note right of bitwise
+            • ループ: 524,288回
+            • 条件分岐: 524,288回
+            • 処理時間: 15-18 ms
+            • メモリ: 最小
+        end note
+
+        rectangle "テーブルルックアップ方式" as table #CCFFCC
+        note right of table
+            • ループ: 65,536回 (1/8)
+            • 条件分岐: 0回
+            • 処理時間: ~2 ms
+            • メモリ: +512 bytes
+        end note
+    }
+
+    bitwise -down-> table : 最適化
+    note on link
+        **8倍高速化**
+        条件分岐排除
+        パイプライン効率化
+    end note
+}
+
+' Compatibility
+note bottom of algorithm
+    **重要**: PC側との完全互換性を維持
+    • 多項式: 0x1021 (同一)
+    • 初期値: 0xFFFF (同一)
+    • アルゴリズム: MSB-first (同一)
+    → PC側コード変更不要
+end note
+
+footer Phase 1.5 VGA性能最適化 - CRC処理最適化結果
+
+@enduml

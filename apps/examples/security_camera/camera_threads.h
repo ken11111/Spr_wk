@@ -78,6 +78,12 @@ typedef struct thread_context_s
 
   uint32_t *sequence;       /* Pointer to sequence counter */
 
+  /* Phase 7: TCP transport support */
+
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+  void *tcp_server;         /* Pointer to tcp_server_t (opaque) */
+#endif
+
 } thread_context_t;
 
 /****************************************************************************

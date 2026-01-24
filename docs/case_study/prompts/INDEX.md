@@ -4,14 +4,19 @@
 
 ```
 prompts/
-├── README.md                          (8.6KB) - 全体概要と使い方
-├── QUICK_REFERENCE.md                 (8.9KB) - クイックリファレンス
-├── INDEX.md                           (このファイル) - 完全インデックス
-├── 01_environment_check.md            (6.0KB) - Phase 1プロンプト集
-├── 02_build_system_integration.md     (12KB)  - Phase 2プロンプト集
-└── 03_application_development.md      (14KB)  - Phase 3プロンプト集
+├── README.md                                              (8.6KB) - 全体概要と使い方
+├── QUICK_REFERENCE.md                                     (8.9KB) - クイックリファレンス
+├── INDEX.md                                               (このファイル) - 完全インデックス
+├── 01_environment_check.md                                (6.0KB) - Phase 1プロンプト集
+├── 02_build_system_integration.md                         (12KB)  - Phase 2プロンプト集
+├── 03_application_development.md                          (14KB)  - Phase 3プロンプト集
+├── build_environment_migration_troubleshooting.md         (26KB)  - ビルド環境移行トラブルシューティング
+├── build_troubleshooting_cheatsheet.md                    (9KB)   - トラブルシューティング・チートシート
+├── usb_console_troubleshooting.md                         (17KB)  - USB シリアルコンソール接続トラブルシューティング ⭐NEW
+├── camera_config_reference.md                             (9.5KB) - カメラ設定リファレンス
+└── camera_lessons_learned.md                              (13KB)  - カメラ開発の教訓
                                        -------
-                                       合計: 約50KB
+                                       合計: 約124KB
 ```
 
 ## 🎯 目的別ファイルガイド
@@ -32,6 +37,13 @@ prompts/
 | CONFIG変数エラー | 02_build_system_integration.md | プロンプト4 |
 | センサー取得エラー | 03_application_development.md | プロンプト3, 8 |
 | AHRSの発散 | 03_application_development.md | トラブルシューティング |
+| ビルド環境移行エラー | build_environment_migration_troubleshooting.md | 全セクション |
+| クロスコンパイラエラー | build_troubleshooting_cheatsheet.md | よくあるエラー |
+| sercon: command not found | usb_console_troubleshooting.md | 解決策A/B/C ⭐NEW |
+| USB コンソール接続失敗 | usb_console_troubleshooting.md | 原因の特定 ⭐NEW |
+| /dev/ttyACM0 が見つからない | usb_console_troubleshooting.md | 検証方法 ⭐NEW |
+| カメラ設定の問題 | camera_config_reference.md | 設定一覧 |
+| カメラ開発のベストプラクティス | camera_lessons_learned.md | 教訓集 |
 
 ### 効率的な開発がしたい方
 - **README.md** の「効果的なプロンプトの3原則」を理解
@@ -172,6 +184,127 @@ prompts/
 - アルゴリズム選定に迷った時
 - コードレビューが欲しい時
 - ドキュメントを作成する時
+
+---
+
+### 📄 build_environment_migration_troubleshooting.md（新規追加）
+
+**ビルド環境移行の完全ガイド**
+
+**含まれる内容**:
+1. kconfig-conf コマンドが見つからない
+2. システムgccがクロスコンパイラの代わりに使用される
+3. アーキテクチャ固有ファイルが見つからない
+4. ライブラリ設定の欠落
+5. SDIO/Work Queue設定の連鎖的依存関係
+6. スタックサイズ警告オプションの値が空
+
+**ベストプラクティス**:
+- defconfigからの開始方法
+- カスタマイズの記録方法
+- ビルドの検証方法
+- クリーンビルドの推奨手順
+
+**想定時間**: トラブルに応じて30分-2時間
+**難易度**: ★★★★☆
+
+**達成目標**:
+- Git管理下のディレクトリでビルド成功
+- 全ての依存関係を正しく設定
+- 検証可能なビルド環境の構築
+
+**こんな時に使う**:
+- 新しいディレクトリにビルド環境を移行する時
+- ビルドエラーの原因が分からない時
+- 設定の依存関係を理解したい時
+
+---
+
+### 📄 build_troubleshooting_cheatsheet.md（新規追加）
+
+**クイックリファレンス: トラブルシューティング**
+
+**含まれる内容**:
+- クリーンビルド5分手順
+- よくあるエラーと即座の解決策（6パターン）
+- 診断コマンド集
+- 設定チェックリスト
+- ワンライナー修正集
+- 設定値リファレンステーブル
+- 緊急時の対処法
+- プロのヒント（並列ビルド、差分確認など）
+
+**推奨使用方法**: エラー発生時に該当箇所を検索してコピペ
+
+**こんな時に使う**:
+- すぐに解決策が欲しい時
+- エラーメッセージで検索する時
+- コマンドを忘れた時
+
+---
+
+### 📄 usb_console_troubleshooting.md（新規追加 2025-12-28）⭐
+
+**USB シリアルコンソール接続トラブルシューティングガイド**
+
+**含まれる内容**:
+- 問題の概要（sercon: command not found）
+- 原因の特定（3つの主要原因）
+- 解決策A: serconコマンド復活（従来の手動方式）
+- 解決策B: USB自動起動（推奨方式）
+- 解決策C: 両方を有効化（最も柔軟）
+- CONFIG設定の詳細説明
+- 実機での検証方法
+- よくある質問（FAQ）
+
+**想定時間**: 設定のみ 5分、再ビルド含む 10-15分
+**難易度**: ★★☆☆☆
+
+**達成目標**:
+- `sercon`コマンドが使える、またはUSB自動起動が有効化されている
+- `/dev/ttyACM0`が正常に動作する
+- USB CDC-ACM経由でのデータ通信が可能
+
+**こんな時に使う**:
+- `sercon: command not found`エラーが出た時
+- `/dev/ttyACM0`が出現しない時
+- 新規ビルド環境でUSB接続ができない時
+- defconfigから移行した際にUSBコンソールが動かない時
+
+**関連PlantUML図**: [usb_console_troubleshooting_flow.puml](../diagrams/usb_console_troubleshooting_flow.puml)
+
+---
+
+### 📊 PlantUML図集（新規追加）
+
+**ディレクトリ**: `../diagrams/`
+
+**視覚的な理解のためのPlantUML図**
+
+含まれる図:
+1. **config_dependencies.puml** - CONFIG変数間の依存関係
+2. **build_system_components.puml** - ビルドシステムのコンポーネント図
+3. **build_flow.puml** - 推奨ビルドフローチャート
+4. **troubleshooting_flow.puml** - トラブルシューティング診断フロー
+5. **directory_structure.puml** - ディレクトリ構造とファイル配置
+6. **phase1_environment_setup_flow.puml** - Phase 1環境構築フロー
+7. **phase2_builtin_registration_flow.puml** - Phase 2 builtin登録フロー
+8. **phase3_application_development_flow.puml** - Phase 3アプリ開発フロー
+9. **camera_application_flow.puml** - カメラアプリケーション開発フロー
+10. **usb_console_troubleshooting_flow.puml** - USBコンソールトラブルシューティングフロー ⭐NEW
+
+**使い方**:
+- VSCodeのPlantUML拡張機能でプレビュー
+- PlantUML Online Serverでレンダリング
+- `plantuml *.puml` でPNG/SVG出力
+
+**詳細**: [diagrams/README.md](../diagrams/README.md)
+
+**こんな時に使う**:
+- テキストでは理解しにくい依存関係を視覚化したい時
+- 新規メンバーにシステム構造を説明する時
+- プレゼンテーション資料を作成する時
+- ドキュメントに図を埋め込みたい時
 
 ---
 

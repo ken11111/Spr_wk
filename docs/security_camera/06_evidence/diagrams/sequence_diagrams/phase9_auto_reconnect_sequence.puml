@@ -1,0 +1,65 @@
+@startuml phase9_auto_reconnect_sequence
+!theme plain
+skinparam backgroundColor white
+skinparam sequenceMessageAlign center
+
+title Phase 9: 自動再接続シーケンス (実測データ 2026-01-17)
+
+participant "Camera\nThread" as CAM
+participant "Action\nQueue" as AQ
+participant "TCP\nServer" as TCP_SP
+participant "GS2200M\nWiFi" as WIFI
+participant "PC\nClient" as PC
+
+note over CAM, PC: 正常動作中 (約49分間)
+
+== パケットロス発生 (12:08:34) ==
+
+TCP_SP -> WIFI: send(frame_data)\n10パケットバースト
+WIFI -> PC: [P.] seq=334221269\n(一部ロスト)
+PC -> WIFI: [.] ack=334221269\n重複ACK x14
+note right of PC: パケットロス検出
+
+== RTO再送 (12:08:37) ==
+
+WIFI -> WIFI: RTOタイムアウト\n(約3秒)
+WIFI -> PC: [P.] seq=334221269\n(再送成功)
+PC -> WIFI: [.] ack=334231517\n(回復)
+
+== GS2200M 切断 (12:08:37.55) ==
+
+note over WIFI: GS2200M内部ロジック:\n重複ACK検出後に\nFIN送信を決定
+WIFI -> PC: [F.] FIN
+PC -> WIFI: [.] ACK
+
+== Phase 9: Spresense側再接続待機 ==
+
+TCP_SP -> TCP_SP: handle_disconnect()\nclient_fd = -1
+note over TCP_SP: 状態: RECONNECTING
+
+TCP_SP -> TCP_SP: wait_reconnect()\naccept() 待機
+
+== Phase 9: PC側再接続 ==
+
+PC -> PC: 切断検出\n(read timeout)
+note over PC: reconnect()\n2秒待機後
+
+PC -> WIFI: [S] SYN (port 53336)
+WIFI -> TCP_SP: accept()
+TCP_SP -> WIFI: connection
+WIFI -> PC: [S.] SYN-ACK
+PC -> WIFI: [.] ACK
+
+note over TCP_SP: 状態: CONNECTED\nreconnect_count = 1
+
+== ストリーミング再開 ==
+
+CAM -> AQ: push(frame)
+AQ -> TCP_SP: pop() & send()
+TCP_SP -> WIFI: send(frame_data)
+WIFI -> PC: MJPEG frame
+note over PC: フレーム表示再開\n(12:08:39)
+
+note over CAM, PC #lightgreen: **自動再接続成功**\n2秒のダウンタイムで復旧
+
+@enduml

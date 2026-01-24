@@ -1,0 +1,69 @@
+@startuml phase8_queue_comparison
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title Phase 7.3.3 vs Phase 8: キュー滞留の比較
+
+legend top
+|= 色 |= 意味 |
+|<#LightGreen> | 正常 (depth 1-3) |
+|<#Orange> | 注意 (depth 4-5) |
+|<#Red> | 危険 (depth 6-7) |
+endlegend
+
+|Phase 7.3.3 (シングルスレッド)|
+start
+:Camera: 30fps生成;
+:action_queue: **depth=1**;
+#LightGreen:正常;
+
+fork
+    :TCP送信 (236ms);
+fork again
+    :Camera: 7フレーム生成;
+end fork
+
+:action_queue: **depth=7**;
+#Red:キュー飽和;
+
+:フレームドロップ開始;
+#Red:72.9%ドロップ;
+
+:PC: TCP read **ブロッキング**;
+#Red:GUI停止 (236ms);
+
+:結果: **3.0 fps**;
+stop
+
+|Phase 8 (3スレッドパイプライン)|
+start
+:Camera: 30fps生成;
+:action_queue: **depth=1**;
+#LightGreen:正常;
+
+fork
+    :TCP送信 (134ms);
+    note right: 送信時間43%改善
+fork again
+    :Camera: 4フレーム生成;
+end fork
+
+:action_queue: **depth=4**;
+#Orange:安定範囲;
+
+fork
+    :TCP Reader: 非同期読み込み;
+fork again
+    :Decoder: 並列デコード;
+fork again
+    :GUI: 60fps継続;
+    #LightGreen:GUI停止なし;
+end fork
+
+:フレームドロップ;
+#Orange:53.7%ドロップ (-26%改善);
+
+:結果: **6.74 fps (+125%)**;
+stop
+
+@enduml

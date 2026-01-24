@@ -1,0 +1,57 @@
+@startuml phase8_sequence_phase7
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+title Phase 7.3.3: シングルスレッド方式のキュー滞留
+
+participant "Camera\n(ISX012)" as CAM
+participant "action_queue\n(MAX=7)" as AQ #LightYellow
+participant "TCP Thread\n(Spresense)" as TCP_SP
+participant "GS2200M\nWiFi Buffer" as WIFI #LightBlue
+participant "TCP\nStream" as NET
+participant "Main Thread\n(PC)" as PC
+participant "GUI" as GUI
+
+== フレーム1: 正常処理 ==
+CAM -> AQ: push(frame1)\n30fps生成
+note over AQ: depth=1
+AQ -> TCP_SP: pull()
+TCP_SP -> WIFI: send(57KB)
+WIFI -> NET: TCP transmit
+note over WIFI: 236ms平均
+NET -> PC: read() **ブロッキング**
+note over PC #Pink: GUI停止中\n(236ms)
+PC -> PC: JPEG decode\n(2ms)
+PC -> GUI: update()
+
+== フレーム2-4: キュー蓄積開始 ==
+CAM -> AQ: push(frame2)
+note over AQ #Orange: depth=2
+CAM -> AQ: push(frame3)
+note over AQ #Orange: depth=3
+CAM -> AQ: push(frame4)
+note over AQ #Red: depth=4\n滞留発生
+
+AQ -> TCP_SP: pull(frame2)
+TCP_SP -> WIFI: send(58KB)
+note over WIFI #Orange: バッファ圧迫
+
+== フレーム5-7: キュー飽和 ==
+CAM -> AQ: push(frame5)
+CAM -> AQ: push(frame6)
+CAM -> AQ: push(frame7)
+note over AQ #Red: depth=7\nMAX到達
+
+CAM --> CAM: **フレームドロップ**
+note over CAM #Red: 72.9%ドロップ
+
+== 問題点 ==
+note over PC #Pink
+**ボトルネック**
+- TCP read中はGUI完全停止
+- 1フレーム処理に238ms
+- 理論限界: 4.2fps
+end note
+
+@enduml

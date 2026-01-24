@@ -53,6 +53,12 @@ CSRCS += perf_logger.c
 CSRCS += frame_queue.c
 CSRCS += camera_threads.c
 
+# Phase 7: WiFi/TCP transport
+ifeq ($(CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI),y)
+CSRCS += wifi_manager.c
+CSRCS += tcp_server.c
+endif
+
 MAINSRC = camera_app_main.c
 
 # Security Camera flags

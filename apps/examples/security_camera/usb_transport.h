@@ -47,8 +47,8 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define USB_TX_BUFFER_COUNT   4     /* Transmission buffer count */
-#define USB_TX_BUFFER_SIZE    8192  /* 8KB */
+#define USB_TX_BUFFER_COUNT   4        /* Transmission buffer count */
+#define USB_TX_BUFFER_SIZE    8192     /* 8KB - Optimal (confirmed by testing) */
 
 /****************************************************************************
  * Public Types

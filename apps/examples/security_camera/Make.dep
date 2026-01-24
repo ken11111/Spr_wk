@@ -9,7 +9,7 @@ camera_manager.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/inttypes.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/limits.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/limits.h \
- /home/ken/spresenseenv/usr/lib/gcc/arm-none-eabi/10.3.1/include/stdarg.h \
+ /usr/lib/gcc/arm-none-eabi/9.2.1/include/stdarg.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/time.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/fs.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdbool.h \
@@ -78,7 +78,7 @@ encoder_manager.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/inttypes.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/limits.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/limits.h \
- /home/ken/spresenseenv/usr/lib/gcc/arm-none-eabi/10.3.1/include/stdarg.h \
+ /usr/lib/gcc/arm-none-eabi/9.2.1/include/stdarg.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/time.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/fs.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdbool.h \
@@ -145,7 +145,7 @@ protocol_handler.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/inttypes.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/limits.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/limits.h \
- /home/ken/spresenseenv/usr/lib/gcc/arm-none-eabi/10.3.1/include/stdarg.h \
+ /usr/lib/gcc/arm-none-eabi/9.2.1/include/stdarg.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/time.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/fs.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdbool.h \
@@ -209,7 +209,7 @@ usb_transport.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/inttypes.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/limits.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/limits.h \
- /home/ken/spresenseenv/usr/lib/gcc/arm-none-eabi/10.3.1/include/stdarg.h \
+ /usr/lib/gcc/arm-none-eabi/9.2.1/include/stdarg.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/time.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/fs.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdbool.h \
@@ -279,7 +279,7 @@ mjpeg_protocol.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/alloca.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/errno.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/syslog.h \
- /home/ken/spresenseenv/usr/lib/gcc/arm-none-eabi/10.3.1/include/stdarg.h \
+ /usr/lib/gcc/arm-none-eabi/9.2.1/include/stdarg.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdbool.h \
  mjpeg_protocol.h config.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video.h \
@@ -287,6 +287,200 @@ mjpeg_protocol.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/time.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/select.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/signal.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/ioctl.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/serial/tioctl.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video_controls.h
+perf_logger.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
+ perf_logger.c \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/config.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdio.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/types.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/compiler.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdint.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/types.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/inttypes.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/limits.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/limits.h \
+ /usr/lib/gcc/arm-none-eabi/9.2.1/include/stdarg.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/time.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/fs.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdbool.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/dirent.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/mutex.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/assert.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/semaphore.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/errno.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/semaphore.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/queue.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/clock.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/mm/map.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/mm/gran.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/lib/lib.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/kmalloc.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdlib.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/mm/mm.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/addrenv.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/wqueue.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/wdog.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/arch.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/pgalloc.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/userspace.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/signal.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/pthread.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/unistd.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/arch.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/cache.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/sched.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sched.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/strings.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/string.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stddef.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/alloca.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/irq.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/irq.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/chip/irq.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/armv7-m/irq.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/armv7-m/nvicpri.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/chip/chip.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/net/net.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/socket.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/uio.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/malloc.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/syslog.h \
+ perf_logger.h config.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/time.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/select.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/ioctl.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/serial/tioctl.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video_controls.h
+frame_queue.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
+ frame_queue.c \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/config.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdio.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/types.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/compiler.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdint.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/types.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/inttypes.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/limits.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/limits.h \
+ /usr/lib/gcc/arm-none-eabi/9.2.1/include/stdarg.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/time.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/fs.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdbool.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/dirent.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/mutex.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/assert.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/semaphore.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/errno.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/semaphore.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/queue.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/clock.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/mm/map.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/mm/gran.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/lib/lib.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/kmalloc.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdlib.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/mm/mm.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/addrenv.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/wqueue.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/wdog.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/arch.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/pgalloc.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/userspace.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/signal.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/pthread.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/unistd.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/arch.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/cache.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/sched.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sched.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/strings.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/string.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stddef.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/alloca.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/irq.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/irq.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/chip/irq.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/armv7-m/irq.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/armv7-m/nvicpri.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/chip/chip.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/net/net.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/socket.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/uio.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/malloc.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/syslog.h \
+ frame_queue.h config.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/time.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/select.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/ioctl.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/serial/tioctl.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video_controls.h
+camera_threads.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
+ camera_threads.c \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/config.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdio.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/types.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/compiler.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdint.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/types.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/inttypes.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/limits.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/limits.h \
+ /usr/lib/gcc/arm-none-eabi/9.2.1/include/stdarg.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/time.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/fs.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdbool.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/dirent.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/mutex.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/assert.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/semaphore.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/errno.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/semaphore.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/queue.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/clock.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/mm/map.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/mm/gran.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/lib/lib.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/kmalloc.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdlib.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/mm/mm.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/addrenv.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/wqueue.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/wdog.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/arch.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/pgalloc.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/userspace.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/signal.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/pthread.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/unistd.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/arch.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/cache.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/sched.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sched.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/strings.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/string.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stddef.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/alloca.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/irq.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/irq.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/chip/irq.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/armv7-m/irq.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/armv7-m/nvicpri.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/chip/chip.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/net/net.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/socket.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/uio.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/malloc.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/syslog.h \
+ camera_threads.h frame_queue.h camera_manager.h mjpeg_protocol.h \
+ usb_transport.h protocol_handler.h encoder_manager.h perf_logger.h \
+ config.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/time.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/select.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/ioctl.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/serial/tioctl.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video_controls.h
@@ -301,7 +495,7 @@ camera_app_main.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/inttypes.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/limits.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/limits.h \
- /home/ken/spresenseenv/usr/lib/gcc/arm-none-eabi/10.3.1/include/stdarg.h \
+ /usr/lib/gcc/arm-none-eabi/9.2.1/include/stdarg.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/time.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/fs.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdbool.h \
@@ -348,12 +542,13 @@ camera_app_main.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/malloc.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/syslog.h \
  camera_manager.h protocol_handler.h encoder_manager.h usb_transport.h \
- mjpeg_protocol.h config.h \
+ mjpeg_protocol.h perf_logger.h config.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/time.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/select.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/ioctl.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/serial/tioctl.h \
- /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video_controls.h
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video_controls.h \
+ camera_threads.h frame_queue.h
 # No files specified for dependency generation
 # No files specified for dependency generation

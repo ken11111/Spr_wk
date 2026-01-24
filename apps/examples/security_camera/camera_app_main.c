@@ -42,6 +42,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <syslog.h>
+#include <malloc.h>  /* Phase 7.2: Memory statistics */
 
 #include "camera_manager.h"
 /* encoder_manager.h removed - using MJPEG from camera */
@@ -52,6 +53,14 @@
 #include "config.h"
 #include "camera_threads.h"  /* Step 1: Threading support */
 #include "frame_queue.h"     /* Step 1: Frame queue */
+
+/* Phase 7: WiFi/TCP transport support */
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+#include "wifi_manager.h"
+#include "tcp_server.h"
+#include "wifi_config.h"
+#include <arpa/inet.h>
+#endif
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -154,9 +163,24 @@ int main(int argc, FAR char *argv[])
   uint32_t jpeg_validation_error_count = 0;
   uint32_t consecutive_jpeg_errors = 0;
 
+  /* Phase 7: WiFi/TCP transport */
+
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+  wifi_manager_t wifi_mgr;
+  tcp_server_t tcp_server;
+  struct in_addr ip_addr;
+#endif
+
   LOG_INFO("=================================================");
   LOG_INFO("Security Camera Application Starting (MJPEG)");
   LOG_INFO("=================================================");
+
+  /* Phase 7.2: Log memory usage at startup */
+
+  struct mallinfo mem = mallinfo();
+  LOG_INFO("Memory at startup: Heap used=%d bytes, free=%d bytes, "
+           "largest_free_block=%d bytes",
+           mem.uordblks, mem.fordblks, mem.mxordblk);
 
   /* Setup signal handlers */
 
@@ -197,7 +221,88 @@ int main(int argc, FAR char *argv[])
 
   LOG_INFO("Packet buffer allocated: %d bytes", MJPEG_MAX_PACKET_SIZE);
 
-  /* Initialize USB transport */
+  /* Initialize transport (USB or WiFi/TCP) */
+
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+  /* Phase 7: WiFi/TCP transport */
+
+  LOG_INFO("Initializing WiFi transport...");
+
+  /* Initialize WiFi manager */
+
+  ret = wifi_manager_init(&wifi_mgr);
+  if (ret < 0)
+    {
+      LOG_ERROR("Failed to initialize WiFi manager: %d", ret);
+      free(packet_buffer);
+      camera_manager_cleanup();
+      return ret;
+    }
+
+  LOG_INFO("WiFi manager initialized");
+
+  /* Connect to WiFi */
+
+  LOG_INFO("Connecting to WiFi: SSID=%s", WIFI_SSID);
+  ret = wifi_manager_connect(&wifi_mgr, WIFI_SSID, WIFI_PASSWORD, WIFI_AUTH);
+  if (ret < 0)
+    {
+      LOG_ERROR("Failed to connect to WiFi: %d", ret);
+      wifi_manager_cleanup(&wifi_mgr);
+      free(packet_buffer);
+      camera_manager_cleanup();
+      return ret;
+    }
+
+  /* Get assigned IP address */
+
+  ret = wifi_manager_get_ip(&wifi_mgr, &ip_addr);
+  if (ret < 0)
+    {
+      LOG_ERROR("Failed to get IP address: %d", ret);
+      wifi_manager_disconnect(&wifi_mgr);
+      wifi_manager_cleanup(&wifi_mgr);
+      free(packet_buffer);
+      camera_manager_cleanup();
+      return ret;
+    }
+
+  LOG_INFO("WiFi connected! IP: %s", inet_ntoa(ip_addr));
+
+  /* Initialize TCP server */
+
+  ret = tcp_server_init(&tcp_server, TCP_SERVER_PORT);
+  if (ret < 0)
+    {
+      LOG_ERROR("Failed to initialize TCP server: %d", ret);
+      wifi_manager_disconnect(&wifi_mgr);
+      wifi_manager_cleanup(&wifi_mgr);
+      free(packet_buffer);
+      camera_manager_cleanup();
+      return ret;
+    }
+
+  LOG_INFO("TCP server initialized on port %d", TCP_SERVER_PORT);
+  LOG_INFO("Waiting for client connection...");
+
+  /* Wait for client connection */
+
+  ret = tcp_server_accept(&tcp_server);
+  if (ret < 0)
+    {
+      LOG_ERROR("Failed to accept client connection: %d", ret);
+      tcp_server_cleanup(&tcp_server);
+      wifi_manager_disconnect(&wifi_mgr);
+      wifi_manager_cleanup(&wifi_mgr);
+      free(packet_buffer);
+      camera_manager_cleanup();
+      return ret;
+    }
+
+  LOG_INFO("Client connected! Starting MJPEG streaming...");
+
+#else
+  /* USB transport (default) */
 
   ret = usb_transport_init();
   if (ret < 0)
@@ -209,6 +314,7 @@ int main(int argc, FAR char *argv[])
     }
 
   LOG_INFO("USB transport initialized (/dev/ttyACM0)");
+#endif
 
   /* Initialize performance logger */
 
@@ -222,6 +328,12 @@ int main(int argc, FAR char *argv[])
       thread_ctx.packet_buffer = packet_buffer;
       thread_ctx.packet_buffer_size = MJPEG_MAX_PACKET_SIZE;
       thread_ctx.sequence = &sequence;
+
+      /* Phase 7: Set TCP server pointer if WiFi is enabled */
+
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+      thread_ctx.tcp_server = &tcp_server;
+#endif
 
       ret = camera_threads_init(&thread_ctx);
       if (ret < 0)
@@ -467,7 +579,18 @@ int main(int argc, FAR char *argv[])
       packet_buffer = NULL;
     }
 
+  /* Cleanup transport */
+
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+  tcp_server_cleanup(&tcp_server);
+  wifi_manager_disconnect(&wifi_mgr);
+  wifi_manager_cleanup(&wifi_mgr);
+  LOG_INFO("WiFi/TCP transport cleaned up");
+#else
   usb_transport_cleanup();
+  LOG_INFO("USB transport cleaned up");
+#endif
+
   camera_manager_cleanup();
 
   LOG_INFO("=================================================");

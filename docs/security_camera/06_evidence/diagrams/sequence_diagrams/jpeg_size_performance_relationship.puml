@@ -1,0 +1,172 @@
+@startuml JPEG サイズと性能の関係
+!theme plain
+skinparam defaultFontName "Noto Sans CJK JP, Arial"
+skinparam backgroundColor white
+skinparam shadowing false
+
+title JPEG サイズと性能指標の関係（理論モデル）
+
+' Legend
+legend top left
+  |= 記号 |= 意味 |
+  | ● | 最適化前（ビットバイビット CRC） |
+  | ▲ | 最適化後（テーブルルックアップ CRC） |
+  | ◆ | 実測値（40KB付近） |
+
+  **測定条件**
+  • カメラ: 壁に向けて固定
+  • JPEG範囲: 36-42 KB (変動小)
+  • フレーム数: 90 frames
+end legend
+
+' Graph 1: Packet Processing Time vs JPEG Size
+card "パケット処理時間 vs JPEG サイズ" as graph1 #F0F8FF {
+    rectangle "処理時間 (ms)" as y1_axis {
+        note right
+            35 │
+            30 │                    ●(64KB, 22.9ms)
+            25 │                ●
+            20 │            ●
+            15 │        ●
+            10 │    ●          ▲(64KB, 10.8ms)
+             5 │●          ▲▲▲
+             0 └──────────────────────
+               20   30 ◆40  50  60  64
+
+            ◆ 実測値: 40KB → 8.7ms
+
+            **最適化前（●）**:
+            y = 5 + 0.28x
+            (x: JPEG size in KB)
+
+            **最適化後（▲）**:
+            y = 5 + 0.09x
+
+            **傾き削減**: 0.28 → 0.09
+            CRC係数が1/3に改善
+        end note
+    }
+}
+
+' Graph 2: FPS vs JPEG Size
+card "FPS vs JPEG サイズ" as graph2 #FFF5F0 {
+    rectangle "FPS" as y2_axis {
+        note right
+            15 │▲▲
+            14 │  ▲▲
+            13 │    ▲▲
+            12 │      ▲▲
+            11 │        ▲◆      ← 実測: 40KB, 11.0fps
+            10 │          ▲▲
+             9 │            ●●◆ ← 実測: 40KB, 9.8fps
+             8 │              ●●
+             7 │                ●●
+             6 │                  ●●
+             5 │                    ●●
+             0 └──────────────────────────
+               20   30  40  50  60  64
+
+            **負の相関**
+            JPEG大 → 処理時間増 → FPS減
+
+            最適化により全体的に
+            FPS が 1-2 fps 向上
+        end note
+    }
+}
+
+' Graph 3: Total Latency Breakdown
+card "総レイテンシ内訳（40KB JPEG の場合）" as graph3 #F0FFF0 {
+    rectangle "最適化前\n58.6 ms" as before {
+        rectangle "USB\n30.2ms\n(51.5%)" as before_usb #FFE0E0
+        rectangle "Pack\n23.3ms\n(39.8%)" as before_pack #FFB0B0
+        rectangle "Cam\n5.1ms\n(8.7%)" as before_cam #FFC0C0
+    }
+
+    rectangle "→" as arrow
+
+    rectangle "最適化後\n47.9 ms" as after {
+        rectangle "USB\n30.2ms\n(63.0%)" as after_usb #FFE0E0
+        rectangle "Pack\n8.7ms\n(18.2%)" as after_pack #C0FFC0
+        rectangle "Cam\n5.1ms\n(10.6%)" as after_cam #E0FFE0
+    }
+
+    note bottom
+        **-10.7 ms (-18.3%) 改善**
+
+        パケット処理が主要な
+        ボトルネックから脱却
+    end note
+}
+
+' Graph 4: USB Write Time vs JPEG Size
+card "USB書き込み時間 vs JPEG サイズ" as graph4 #FFFACD {
+    rectangle "USB時間 (ms)" as y4_axis {
+        note right
+            35 │                    ●▲(64KB, 32ms)
+            30 │                ●▲◆
+            25 │            ●▲      ← 実測: 40KB, 30.2ms
+            20 │        ●▲
+            15 │    ●▲
+            10 │●▲
+             0 └──────────────────────
+               20   30  40  50  60  64
+
+            **線形関係**
+            y = 10 + 0.5x
+
+            ● = ▲ (最適化の影響なし)
+
+            **次の最適化ターゲット**
+            現在の主要ボトルネック
+        end note
+    }
+}
+
+' Correlation Summary
+rectangle "相関係数まとめ" as correlation #E3F2FD {
+    card "パケット処理 vs JPEG" {
+        note
+            **r ≈ 0.95-0.99**
+            強い正の相関
+
+            CRC計算が主要因
+        end note
+    }
+
+    card "USB書込 vs JPEG" {
+        note
+            **r ≈ 0.95-0.99**
+            強い正の相関
+
+            転送量に比例
+        end note
+    }
+
+    card "FPS vs JPEG" {
+        note
+            **r ≈ -0.7 ~ -0.9**
+            負の相関
+
+            処理時間増→FPS減
+        end note
+    }
+}
+
+' Note about measurement
+note bottom
+    **今回の測定データの特徴**
+
+    • JPEG範囲: 36-42 KB (変動小)
+    • 標準偏差: ±1.5 KB (3.7%)
+    • シーン: 壁（固定、複雑度一定）
+
+    → 散布図では点が密集
+    → 相関関係の可視化には
+      より広範囲のデータが必要
+      (20-64 KB のバリエーション)
+end note
+
+footer JPEG サイズと性能の理論的関係 - Phase 1.5 CRC最適化
+
+@enduml

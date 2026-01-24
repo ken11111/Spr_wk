@@ -1,0 +1,75 @@
+@startuml phase8_sequence_improved
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+title Phase 8: 3スレッドパイプラインによるキュー滞留改善
+
+participant "Camera\n(ISX012)" as CAM
+participant "action_queue\n(MAX=7)" as AQ #LightYellow
+participant "TCP Thread\n(Spresense)" as TCP_SP
+participant "GS2200M\nWiFi" as WIFI #LightBlue
+participant "TCP Reader\nThread" as TCP_PC #LightGreen
+participant "jpeg_channel\n(unbounded)" as JQ #LightYellow
+participant "Decoder\nThread" as DEC #LightGreen
+participant "gui_channel\n(unbounded)" as GQ #LightYellow
+participant "GUI Thread\n(Main)" as GUI #LightCyan
+
+== 並列処理開始 ==
+CAM -> AQ: push(frame1)
+note over AQ: depth=1
+
+par 並列処理
+    AQ -> TCP_SP: pull()
+    TCP_SP -> WIFI: send(57KB)
+    WIFI --> TCP_PC: TCP stream
+    note over TCP_PC: 非同期読み込み\n(174ms平均)
+else GUI継続動作
+    GUI -> GUI: update()\n60fps継続
+    note over GUI #LightGreen: **GUI停止なし**
+end
+
+== キュー経由の非同期処理 ==
+TCP_PC -> JQ: send(JpegFrame)
+note over JQ: [Frame1]
+
+par デコードとTCP読み込みを並列
+    JQ -> DEC: recv()
+    DEC -> DEC: JPEG decode\n(2.07ms)
+    DEC -> GQ: send(DecodedFrame)
+else 次フレームの読み込み
+    TCP_PC -> TCP_PC: read(frame2)
+    note over TCP_PC #LightGreen: **並列動作**
+end
+
+GQ -> GUI: try_recv()
+GUI -> GUI: texture update
+
+== キュー深度の安定化 ==
+CAM -> AQ: push(frame2)
+CAM -> AQ: push(frame3)
+note over AQ #LightGreen: depth=4\n(安定)
+
+note over AQ #LightGreen
+**改善結果**
+- 平均キュー深度: 4
+- ドロップ率: 53.7%
+  (72.9%→53.7%: -26%)
+end note
+
+== Metricsパケット処理 ==
+TCP_SP -> WIFI: send(Metrics)
+WIFI --> TCP_PC: Metrics packet
+TCP_PC -> JQ: send(Metrics)
+JQ --> GUI: forward
+GUI -> GUI: MetricsLogger\nCSV出力
+
+== 改善効果 ==
+note over GUI #LightGreen
+**Phase 8 改善**
+- PC FPS: 3→6.74fps (+125%)
+- TCP時間: 236→134ms (-43%)
+- GUI: 60fps維持
+end note
+
+@enduml

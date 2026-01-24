@@ -3,6 +3,22 @@
 ## 目的
 BMI160 IMUセンサーを使った姿勢推定・位置推定アプリケーションの設計と実装
 
+## 📊 フローチャート
+
+**視覚的な手順**: [phase3_application_development_flow.puml](../../diagrams/phase3_application_development_flow.puml)
+
+Phase 3の全体フローをPlantUML図で確認できます。図には以下の情報が含まれています：
+- 要件定義の手順
+- センサードライバー確認フロー
+- センサーデータ取得の実装
+- データ処理パイプライン（フィルタリング、AHRS）
+- 出力・表示方法の選択
+- ビルドとテストの手順
+- デバッグと性能最適化
+
+**カメラアプリケーションの場合**:
+- [camera_application_flow.puml](../../diagrams/camera_application_flow.puml) - カメラ専用フロー
+
 ## Claude Codeへの効果的なプロンプト例
 
 ### プロンプト1: アプリケーション要件の整理

@@ -1,0 +1,103 @@
+@startuml Phase7_Bottleneck_Timeline
+!theme plain
+skinparam backgroundColor white
+
+title Phase 7 WiFi/TCP Bottleneck Analysis (Per Frame)
+
+concurrency "Target: 30 fps (33ms/frame)" as TARGET #LightGreen
+concurrency "USB Serial: 11 fps (90ms/frame)" as USB_SERIAL #LightBlue
+concurrency "WiFi/TCP: 1-2 fps (500-1000ms/frame)" as WIFI_TCP #Red
+
+robust "Camera Thread" as CAM
+robust "TCP Thread" as TCP
+robust "TCP Stack" as STACK
+robust "PC Reader" as PC
+
+@0
+CAM is "DQBUF" #LightBlue
+TCP is "Wait" #LightGray
+STACK is "Idle" #LightGray
+PC is "Read" #LightYellow
+
+@2
+CAM is "Pack MJPEG" #LightGreen
+note right: 2ms (camera)
+
+@11
+CAM is "Enqueue" #Yellow
+note right: +9ms (pack)
+
+@12
+CAM is "QBUF" #LightBlue
+TCP is "Dequeue" #Yellow
+
+@15
+TCP is "tcp_send()" #Orange
+note right: TCP送信開始
+
+' ===== BOTTLENECK: TCP送信 =====
+@15
+STACK is "usrsock" #Pink
+note right
+  **Bottleneck 1:**
+  usrsock経由でgs2200m
+  デーモンと通信
+  Context switch多発
+end note
+
+@50
+STACK is "gs2200m" #Pink
+
+@100
+STACK is "SPI TX" #Orange
+
+@200
+STACK is "WiFi TX" #Orange
+note right
+  **Bottleneck 2:**
+  WiFi throughput不足
+  またはSPI帯域制限
+end note
+
+' TCP送信完了（仮定: 500ms）
+@515
+TCP is "Send Done" #Green
+STACK is "Idle" #LightGray
+
+' ===== BOTTLENECK: PC側Sync検索 =====
+@515
+PC is "Sync Search" #Red
+note right
+  **Bottleneck 3:**
+  Sync word検索
+  10KB検索 = 100ms
+
+  原因: TCP送信遅延で
+  パケット境界ずれ
+end note
+
+@615
+PC is "JPEG Decode" #LightGreen
+
+@625
+PC is "GUI Render" #LightGreen
+
+@630
+PC is "Display" #Green
+
+' Total latency
+@630
+note bottom
+  **Total Latency: ~630ms**
+  - Camera + Pack: 11ms
+  - TCP Send: **500ms** ← メインボトルネック
+  - PC Sync Search: **100ms** ← 副次的ボトルネック
+  - JPEG Decode: 10ms
+  - GUI Render: 5ms
+
+  **現状FPS: 1.6 fps (630ms/frame)**
+  **目標FPS: 30 fps (33ms/frame)**
+  **ギャップ: 19倍遅い**
+end note
+
+@enduml

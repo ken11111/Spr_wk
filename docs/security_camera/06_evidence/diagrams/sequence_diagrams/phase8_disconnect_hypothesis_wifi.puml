@@ -1,0 +1,125 @@
+@startuml phase8_disconnect_hypothesis_wifi
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 200
+
+title 仮説C: WiFi環境要因による切断
+
+participant "Spresense" as SP
+participant "GS2200M" as WIFI #LightBlue
+participant "WiFi\n電波層" as RADIO #LightCyan
+participant "WiFi AP\n(Router)" as AP #LightYellow
+participant "有線LAN" as LAN
+participant "PC" as PC
+
+== 仮説C-1: 電波干渉/信号劣化 ==
+
+SP -> WIFI: send(frame)
+WIFI -> RADIO: 802.11g 2.4GHz
+
+note over RADIO #Orange
+**2.4GHz帯の混雑**
+- 近隣WiFi
+- Bluetooth
+- 電子レンジ
+- その他IoT機器
+end note
+
+alt 電波干渉発生?
+    RADIO --> RADIO: パケットロス
+    RADIO --> RADIO: 再送増加
+    note over WIFI #Orange: 再送タイムアウト
+    WIFI --> SP: 送信失敗
+else 実際の観測
+    RADIO -> AP: 正常受信
+    note over RADIO #LightGreen: 48分間安定通信
+end
+
+note over RADIO #LightYellow
+**この仮説の評価**
+
+支持する点:
+- 2.4GHz帯は干渉が多い
+- 長時間で一時的な干渉はありうる
+
+否定する点:
+- 48分間は安定動作
+- 突然の完全切断は干渉パターンと異なる
+- 通常は再送で回復する
+end note
+
+== 仮説C-2: WiFi AP側の問題 ==
+
+WIFI -> RADIO: TCP stream
+RADIO -> AP: 受信
+
+note over AP #Orange
+**AP側の潜在的問題**
+- NAT/ファイアウォール状態
+- 接続数上限
+- メモリ/CPU負荷
+- DHCP リース
+end note
+
+alt AP側切断?
+    AP --> AP: 接続テーブル満杯
+    note over AP #Red: TCP接続強制終了
+    AP --> PC: RST packet
+    AP --> WIFI: RST packet
+else 実際の観測
+    note over AP: 状態不明\n(ログなし)
+end
+
+note over AP #LightYellow
+**この仮説の評価**
+
+支持する点:
+- AP側ログがないため完全否定できない
+- 家庭用APは長時間接続で不安定になることがある
+
+否定する点:
+- APがRSTを送るとSpresense側で
+  ECONNRESET (-104) になるはず
+- 実際は ENOTCONN (-107)
+- AP経由の他の通信は正常だった可能性
+end note
+
+== 仮説C-3: 帯域競合 ==
+
+SP -> WIFI: 28KB frame
+WIFI -> AP: 連続送信
+
+par 帯域競合
+    note over AP #Orange: 他デバイスの通信
+    AP -> LAN: 優先度競合
+else
+    WIFI -> AP: Spresense通信
+end
+
+note over AP #LightYellow
+**帯域競合の影響**
+
+- GS2200Mは低優先度の可能性
+- 他デバイスに帯域を奪われる
+- 送信待ち時間が増加
+- → GS2200M内部バッファ蓄積
+
+**結果として仮説Aにつながる**
+end note
+
+== 可能性: 10-20% ==
+
+note over SP,PC #LightYellow
+**結論**
+WiFi環境要因は直接の原因ではないが、
+間接的にGS2200Mバッファ枯渇を
+加速させた可能性がある。
+
+**複合要因の可能性**
+1. WiFi帯域競合で送信遅延
+2. GS2200M内部バッファ蓄積
+3. 最終的にバッファ枯渇で切断
+end note
+
+@enduml

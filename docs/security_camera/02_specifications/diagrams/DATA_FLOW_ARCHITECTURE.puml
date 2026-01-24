@@ -1,0 +1,196 @@
+@startuml data_flow_architecture
+!theme plain
+
+title Phase 9.2統合データフローアーキテクチャ
+
+skinparam package {
+    BackgroundColor lightcyan
+    BorderColor darkblue
+    FontSize 10
+}
+
+skinparam database {
+    BackgroundColor lightyellow
+    BorderColor orange
+}
+
+package "Data Generation Layer (Spresense)" {
+    rectangle "ISX012\nImage Sensor" as ISX012 {
+        [Raw Image Data\n320×240 / 640×480] as RawImage
+        [Hardware JPEG\nEncoder] as JPEGEncoder
+        [Variable Latency\n0.05ms - 265ms] as EncLatency
+    }
+
+    rectangle "Phase 9.2\nHealth Generation" as HealthGen {
+        [TCP Metrics\nCollector] as TCPMetrics
+        [Health Classifier\nEXCELLENT→CRITICAL] as HealthClass
+        [Adaptation Event\nLogger] as AdaptLog
+    }
+
+    rectangle "Data Packetization" as Packet {
+        [MJPEG Frame\nPackaging] as MJPEGPkg
+        [Health Metrics\n58-byte Extension] as HealthPkg
+        [CRC Validation\nCRC-16-CCITT] as CRCGen
+    }
+}
+
+package "Network Transport Layer" as NetworkLayer {
+    cloud "WiFi TCP/IP\n(GS2200M)" {
+        rectangle "Adaptive Transport" as AdaptTransport {
+            [Bandwidth Control\n2-12Mbps] as BWControl
+            [Quality Adaptation\nHealth-based] as QualAdapt
+            [Connection Management\nPreventive Reconnect] as ConnMgmt
+        }
+    }
+}
+
+package "Data Ingestion Layer (PC)" {
+    rectangle "Stream Reception" as StreamRx {
+        [TCP Stream\nReceiver] as TCPRx
+        [MJPEG Frame\nValidator] as FrameVal
+        [Health Data\nExtractor] as HealthExt
+    }
+
+    rectangle "Real-time Processing" as RTProc {
+        [Frame Decoder\nJPEG→RGB] as Decoder
+        [Quality Analyzer\nScene Analysis] as QualAnalyzer
+        [Health Processor\nAnomaly Detection] as HealthProc
+    }
+}
+
+package "Intelligence Processing Layer" as IntelLayer {
+    rectangle "Phase 9.2 Analytics" as Analytics {
+        [Real-time Health\nAnalysis Engine] as RTAnalysis
+        [Predictive ML\nModels] as MLEngine
+        [Adaptation\nRecommender] as AdaptRec
+    }
+
+    rectangle "Historical Analysis" as Historical {
+        [Trend Analysis\nTime Series] as TrendAnalysis
+        [Pattern Learning\nML Training] as PatternLearn
+        [Performance\nEvaluation] as PerfEval
+    }
+}
+
+package "Data Persistence Layer" as PersistLayer {
+    database "Time Series DB\n(InfluxDB)" as TSDB {
+        [Health Metrics\nTime Series] as HealthTS
+        [Performance KPIs\nAggregated] as PerfKPI
+        [Adaptation History\nEvent Log] as AdaptHistory
+    }
+
+    database "Video Storage\n(Tiered)" as VideoStore {
+        [Hot Storage\nNVMe (24h)] as HotStore
+        [Warm Storage\nSATA SSD (7d)] as WarmStore
+        [Cold Storage\nHDD (Long-term)] as ColdStore
+    }
+
+    database "ML Model Store" as MLStore {
+        [LSTM Models\nNetwork Prediction] as LSTMModels
+        [Random Forest\nFailure Classification] as RFModels
+        [Training Data\nFeature Vectors] as TrainingData
+    }
+}
+
+package "User Interface Layer" as UILayer {
+    rectangle "Dashboard Backend" as DashBackend {
+        [Real-time API\nWebSocket] as RealtimeAPI
+        [Historical API\nREST] as HistAPI
+        [Configuration API\nSettings] as ConfigAPI
+    }
+
+    rectangle "Frontend Applications" as Frontend {
+        [Web Dashboard\nReact/TypeScript] as WebDash
+        [Mobile Interface\nResponsive] as MobileUI
+        [Alert System\nNotifications] as AlertSys
+    }
+}
+
+' Data Generation Flow
+RawImage --> JPEGEncoder : Scene capture
+JPEGEncoder --> MJPEGPkg : JPEG frames\n(36-65KB VGA)
+TCPMetrics --> HealthClass : RTT, packet loss
+HealthClass --> HealthPkg : Health level
+HealthPkg --> AdaptLog : Adaptation events
+
+' Packetization Flow
+MJPEGPkg --> CRCGen : Frame validation
+HealthPkg --> CRCGen : Metrics validation
+CRCGen --> BWControl : Validated packets
+
+' Network Transport Flow
+BWControl --> QualAdapt : Bandwidth monitoring
+QualAdapt --> ConnMgmt : Quality decisions
+ConnMgmt --> TCPRx : Adaptive transmission
+
+' Data Ingestion Flow
+TCPRx --> FrameVal : Stream validation
+FrameVal --> Decoder : Valid MJPEG frames
+TCPRx --> HealthExt : Health telemetry
+HealthExt --> HealthProc : Health metrics
+
+' Real-time Processing Flow
+Decoder --> QualAnalyzer : RGB frames
+QualAnalyzer --> RTAnalysis : Quality metrics
+HealthProc --> RTAnalysis : Health analysis
+
+' Intelligence Processing Flow
+RTAnalysis --> MLEngine : Current state
+MLEngine --> AdaptRec : Predictions
+AdaptRec --> QualAdapt : Recommendations
+RTAnalysis --> TrendAnalysis : Historical context
+TrendAnalysis --> PatternLearn : Learning data
+PatternLearn --> PerfEval : Model improvement
+
+' Data Persistence Flow
+RTAnalysis --> HealthTS : Real-time metrics
+AdaptRec --> AdaptHistory : Decision log
+PerfEval --> PerfKPI : Performance data
+Decoder --> HotStore : Current recordings
+HotStore --> WarmStore : Age-based migration
+WarmStore --> ColdStore : Lifecycle management
+MLEngine --> LSTMModels : Model persistence
+PatternLearn --> TrainingData : Learning datasets
+
+' User Interface Flow
+HealthTS --> RealtimeAPI : Live data
+AdaptHistory --> HistAPI : Historical data
+PerfKPI --> ConfigAPI : System settings
+RealtimeAPI --> WebDash : Dashboard updates
+HistAPI --> WebDash : Historical charts
+ConfigAPI --> MobileUI : Mobile access
+RTAnalysis --> AlertSys : Critical alerts
+
+note top of HealthGen
+<b>Phase 9.2 Innovation:</b>
+• Real-time health classification
+• 58-byte extended telemetry
+• Adaptation event tracking
+• Hysteresis-based stability
+end note
+
+note left of MLEngine
+<b>Predictive Intelligence:</b>
+• LSTM: Network degradation
+• Random Forest: Failure prediction
+• Ensemble: Decision fusion
+• Online learning: Adaptation
+end note
+
+note bottom of VideoStore
+<b>Intelligent Tiering:</b>
+• ML-based importance scoring
+• Automatic lifecycle management
+• Cost-optimized storage
+• Phase 9.2 health-aware retention
+end note
+
+note right of AdaptTransport
+<b>Adaptive Transport:</b>
+• Health-based quality control
+• Preventive reconnection (3s)
+• 95% downtime reduction
+• Proactive bandwidth management
+end note
+
+@enduml

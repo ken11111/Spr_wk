@@ -1,0 +1,38 @@
+@startuml phase9_comparison
+!theme plain
+skinparam backgroundColor white
+skinparam activityDiamondBackgroundColor white
+
+title Phase 8 vs Phase 9: 切断時の動作比較
+
+|#LightCoral|Phase 8 (従来)|
+start
+:TCP切断検出;
+:エラーログ出力;
+#pink:アプリケーション停止;
+note right: ユーザーが\n手動で再起動必要
+stop
+
+|#LightGreen|Phase 9 (新実装)|
+start
+:TCP切断検出;
+:handle_disconnect()呼び出し;
+:client_fd クローズ;
+:状態 = RECONNECTING;
+:wait_reconnect()呼び出し;
+:accept() で待機;
+
+if (PC再接続?) then (成功)
+  #lightgreen:新しいclient_fd取得;
+  :状態 = CONNECTED;
+  :reconnect_count++;
+  #lightgreen:ストリーミング再開;
+  note right: 約2秒で自動復旧
+  stop
+else (タイムアウト\n10回失敗)
+  #pink:エラーログ出力;
+  #pink:アプリケーション停止;
+  stop
+endif
+
+@enduml

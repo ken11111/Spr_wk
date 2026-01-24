@@ -1,0 +1,102 @@
+@startuml phase8_disconnect_summary
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title Phase 8 TCP切断: 仮説比較サマリー
+
+legend top
+|= 仮説 |= 可能性 |= 根拠 |
+|<#LightGreen> A: GS2200Mバッファ枯渇 | **95%** | 最有力 |
+|<#LightYellow> B: PC側要因 | 5% | 低い |
+|<#LightCyan> C: WiFi環境要因 | 10-20% | 間接的 |
+endlegend
+
+|観測事実|
+start
+:TCP切断発生\n(48分後, seq=27603);
+
+fork
+    :PC側エラー;
+    note right
+    "Connection closed
+    (need 56788, have 21960)"
+    → パケット38.7%で切断
+    end note
+fork again
+    :Spresense側エラー;
+    note left
+    "error -107 (ENOTCONN)"
+    → 送信中にソケット切断
+    end note
+end fork
+
+:両端とも受動的検出\n(能動的close()なし);
+stop
+
+|仮説A: GS2200Mバッファ枯渇|
+#LightGreen:最有力 (95%);
+start
+:長時間高負荷運転\n(48分, 27603フレーム);
+:送信速度 < 生成速度;
+:内部バッファ蓄積;
+note right
+TCP Max Send Time
+134ms → 2713ms
+(20倍に悪化)
+end note
+:256KBバッファ枯渇;
+#Red:GS2200M内部エラー;
+:ソケット強制クローズ;
+:部分送信で終了\n(38.7%);
+stop
+
+|仮説B: PC側要因|
+#LightYellow:低い (5%);
+start
+:タイムアウト?;
+note right: 30秒設定だが\n数秒で切断
+#LightGreen:否定;
+
+:メモリ枯渇?;
+note right: GUI継続動作\ncrashなし
+#LightGreen:否定;
+
+:リソースリーク?;
+note right: 48分間エラー0
+#LightGreen:否定;
+stop
+
+|仮説C: WiFi環境要因|
+#LightCyan:間接的 (10-20%);
+start
+:電波干渉?;
+note right: 48分間安定\n突然切断は不自然
+#Orange:可能性低;
+
+:AP側問題?;
+note right: ECONNRESET(-104)\nではなくENOTCONN(-107)
+#Orange:可能性低;
+
+:帯域競合?;
+note right: 送信遅延増加\n→バッファ蓄積加速
+#LightYellow:間接的に寄与;
+stop
+
+|結論|
+start
+#LightGreen:GS2200Mバッファ枯渇が\n直接原因 (95%);
+
+note right
+**決定的証拠**
+1. TCP Max Send 2713ms (異常)
+2. 両端が受動的検出
+3. パケット途中(38.7%)で切断
+4. 長時間後に発生 (蓄積型)
+end note
+
+:WiFi環境は間接的要因\n(帯域競合で蓄積加速);
+
+:PC側は無関係\n(受動的EOF検出のみ);
+stop
+
+@enduml

@@ -54,6 +54,12 @@
 #include "perf_logger.h"
 #include "config.h"
 
+/* Phase 7: WiFi/TCP transport support */
+
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+#include "tcp_server.h"
+#endif
+
 /****************************************************************************
  * Performance Optimization Strategy (Step 5)
  ****************************************************************************/
@@ -108,6 +114,53 @@ static struct timespec g_last_metrics_time;
 
 #define METRICS_INTERVAL_MS 1000  /* Send metrics every 1 second */
 
+/* Phase 7.3.3c: Unified frame drop logic with OR condition
+ *
+ * Frame drop strategy (OR condition):
+ *   Drop frames if: (slow_send_count >= 3) OR (queue_depth >= 6)
+ *
+ * Rationale:
+ * - Phase 7.3.3b had separate time-based and queue-based checks
+ * - Problem: Independent checks caused counter inconsistency
+ *   - Queue drop didn't reset slow_send_count
+ *   - Time drop didn't prevent subsequent queue saturation
+ * - Solution: Unified check with OR condition
+ *   - Single drop logic triggered by either condition
+ *   - Both counters reset after drop
+ *   - Clear logging of trigger reason
+ *
+ * Drop conditions:
+ * 1. Time-based: TCP send > 250ms for 3 consecutive frames
+ * 2. Queue-based: Queue depth >= 6 (approaching max 7)
+ *
+ * Drop action:
+ * - Pull 3 oldest frames from action queue
+ * - Push to empty queue for recycling
+ * - Reset slow_send_count
+ * - Log drop reason (time vs queue)
+ */
+
+static uint32_t g_dropped_frames = 0;       /* Total dropped frames */
+static uint32_t g_drop_events = 0;          /* Number of drop events */
+
+/* Drop condition parameters */
+#define SLOW_SEND_THRESHOLD_MS     250  /* Slow send threshold (ms) */
+#define SLOW_SEND_COUNT_MAX        3    /* Consecutive slow sends to trigger drop */
+#define QUEUE_SATURATION_THRESHOLD 6    /* Drop when queue depth >= 6 (max is 7) */
+#define DROP_FRAME_COUNT           3    /* Number of frames to drop per event */
+
+/* Phase 7.2a: Multi-frame batching support */
+
+static uint32_t g_batch_sequence = 0;
+
+typedef struct frame_batch_s
+{
+  frame_buffer_t *frames[MJPEG_BATCH_SIZE];
+  uint32_t frame_sequences[MJPEG_BATCH_SIZE];
+  int frame_count;
+  uint32_t total_jpeg_size;
+} frame_batch_t;
+
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -123,21 +176,26 @@ static struct timespec g_last_metrics_time;
 static uint32_t get_uptime_ms(void)
 {
   struct timespec now;
-  uint64_t elapsed_ms;
+  uint64_t start_ms;
+  uint64_t now_ms;
 
   clock_gettime(CLOCK_MONOTONIC, &now);
 
-  elapsed_ms = (uint64_t)(now.tv_sec - g_start_time.tv_sec) * 1000ULL +
-               (uint64_t)(now.tv_nsec - g_start_time.tv_nsec) / 1000000ULL;
+  /* Bug fix: Convert to milliseconds first to avoid negative nsec_diff */
 
-  return (uint32_t)elapsed_ms;
+  start_ms = (uint64_t)g_start_time.tv_sec * 1000ULL +
+             (uint64_t)g_start_time.tv_nsec / 1000000ULL;
+  now_ms = (uint64_t)now.tv_sec * 1000ULL +
+           (uint64_t)now.tv_nsec / 1000000ULL;
+
+  return (uint32_t)(now_ms - start_ms);
 }
 
 /****************************************************************************
  * Name: send_metrics_packet
  *
  * Description:
- *   Send metrics packet via USB (direct write, bypassing queue)
+ *   Queue metrics packet for USB thread to send (avoids race condition)
  *
  ****************************************************************************/
 
@@ -147,8 +205,12 @@ static int send_metrics_packet(int usb_fd)
   uint32_t uptime_ms;
   uint32_t avg_packet_size;
   uint32_t action_q_depth;
+  uint32_t tcp_avg_send_us = 0;
+  uint32_t tcp_max_send_us = 0;
+  uint32_t tcp_health_moving_avg = 0;
+  uint32_t tcp_health_total_spikes = 0;
   int ret;
-  ssize_t written;
+  frame_buffer_t *buf;
 
   /* Get current metrics */
 
@@ -158,6 +220,14 @@ static int send_metrics_packet(int usb_fd)
                   : 0;
   action_q_depth = frame_queue_depth(g_action_queue);
 
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+  /* Get TCP send statistics (Phase 7) */
+  tcp_server_get_stats(&tcp_avg_send_us, &tcp_max_send_us);
+
+  /* Phase 9.2: Get TCP health metrics */
+  tcp_health_get_metrics(&tcp_health_moving_avg, NULL, &tcp_health_total_spikes, NULL);
+#endif
+
   /* Pack metrics into packet */
 
   ret = mjpeg_pack_metrics(uptime_ms,
@@ -166,6 +236,12 @@ static int send_metrics_packet(int usb_fd)
                            action_q_depth,
                            avg_packet_size,
                            g_total_errors,
+                           tcp_avg_send_us,
+                           tcp_max_send_us,
+                           g_dropped_frames,          /* Phase 7.3.3 */
+                           g_drop_events,             /* Phase 7.3.3 */
+                           tcp_health_moving_avg,     /* Phase 9.2 */
+                           tcp_health_total_spikes,   /* Phase 9.2 */
                            &g_metrics_sequence,
                            metrics_buffer);
 
@@ -175,21 +251,25 @@ static int send_metrics_packet(int usb_fd)
       return ret;
     }
 
-  /* Write metrics packet to USB (direct, not queued) */
+  /* Queue metrics packet for USB thread to send (avoid race condition) */
 
-  written = write(usb_fd, metrics_buffer, METRICS_PACKET_SIZE);
-  if (written < 0)
+  buf = frame_queue_pull(&g_empty_queue);
+  if (buf == NULL)
     {
-      LOG_ERROR("Failed to send metrics packet: %d", errno);
-      return -errno;
-    }
-  else if (written != METRICS_PACKET_SIZE)
-    {
-      LOG_WARN("Partial metrics write: %zd/%d bytes", written, METRICS_PACKET_SIZE);
-      return -EIO;
+      LOG_WARN("No empty buffer for metrics packet");
+      return -ENOMEM;
     }
 
-  LOG_INFO("Metrics sent: seq=%lu, cam_frames=%lu, usb_pkts=%lu, q_depth=%lu",
+  /* Copy metrics packet to buffer */
+
+  memcpy(buf->data, metrics_buffer, METRICS_PACKET_SIZE);
+  buf->used = METRICS_PACKET_SIZE;
+
+  /* Push to action queue for USB thread to send */
+
+  frame_queue_push(&g_action_queue, buf);
+
+  LOG_INFO("Metrics queued: seq=%lu, cam_frames=%lu, usb_pkts=%lu, q_depth=%lu",
            (unsigned long)(g_metrics_sequence - 1),
            (unsigned long)g_total_camera_frames,
            (unsigned long)g_total_usb_packets,
@@ -373,10 +453,11 @@ void *camera_thread_func(void *arg)
           float jpeg_error_rate = (float)jpeg_validation_error_count / (float)frame_count * 100.0f;
 
           LOG_INFO("Camera stats: frame=%lu, action_q=%d, empty_q=%d, "
-                   "avg_jpeg=%lu KB, jpeg_errors=%lu (%.2f%%)",
+                   "avg_jpeg=%lu KB, jpeg_errors=%lu (%.2f%%), dropped=%lu (events=%lu)",
                    (unsigned long)frame_count, action_depth, empty_depth,
                    (unsigned long)avg_jpeg_kb,
-                   (unsigned long)jpeg_validation_error_count, jpeg_error_rate);
+                   (unsigned long)jpeg_validation_error_count, jpeg_error_rate,
+                   (unsigned long)g_dropped_frames, (unsigned long)g_drop_events);
         }
 
       pthread_mutex_unlock(&g_queue_mutex);
@@ -431,30 +512,261 @@ void *camera_thread_func(void *arg)
  *
  * Description:
  *   USB thread function (consumer)
- *   Step 3: Send packets via USB
+ *   Step 3: Send packets via USB/TCP
+ *   Phase 7.2a: Multi-frame batching for TCP efficiency
  *
  ****************************************************************************/
 
 void *usb_thread_func(void *arg)
 {
   frame_buffer_t *buffer;
+  frame_batch_t batch;
   int ret;
   uint32_t error_count = 0;
+  struct timespec timeout;
+  int wait_ret;
+  uint8_t *batch_packet = NULL;
+  int i;
 
   /* Step 5: Performance statistics */
 
   uint32_t packet_count = 0;
+  uint32_t frame_count = 0;
+  uint32_t batch_count = 0;
   uint32_t total_bytes = 0;
-  uint32_t stats_interval = 30;  /* Log every 30 packets (~1 sec @ 30fps) */
+  uint32_t stats_interval = 30;  /* Log every 30 frames (~1 sec @ 30fps) */
+
+  /* Phase 7.3.3: Frame drop on slow TCP send */
+
+  uint32_t slow_send_count = 0;
+  struct timespec send_start, send_end;
 
   (void)arg;  /* Unused parameter */
 
   LOG_INFO("== USB thread started (Step 3: active) ==");
   LOG_INFO("USB thread priority: %d", USB_THREAD_PRIORITY);
 
+#if MJPEG_BATCHING_ENABLED
+  LOG_INFO("Phase 7.2a: Multi-frame batching enabled (batch_size=%d, timeout=%dms)",
+           MJPEG_BATCH_SIZE, MJPEG_BATCH_TIMEOUT_MS);
+
+  /* Allocate batch packet buffer (max ~185KB for 3 frames) */
+
+  batch_packet = (uint8_t *)malloc(MJPEG_MAX_BATCH_PACKET);
+  if (batch_packet == NULL)
+    {
+      LOG_ERROR("Failed to allocate batch packet buffer (%d bytes)",
+                MJPEG_MAX_BATCH_PACKET);
+      return NULL;
+    }
+#endif
+
+  memset(&batch, 0, sizeof(batch));
+
   while (!g_shutdown_requested)
     {
-      /* Step 1: Pull buffer from action queue (blocking if none available) */
+#if MJPEG_BATCHING_ENABLED
+      /* Phase 7.2a: Collect frames for batching */
+
+      pthread_mutex_lock(&g_queue_mutex);
+
+      /* Collect up to MJPEG_BATCH_SIZE frames */
+
+      while (batch.frame_count < MJPEG_BATCH_SIZE && !g_shutdown_requested)
+        {
+          /* If queue is empty, wait with timeout */
+
+          if (frame_queue_is_empty(g_action_queue))
+            {
+              /* Calculate timeout (100ms from now) */
+
+              clock_gettime(CLOCK_REALTIME, &timeout);
+              timeout.tv_nsec += MJPEG_BATCH_TIMEOUT_MS * 1000000LL;
+
+              /* Handle nsec overflow */
+
+              if (timeout.tv_nsec >= 1000000000LL)
+                {
+                  timeout.tv_sec += timeout.tv_nsec / 1000000000LL;
+                  timeout.tv_nsec %= 1000000000LL;
+                }
+
+              wait_ret = pthread_cond_timedwait(&g_queue_cond, &g_queue_mutex,
+                                                 &timeout);
+
+              /* If timeout or shutdown, send partial batch */
+
+              if (wait_ret == ETIMEDOUT || g_shutdown_requested)
+                {
+                  break;
+                }
+
+              continue;
+            }
+
+          /* Pull frame from action queue */
+
+          buffer = frame_queue_pull(&g_action_queue);
+          if (buffer != NULL)
+            {
+              batch.frames[batch.frame_count] = buffer;
+              batch.frame_sequences[batch.frame_count] = buffer->id;
+              batch.total_jpeg_size += buffer->used;
+              batch.frame_count++;
+            }
+        }
+
+      pthread_mutex_unlock(&g_queue_mutex);
+
+      /* If no frames collected (shutdown), exit loop */
+
+      if (batch.frame_count == 0)
+        {
+          break;
+        }
+
+      /* Pack batch of frames */
+
+      const uint8_t *frame_data[MJPEG_BATCH_SIZE];
+      uint32_t frame_sizes[MJPEG_BATCH_SIZE];
+
+      for (i = 0; i < batch.frame_count; i++)
+        {
+          frame_data[i] = (const uint8_t *)batch.frames[i]->data;
+          frame_sizes[i] = batch.frames[i]->used;
+        }
+
+      ret = mjpeg_pack_batch(frame_data, frame_sizes, batch.frame_sequences,
+                            batch.frame_count, &g_batch_sequence,
+                            batch_packet, MJPEG_MAX_BATCH_PACKET);
+
+      if (ret < 0)
+        {
+          LOG_ERROR("Failed to pack batch: %d", ret);
+          error_count++;
+
+          /* Return buffers to empty queue */
+
+          pthread_mutex_lock(&g_queue_mutex);
+          for (i = 0; i < batch.frame_count; i++)
+            {
+              frame_queue_push(&g_empty_queue, batch.frames[i]);
+            }
+
+          pthread_cond_signal(&g_queue_cond);
+          pthread_mutex_unlock(&g_queue_mutex);
+
+          memset(&batch, 0, sizeof(batch));
+          continue;
+        }
+
+      /* Send batch packet */
+
+      int batch_size = ret;
+
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+      /* Phase 7: Send via TCP */
+
+      tcp_server_t *tcp_srv = (tcp_server_t *)g_thread_ctx->tcp_server;
+
+      /* Phase 7.2a: Check connection status before send */
+      bool has_client = tcp_server_has_client(tcp_srv);
+      LOG_INFO("Pre-send check: has_client=%d, batch_size=%d bytes", has_client, batch_size);
+
+      if (!has_client)
+        {
+          LOG_ERROR("No client connected before send attempt!");
+          ret = -ENOTCONN;
+        }
+      else
+        {
+          /* Phase 7.3.3: Start send time measurement */
+          clock_gettime(CLOCK_MONOTONIC, &send_start);
+
+          LOG_INFO("Sending batch via TCP: %d bytes", batch_size);
+
+          /* Phase 9: Use auto-reconnect enabled send */
+          ret = tcp_server_send_with_reconnect(tcp_srv, batch_packet, batch_size);
+
+          /* Phase 7.3.3: End send time measurement */
+          clock_gettime(CLOCK_MONOTONIC, &send_end);
+
+          if (ret > 0)
+            {
+              LOG_INFO("TCP send successful: %d bytes", ret);
+
+              /* Phase 7.3.3: Calculate send time and check for frame drop */
+              uint64_t send_time_us = ((uint64_t)send_end.tv_sec * 1000000ULL +
+                                       (uint64_t)send_end.tv_nsec / 1000ULL) -
+                                      ((uint64_t)send_start.tv_sec * 1000000ULL +
+                                       (uint64_t)send_start.tv_nsec / 1000ULL);
+              uint64_t send_time_ms = send_time_us / 1000ULL;
+
+              LOG_INFO("TCP send time: %lu ms", (unsigned long)send_time_ms);
+
+              /* Check for slow send */
+              if (send_time_ms > SLOW_SEND_THRESHOLD_MS)
+                {
+                  slow_send_count++;
+                  LOG_WARN("Slow TCP send detected (%lu ms), count=%lu",
+                           (unsigned long)send_time_ms,
+                           (unsigned long)slow_send_count);
+
+                  if (slow_send_count >= SLOW_SEND_COUNT_MAX)
+                    {
+                      LOG_WARN("TCP send is consistently slow, dropping old frames...");
+
+                      /* Drop old frames from action queue */
+                      int dropped = 0;
+                      pthread_mutex_lock(&g_queue_mutex);
+
+                      for (i = 0; i < DROP_FRAME_COUNT; i++)
+                        {
+                          frame_buffer_t *old_frame = frame_queue_pull(&g_action_queue);
+                          if (old_frame != NULL)
+                            {
+                              frame_queue_push(&g_empty_queue, old_frame);
+                              dropped++;
+                              g_dropped_frames++;
+                            }
+                          else
+                            {
+                              break;  /* Queue is empty */
+                            }
+                        }
+
+                      pthread_mutex_unlock(&g_queue_mutex);
+
+                      if (dropped > 0)
+                        {
+                          g_drop_events++;
+                          LOG_WARN("Dropped %d frames (total: %lu, events: %lu)",
+                                   dropped,
+                                   (unsigned long)g_dropped_frames,
+                                   (unsigned long)g_drop_events);
+                        }
+
+                      slow_send_count = 0;  /* Reset counter */
+                    }
+                }
+              else
+                {
+                  slow_send_count = 0;  /* Reset on normal send */
+                }
+            }
+          else
+            {
+              LOG_ERROR("TCP send failed: ret=%d, errno=%d", ret, errno);
+            }
+        }
+#else
+      /* Send via USB */
+
+      ret = usb_transport_send_bytes(batch_packet, batch_size);
+#endif
+
+#else  /* !MJPEG_BATCHING_ENABLED */
+      /* Original single-frame mode */
 
       pthread_mutex_lock(&g_queue_mutex);
       while (frame_queue_is_empty(g_action_queue) && !g_shutdown_requested)
@@ -473,95 +785,346 @@ void *usb_thread_func(void *arg)
 
       if (buffer == NULL)
         {
-          /* Should not happen, but handle gracefully */
-
           LOG_WARN("USB thread: Failed to pull buffer from action queue");
-          usleep(10000);  /* 10ms */
+          usleep(10000);
           continue;
         }
 
-      /* Step 2: Send packet via USB (outside mutex - blocking I/O) */
+      /* Send single frame */
 
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+      tcp_server_t *tcp_srv = (tcp_server_t *)g_thread_ctx->tcp_server;
+
+      /* Phase 9.2: Check for preventive reconnect before send */
+
+      if (tcp_health_should_reconnect())
+        {
+          LOG_WARN("TCP health degraded - initiating preventive reconnect");
+
+          /* Trigger preventive reconnect */
+
+          if (tcp_server_handle_disconnect(tcp_srv) == 0)
+            {
+              if (tcp_server_wait_reconnect(tcp_srv) == 0)
+                {
+                  LOG_INFO("Preventive reconnect successful");
+                  tcp_health_clear_reconnect_flag();
+                  tcp_health_reset();  /* Reset health monitor */
+                }
+            }
+
+          /* Return buffer and try next frame */
+
+          pthread_mutex_lock(&g_queue_mutex);
+          frame_queue_push(&g_empty_queue, buffer);
+          pthread_cond_signal(&g_queue_cond);
+          pthread_mutex_unlock(&g_queue_mutex);
+          continue;
+        }
+
+      /* Phase 7.3.3: Start send time measurement */
+      clock_gettime(CLOCK_MONOTONIC, &send_start);
+
+      /* Phase 9: Use auto-reconnect enabled send */
+      ret = tcp_server_send_with_reconnect(tcp_srv, buffer->data, buffer->used);
+
+      /* Phase 7.3.3: End send time measurement */
+      clock_gettime(CLOCK_MONOTONIC, &send_end);
+
+      if (ret > 0)
+        {
+          /* Phase 7.3.3: Calculate send time and check for frame drop */
+          uint64_t send_time_us = ((uint64_t)send_end.tv_sec * 1000000ULL +
+                                   (uint64_t)send_end.tv_nsec / 1000ULL) -
+                                  ((uint64_t)send_start.tv_sec * 1000000ULL +
+                                   (uint64_t)send_start.tv_nsec / 1000ULL);
+          uint64_t send_time_ms = send_time_us / 1000ULL;
+
+          LOG_INFO("TCP send time: %lu ms", (unsigned long)send_time_ms);
+
+          /* Phase 7.3.3c: Unified frame drop logic (OR condition)
+           * Drop frames if:
+           *   1. TCP send time > 250ms (slow send detected)
+           *   2. Queue depth >= 6 (approaching saturation)
+           */
+
+          /* Check for slow send and update counter */
+          if (send_time_ms > SLOW_SEND_THRESHOLD_MS)
+            {
+              slow_send_count++;
+              LOG_WARN("Slow TCP send detected (%lu ms), count=%lu",
+                       (unsigned long)send_time_ms,
+                       (unsigned long)slow_send_count);
+            }
+          else
+            {
+              slow_send_count = 0;  /* Reset on normal send */
+            }
+
+          /* Get current queue depth for unified drop decision */
+          pthread_mutex_lock(&g_queue_mutex);
+          int current_depth = frame_queue_depth(g_action_queue);
+          pthread_mutex_unlock(&g_queue_mutex);
+
+          /* Unified drop condition: (slow send x3) OR (queue depth >= 6) */
+          bool should_drop = (slow_send_count >= SLOW_SEND_COUNT_MAX) ||
+                             (current_depth >= QUEUE_SATURATION_THRESHOLD);
+
+          if (should_drop)
+            {
+              const char *reason = (slow_send_count >= SLOW_SEND_COUNT_MAX) ?
+                                   "slow TCP send" : "queue saturation";
+              LOG_WARN("Frame drop triggered by %s (send_count=%lu, depth=%d)",
+                       reason,
+                       (unsigned long)slow_send_count,
+                       current_depth);
+
+              /* Drop old frames from action queue */
+              int dropped = 0;
+              pthread_mutex_lock(&g_queue_mutex);
+
+              for (int j = 0; j < DROP_FRAME_COUNT; j++)
+                {
+                  frame_buffer_t *old_frame = frame_queue_pull(&g_action_queue);
+                  if (old_frame != NULL)
+                    {
+                      frame_queue_push(&g_empty_queue, old_frame);
+                      dropped++;
+                      g_dropped_frames++;
+                    }
+                  else
+                    {
+                      break;  /* Queue is empty */
+                    }
+                }
+
+              pthread_mutex_unlock(&g_queue_mutex);
+
+              if (dropped > 0)
+                {
+                  g_drop_events++;
+                  LOG_WARN("Dropped %d frames (total: %lu, events: %lu)",
+                           dropped,
+                           (unsigned long)g_dropped_frames,
+                           (unsigned long)g_drop_events);
+                }
+
+              /* Reset slow send counter after drop */
+              slow_send_count = 0;
+            }
+        }
+#else
       ret = usb_transport_send_bytes((uint8_t *)buffer->data, buffer->used);
+#endif
+
+#endif  /* MJPEG_BATCHING_ENABLED */
+
+      /* Handle send errors */
+
       if (ret < 0)
         {
-          /* Step 4: Enhanced USB error detection */
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+          /* Phase 9: Handle reconnect success (-EAGAIN) */
 
+          if (ret == -EAGAIN)
+            {
+              LOG_INFO("TCP reconnected successfully, skipping current frame");
+
+              /* Phase 9.2: Reset health monitor after reconnect */
+
+              tcp_health_reset();
+
+              /* Return buffers and continue with next frame */
+
+#if MJPEG_BATCHING_ENABLED
+              pthread_mutex_lock(&g_queue_mutex);
+              for (i = 0; i < batch.frame_count; i++)
+                {
+                  frame_queue_push(&g_empty_queue, batch.frames[i]);
+                }
+
+              pthread_cond_signal(&g_queue_cond);
+              pthread_mutex_unlock(&g_queue_mutex);
+              memset(&batch, 0, sizeof(batch));
+#else
+              pthread_mutex_lock(&g_queue_mutex);
+              frame_queue_push(&g_empty_queue, buffer);
+              pthread_cond_signal(&g_queue_cond);
+              pthread_mutex_unlock(&g_queue_mutex);
+#endif
+              continue;  /* Continue with next frame */
+            }
+
+          /* Phase 9: Handle unrecoverable disconnect (reconnect failed) */
+
+          if (ret == -ENOTCONN || ret == -ECONNRESET || ret == -EPIPE)
+            {
+              LOG_ERROR("TCP thread: Client disconnected and reconnect failed (error %d)", ret);
+
+              pthread_mutex_lock(&g_queue_mutex);
+              g_shutdown_requested = true;
+              pthread_cond_broadcast(&g_queue_cond);
+              pthread_mutex_unlock(&g_queue_mutex);
+
+#if MJPEG_BATCHING_ENABLED
+              pthread_mutex_lock(&g_queue_mutex);
+              for (i = 0; i < batch.frame_count; i++)
+                {
+                  frame_queue_push(&g_empty_queue, batch.frames[i]);
+                }
+
+              pthread_mutex_unlock(&g_queue_mutex);
+#else
+              pthread_mutex_lock(&g_queue_mutex);
+              frame_queue_push(&g_empty_queue, buffer);
+              pthread_mutex_unlock(&g_queue_mutex);
+#endif
+              break;
+            }
+
+          LOG_ERROR("TCP thread: Failed to send packet: %d", ret);
+#else
           if (ret == -ENXIO || ret == -EIO || ret == ERR_USB_DISCONNECTED)
             {
               LOG_ERROR("USB thread: USB device disconnected (error %d)", ret);
 
-              /* Immediate shutdown on USB disconnect */
-
               pthread_mutex_lock(&g_queue_mutex);
               g_shutdown_requested = true;
               pthread_cond_broadcast(&g_queue_cond);
               pthread_mutex_unlock(&g_queue_mutex);
 
-              /* Return buffer before exiting */
+#if MJPEG_BATCHING_ENABLED
+              pthread_mutex_lock(&g_queue_mutex);
+              for (i = 0; i < batch.frame_count; i++)
+                {
+                  frame_queue_push(&g_empty_queue, batch.frames[i]);
+                }
 
+              pthread_mutex_unlock(&g_queue_mutex);
+#else
               pthread_mutex_lock(&g_queue_mutex);
               frame_queue_push(&g_empty_queue, buffer);
               pthread_mutex_unlock(&g_queue_mutex);
+#endif
               break;
             }
 
           LOG_ERROR("USB thread: Failed to send packet: %d", ret);
+#endif
           error_count++;
 
           if (error_count >= 10)
             {
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+              LOG_ERROR("Too many TCP errors (%lu consecutive), shutting down",
+                        (unsigned long)error_count);
+#else
               LOG_ERROR("Too many USB errors (%lu consecutive), shutting down",
                         (unsigned long)error_count);
+#endif
               pthread_mutex_lock(&g_queue_mutex);
               g_shutdown_requested = true;
               pthread_cond_broadcast(&g_queue_cond);
               pthread_mutex_unlock(&g_queue_mutex);
 
-              /* Return buffer before exiting */
+#if MJPEG_BATCHING_ENABLED
+              pthread_mutex_lock(&g_queue_mutex);
+              for (i = 0; i < batch.frame_count; i++)
+                {
+                  frame_queue_push(&g_empty_queue, batch.frames[i]);
+                }
 
+              pthread_mutex_unlock(&g_queue_mutex);
+#else
               pthread_mutex_lock(&g_queue_mutex);
               frame_queue_push(&g_empty_queue, buffer);
               pthread_mutex_unlock(&g_queue_mutex);
+#endif
               break;
             }
         }
       else
         {
-          error_count = 0;  /* Reset error count on success */
+          error_count = 0;
 
-          /* Phase 4.1: Update global metrics */
-
-          g_total_usb_packets++;
-          g_total_packet_bytes += buffer->used;
-
-          /* Step 5: Collect transmission statistics */
+#if MJPEG_BATCHING_ENABLED
+          /* Update statistics for batching mode */
 
           packet_count++;
-          total_bytes += buffer->used;
+          batch_count++;
+          frame_count += batch.frame_count;
+          total_bytes += ret;
+
+          g_total_usb_packets++;
+          g_total_packet_bytes += ret;
+
+          if (frame_count % stats_interval == 0)
+            {
+              uint32_t avg_packet_size = packet_count > 0 ? total_bytes / packet_count : 0;
+              float avg_batch_size = batch_count > 0 ? (float)frame_count / (float)batch_count : 0.0f;
+
+              LOG_INFO("Batch stats: frames=%lu, batches=%lu, avg_batch_size=%.2f, "
+                       "avg_packet=%lu bytes",
+                       (unsigned long)frame_count, (unsigned long)batch_count,
+                       avg_batch_size,
+                       (unsigned long)avg_packet_size);
+            }
+#else
+          /* Update statistics for single-frame mode */
+
+          packet_count++;
+          total_bytes += ret;
+
+          g_total_usb_packets++;
+          g_total_packet_bytes += ret;
 
           if (packet_count % stats_interval == 0)
             {
               uint32_t avg_packet_size = total_bytes / packet_count;
-              uint32_t throughput_kbps = (total_bytes * 8) / 1000;  /* Approx kbps */
+              uint32_t throughput_kbps = (total_bytes * 8) / 1000;
 
-              LOG_INFO("USB stats: packets=%lu, avg_size=%lu bytes, "
-                       "throughput~%lu kbps",
+              LOG_INFO("USB stats: packets=%lu, avg_size=%lu bytes, throughput~%lu kbps",
                        (unsigned long)packet_count, (unsigned long)avg_packet_size,
                        (unsigned long)throughput_kbps);
             }
+#endif
         }
 
-      /* Step 3: Return buffer to empty queue for camera thread to reuse */
+      /* Return buffers to empty queue */
 
       pthread_mutex_lock(&g_queue_mutex);
+
+#if MJPEG_BATCHING_ENABLED
+      for (i = 0; i < batch.frame_count; i++)
+        {
+          frame_queue_push(&g_empty_queue, batch.frames[i]);
+        }
+#else
       frame_queue_push(&g_empty_queue, buffer);
-      pthread_cond_signal(&g_queue_cond);  /* Wake camera thread */
+#endif
+
+      pthread_cond_signal(&g_queue_cond);
       pthread_mutex_unlock(&g_queue_mutex);
+
+#if MJPEG_BATCHING_ENABLED
+      memset(&batch, 0, sizeof(batch));
+#endif
     }
 
+#if MJPEG_BATCHING_ENABLED
+  if (batch_packet != NULL)
+    {
+      free(batch_packet);
+    }
+
+  LOG_INFO("== USB thread exiting (sent %lu batches, %lu frames, %lu bytes total) ==",
+           (unsigned long)batch_count, (unsigned long)frame_count,
+           (unsigned long)total_bytes);
+#else
   LOG_INFO("== USB thread exiting (sent %lu packets, %lu bytes total) ==",
            (unsigned long)packet_count, (unsigned long)total_bytes);
+#endif
+
   return NULL;
 }
 
@@ -591,6 +1154,12 @@ int camera_threads_init(thread_context_t *ctx)
 
   clock_gettime(CLOCK_MONOTONIC, &g_start_time);
   g_last_metrics_time = g_start_time;
+
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+  /* Phase 9.2: Initialize TCP health monitor */
+
+  tcp_health_init();
+#endif
 
   /* Initialize frame queue system */
 
@@ -716,6 +1285,71 @@ void camera_threads_cleanup(void)
   else
     {
       LOG_INFO("USB thread joined successfully");
+    }
+
+  /* Phase 7.1b: Log final metrics to console (safe after thread join)
+   *
+   * This approach avoids race conditions by logging metrics AFTER threads
+   * have joined. Metrics are captured in minicom/serial logs even when
+   * TCP connection fails. No TCP sending involved - just console logging.
+   */
+
+  if (g_thread_ctx != NULL && g_total_camera_frames > 0)
+    {
+      uint32_t uptime_ms;
+      uint32_t avg_packet_size;
+      uint32_t action_q_depth;
+      uint32_t tcp_avg_send_us = 0;
+      uint32_t tcp_max_send_us = 0;
+
+      uptime_ms = get_uptime_ms();
+      avg_packet_size = (g_total_usb_packets > 0)
+                      ? (uint32_t)(g_total_packet_bytes / g_total_usb_packets)
+                      : 0;
+
+      /* Safe to read queue depth now - threads are stopped */
+
+      action_q_depth = frame_queue_depth(g_action_queue);
+
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+      tcp_server_get_stats(&tcp_avg_send_us, &tcp_max_send_us);
+#endif
+
+      /* Log metrics to console for capture via minicom */
+
+      LOG_INFO("=================================================");
+      LOG_INFO("FINAL METRICS (Shutdown/Error Detection)");
+      LOG_INFO("=================================================");
+      LOG_INFO("Uptime: %lu ms", (unsigned long)uptime_ms);
+      LOG_INFO("Camera Frames: %lu", (unsigned long)g_total_camera_frames);
+      LOG_INFO("USB/TCP Packets: %lu", (unsigned long)g_total_usb_packets);
+      LOG_INFO("Action Queue Depth: %lu", (unsigned long)action_q_depth);
+      LOG_INFO("Average Packet Size: %lu bytes", (unsigned long)avg_packet_size);
+      LOG_INFO("Total Errors: %lu", (unsigned long)g_total_errors);
+#ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
+      LOG_INFO("TCP Avg Send Time: %lu us", (unsigned long)tcp_avg_send_us);
+      LOG_INFO("TCP Max Send Time: %lu us", (unsigned long)tcp_max_send_us);
+
+      /* Phase 9.2: Log health metrics */
+
+      uint32_t health_moving_avg_ms;
+      uint8_t health_consecutive_spikes;
+      uint32_t health_total_spikes;
+      bool health_degradation_alert;
+
+      tcp_health_get_metrics(&health_moving_avg_ms,
+                             &health_consecutive_spikes,
+                             &health_total_spikes,
+                             &health_degradation_alert);
+
+      LOG_INFO("TCP Health Moving Avg: %lu ms", (unsigned long)health_moving_avg_ms);
+      LOG_INFO("TCP Health Total Spikes: %lu", (unsigned long)health_total_spikes);
+      LOG_INFO("TCP Health Degradation Alert: %s",
+               health_degradation_alert ? "YES" : "NO");
+#endif
+      LOG_INFO("Dropped Frames: %lu", (unsigned long)g_dropped_frames);
+      LOG_INFO("Drop Events: %lu", (unsigned long)g_drop_events);
+      LOG_INFO("=================================================");
     }
 
   /* Cleanup frame queue system */

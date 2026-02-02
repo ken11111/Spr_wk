@@ -1,8 +1,8 @@
 # Security Camera Project - 総合インデックス
 
-**最終更新**: 2026-01-01
+**最終更新**: 2026-01-25
 **プロジェクト**: Spresense セキュリティカメラシステム
-**状態**: Phase 1 完了 ✅ / Phase 2 完了 ✅ / Phase 1.5 完了 ✅ / **Phase 2パイプライン + Phase 4.1メトリクス完了** 🚀
+**状態**: **Phase 5 ドキュメント構造改革完了** ✅ / **Phase 7-9.2 WiFi/TCP健全性監視完了** 🚀 / **Phase 3準備100%完了** 🎯
 
 ---
 
@@ -30,6 +30,21 @@
 |---|---------|------|------|
 | 15 | [15_PHASE2_PIPELINING_SUCCESS.md](./15_PHASE2_PIPELINING_SUCCESS.md) | Phase 2 パイプライン成功事例 | ✅ 完了 |
 | - | [../security_camera/04_test_results/13_PHASE2_LONGTERM_TEST_RESULTS.md](../security_camera/04_test_results/13_PHASE2_LONGTERM_TEST_RESULTS.md) | 2.7時間連続運転テスト結果 | ✅ 完了 |
+
+### Phase 7-9.2: WiFi/TCP統合 + 健全性監視 (完了)
+
+| # | ファイル | 内容 | 状態 |
+|---|---------|------|------|
+| 17 | [17_PHASE7_WIFI_WAPI_COMPATIBILITY.md](./17_PHASE7_WIFI_WAPI_COMPATIBILITY.md) | Phase 7 WiFi WAPI互換性検証 | ✅ 完了 |
+| 18 | [18_PHASE72_INVESTIGATION_RESULTS.md](./18_PHASE72_INVESTIGATION_RESULTS.md) | Phase 7.2 調査結果 | ✅ 完了 |
+| - | [18_PHASE7_TCP_PACKET_LOSS_ANALYSIS.md](./18_PHASE7_TCP_PACKET_LOSS_ANALYSIS.md) | Phase 7 TCPパケット損失分析 | ✅ 完了 |
+| 19 | [19_PHASE72A_MULTIFRAME_BATCHING_DESIGN.md](./19_PHASE72A_MULTIFRAME_BATCHING_DESIGN.md) | Phase 7.2a マルチフレームバッチング設計 | ✅ 完了 |
+
+### Phase 5: ドキュメント構造改革 + Git運用問題解決 (完了)
+
+| # | ファイル | 内容 | 状態 |
+|---|---------|------|------|
+| 20 | [20_PHASE5_GIT_PUSH_ISSUE_RESOLUTION.md](./20_PHASE5_GIT_PUSH_ISSUE_RESOLUTION.md) | Git大容量プッシュ問題解決事例 | ✅ 完了 |
 
 ### 過去のケーススタディ
 
@@ -135,34 +150,54 @@
 
 **ステータス**: 実装完了、Windows ビルドテスト待ち
 
-### 🎉 Phase 2 Pipelining + Phase 4.1 Metrics 完了 (2026-01-01)
+### 🚀 Phase 7-9.2: WiFi/TCP統合 + 健全性監視完了 (2026-01-24)
 
-**Phase 2マルチスレッドパイプライン実装:**
-- ✅ Camera Thread (Priority 110) + USB Thread (Priority 100)
-- ✅ 3-buffer FIFO queue (Producer-Consumer パターン)
-- ✅ キュー深度99.99%で1維持 = 完璧なバランス達成
-- ✅ デッドロック・メモリリーク無し
+**Phase 7 WiFi/TCP実装:**
+- ✅ GS2200M WiFiモジュール統合
+- ✅ TCP server実装・PC接続確立
+- ✅ WiFi WAPI互換性検証・最適化
+- ✅ Phase 7.2 メモリ最適化・7.2a マルチフレームバッチング
 
-**Phase 4.1デュアルパケットプロトコル:**
-- ✅ MJPEGパケット (0xCAFEBABE) + Metricsパケット (0xCAFEBEEF)
-- ✅ 1秒間隔でSpresense側統計送信
-- ✅ PC側でCSVロギング (18カラム)
-- ✅ GUI表示: Camera FPS, Queue Depth, Spresense Errors
+**Phase 9.2 TCP健全性監視:**
+- ✅ 3秒予防的再接続実現 (90%改善: 30秒→3秒)
+- ✅ 健全性監視メトリクス (移動平均・スパイク検知)
+- ✅ メトリクスパケット拡張 (50→58バイト)
+- ✅ CRC-16-CCITT最適化 (38.4ms→8.7ms)
 
-**性能結果 (2.7時間連続運転テスト):**
-- 平均FPS: 11.05 fps (PC/Spresense完全同期)
-- **目標達成**: シンプルシーン 12.54 fps (目標12.5 fps) ✅
-- 成功率: **99.895%** (113エラー / 107,712フレーム)
-- クラッシュ: 0回
-- 総フレーム数: 107,712フレーム
+**性能結果:**
+- TCP健全性: 予防的再接続による90%短縮
+- VGA性能: 11fps達成 (目標30fps、制約有り)
+- 安定性: GS2200Mリソース枯渇予防
+- 品質: A評価・要件追跡99.3%
 
-**ドキュメント:**
-- `/home/ken/Spr_ws/GH_wk_test/docs/case_study/15_PHASE2_PIPELINING_SUCCESS.md`
-- `/home/ken/Spr_ws/GH_wk_test/docs/security_camera/04_test_results/13_PHASE2_LONGTERM_TEST_RESULTS.md`
-- `/home/ken/Rust_ws/security_camera_viewer/PHASE4_TEST_RESULTS.md`
+### 🎯 Phase 5: ドキュメント構造改革完了 (2026-01-25)
 
-**次のステップ:**
-WiFi移行により20+ fps達成を目指す
+**6層ドキュメント体系構築:**
+- ✅ 01_requirements: 機能要件管理
+- ✅ 02_specifications: 技術仕様書 (機能・アーキ・インターフェース)
+- ✅ 03_achievements: 成果・実績記録
+- ✅ 04_issues_challenges: 課題・教訓管理
+- ✅ 05_future_actions: 計画・ロードマップ系統
+- ✅ 06_evidence: エビデンス・テストデータ
+
+**05_future_actions計画系統 (24,200行):**
+- ✅ master_roadmap: 2026-2028戦略ロードマップ
+- ✅ phase_completed: 5Phase完了記録・成功パターン
+- ✅ phase_planned: 4Phase実行計画・依存関係
+- ✅ technical_debt: 12件技術課題管理 (67%解決済み)
+- ✅ phase_analysis: 9Phase分析洞察・技術資産
+
+**Git運用問題解決:**
+- ✅ HTTP 408/500タイムアウト問題解決
+- ✅ 段階的プッシュ (76%成功) + git filter-branch (100%成功)
+- ✅ 大容量ファイル除去 (4GB pcap/csvファイル)
+- ✅ 全17コミット統合完了
+
+**戦略価値実現:**
+- Phase 3準備: 100%完了 (即座実行可能)
+- Phase 6準備: 95%完了 (セキュリティ実装)
+- 要件トレーサビリティ: 291項目・99.3%追跡
+- 品質評価: A評価達成 (94.2%)
 
 ---
 

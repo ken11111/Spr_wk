@@ -1,0 +1,214 @@
+@startuml queue_depth_dynamics_detailed
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+skinparam participant {
+    BackgroundColor #LightBlue
+    Padding 20
+}
+skinparam lifeline {
+    BackgroundColor #LightYellow
+}
+skinparam note {
+    FontSize 11
+    Padding 10
+}
+skinparam sequence {
+    ParticipantPadding 40
+    BoxPadding 15
+    MessageAlignment center
+}
+skinparam minClassWidth 120
+skinparam ParticipantPadding 20
+
+title キューDepth動的変化の詳細分析: TCP送信がキュー深度に与える影響
+
+participant "Camera\n(ISX012)\n[30fps生成]" as CAM #LightGreen
+participant "action_queue\n(MAX=7)\n[depth監視]" as AQ #LightYellow
+participant "TCP Reader\nThread\n[処理時間可変]" as TCP #LightCyan
+participant "Network\n[送信先]" as NET #LightGray
+
+note over CAM, NET #LightBlue
+**📊 キューDepth変化パターン分析**
+• Push操作: depth +1
+• Pull操作: depth -1
+• TCP送信時間がキュー蓄積速度に直接影響
+end note
+
+== ケース1: 理想的バランス (Phase 8/9.2) ==
+CAM -> AQ: push(frame1)
+note over AQ #LightGreen
+**depth: 0→1**
+✅ フレーム受信
+キュー利用率: 14% (1/7)
+end note
+
+AQ -> TCP: pull()
+note over AQ #LightGreen
+**depth: 1→0**
+⚡ 即座に処理開始
+キュー利用率: 0% (0/7)
+理想的balance達成
+end note
+
+TCP -> TCP: tcp_send()\n**180ms** ✅
+note over TCP #LightGreen: **正常範囲**\n< 500ms閾値
+TCP -> NET: data送信完了
+
+CAM -> AQ: push(frame2)
+note over AQ #LightGreen
+**depth: 0→1**
+次フレーム即座受付
+end note
+
+AQ -> TCP: pull()
+note over AQ #LightGreen
+**depth: 1→0**
+継続安定処理
+**理想的サイクル**
+end note
+
+== ケース2: 軽度蓄積 (TCP遅延発生) ==
+CAM -> AQ: push(frame10)
+note over AQ #Orange
+**depth: 0→1**
+通常受信
+end note
+
+TCP -> TCP: tcp_send()\n**400ms** ⚠️
+note over TCP #Orange: **軽度遅延**\n閾値内だが通常より遅い
+
+par Camera継続生成
+    CAM -> AQ: push(frame11)
+    note over AQ #Orange
+    **depth: 1→2**
+    軽度蓄積開始
+    キュー利用率: 29% (2/7)
+    end note
+else TCP処理完了
+    TCP -> NET: data送信完了
+    AQ -> TCP: pull(frame10)
+    note over AQ #Orange
+    **depth: 2→1**
+    蓄積軽減
+    end note
+end
+
+CAM -> AQ: push(frame12)
+note over AQ #Orange: **depth: 1→2**\n再蓄積
+AQ -> TCP: pull(frame11)
+note over AQ #LightGreen: **depth: 2→1**\n回復傾向
+
+== ケース3: 深刻な蓄積 (Phase 7.3.3型問題) ==
+TCP -> TCP: tcp_send()\n**800ms** 🚨
+note over TCP #Red: **深刻遅延**\n> 500ms閾値超過
+
+par Camera無停止生成
+    CAM -> AQ: push(frame20)
+    note over AQ #Orange
+    **depth: 1→2**
+    蓄積加速
+    end note
+
+    CAM -> AQ: push(frame21)
+    note over AQ #Red
+    **depth: 2→3**
+    危険レベル到達
+    キュー利用率: 43% (3/7)
+    end note
+
+    CAM -> AQ: push(frame22)
+    note over AQ #Red
+    **depth: 3→4**
+    ⚠️ 滞留状態
+    キュー利用率: 57% (4/7)
+    end note
+else TCP処理継続(遅延)
+    note over TCP #Red
+    **長時間処理中**
+    • GUI停止(Phase 7.3.3)
+    • または専用スレッド(Phase 8+)
+    end note
+end
+
+TCP -> NET: data送信完了(遅延)
+AQ -> TCP: pull(frame20)
+note over AQ #Red
+**depth: 4→3**
+僅かに減少するも
+蓄積ペース > 処理ペース
+**危険状態継続**
+end note
+
+== ケース4: 予防的再接続効果 (Phase 9.2) ==
+note over TCP #Orange: **🔄 予防的再接続実行**\n3秒ルール適用
+
+TCP -> TCP: close() + reconnect()
+note over TCP #LightGreen: **接続リセット完了**\n遅延要因除去
+
+TCP -> TCP: tcp_send()\n**150ms** ✅
+note over TCP #LightGreen: **復旧確認**\n正常速度復帰
+
+loop 復旧後安定動作
+    AQ -> TCP: pull()
+    note over AQ #LightGreen
+    **depth: 3→2→1→0**
+    段階的正常化
+    蓄積解消進行中
+    end note
+
+    TCP -> TCP: tcp_send()\n**150ms** ✅
+    TCP -> NET: 安定送信
+
+    CAM -> AQ: push(frame_n)
+    note over AQ #LightGreen
+    **depth: 0→1→0**
+    理想サイクル復旧
+    ✅ 完全回復
+    end note
+end
+
+== キューDepth状態分類 ==
+note over AQ #LightGreen
+**📊 キューDepth状態定義**
+
+**緑ゾーン: depth 0-1**
+• 利用率: 0-14% (0-1/7)
+• 状態: 理想的
+• TCP遅延: < 200ms
+• 動作: 安定サイクル
+
+**黄ゾーン: depth 2-3**
+• 利用率: 29-43% (2-3/7)
+• 状態: 軽度蓄積
+• TCP遅延: 200-500ms
+• 動作: 注意監視
+
+**赤ゾーン: depth 4-7**
+• 利用率: 57-100% (4-7/7)
+• 状態: 危険蓄積
+• TCP遅延: > 500ms
+• 動作: 緊急対応必要
+• depth=7: フレームドロップ開始
+end note
+
+note over CAM, NET #LightBlue
+**🎯 Phase別キューDepth特性**
+
+**Phase 7.3.3: 制御不可蓄積**
+• 平均depth: 5-7 (危険ゾーン)
+• TCP遅延 → GUI停止 → 蓄積悪化
+• ドロップ率: 72.9%
+
+**Phase 8: バランス制御**
+• 平均depth: 1-2 (安全ゾーン)
+• 3スレッド → 蓄積抑制
+• ドロップ率: 0%
+
+**Phase 9.2: 予防的保護**
+• 平均depth: 1-2 (継続安全)
+• 健全性監視 → 早期対応
+• 自動回復: 3秒以内
+end note
+
+@enduml

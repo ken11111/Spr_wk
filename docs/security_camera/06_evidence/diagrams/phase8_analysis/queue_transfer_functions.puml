@@ -1,0 +1,173 @@
+@startuml queue_transfer_functions
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title Queue System Transfer Functions and System Dynamics
+
+package "入力信号特性" #LightGreen {
+  node "Camera Input Signal" as INPUT {
+    u(t) = Camera Frames
+    =====================
+    振幅: A = 57±2 KB
+    周波数: f₀ = 30 Hz
+    周期: T₀ = 33.33 ms
+    波形: 矩形波パルス列
+    ラプラス変換: U(s)
+  }
+}
+
+package "action_queue伝達系" #LightYellow {
+  node "Queue Controller G1(s)" as G1 {
+    G1(s) = 制御伝達関数
+    ===================
+    形式: G1(s) = K1/(τ1s + 1)
+    ゲイン: K1 = 1 (理想)
+    時定数: τ1 = 33ms
+    飽和特性: nonlinear
+    制約: |q1(t)| ≤ 7
+  }
+
+  node "Queue Buffer B₁(s)" as B1 {
+    **B₁(s) = バッファ動特性**
+    ══════════════════════
+    • 状態方程式: dq₁/dt = u₁(t) - y₁(t)
+    • 容量制約: 0 ≤ q₁(t) ≤ 7
+    • 初期値: q₁(0) = 0
+    • 出力: y₁(t) = f(q₁(t), demand)
+  }
+
+  INPUT --> G1 : u(t)
+  G1 --> B1 : controlled input
+}
+
+package "TCP通信伝達系" #LightCyan {
+  node "TCP Controller G₂(s)" as G2 {
+    **G₂(s) = TCP制御系**
+    ══════════════════════
+    • 形式: G₂(s) = K₂/(τ₂s + 1)
+    • ゲイン: K₂ = 0.85 (実測)
+    • 時定数: τ₂ = 134ms
+    • 遅延: θ = 10-50ms (可変)
+    • 非線形: 帯域制限
+  }
+
+  node "WiFi Transmission T(s)" as T {
+    **T(s) = WiFi伝達特性**
+    ════════════════════
+    • 形式: T(s) = Ke^(-θs)/(τs+1)
+    • 帯域制限: BW = 1-2 Mbps
+    • 遅延時間: θ = 5-20ms
+    • ノイズ: σ² = interference
+    • 非線形性: 飽和特性
+  }
+
+  B1 --> G2 : y₁(t)
+  G2 --> T : tcp_signal
+}
+
+package "PC側パイプライン伝達系" #LightBlue {
+  node "TCP Reader G₃(s)" as G3 {
+    **G₃(s) = TCP Reader制御**
+    ═══════════════════════
+    • 処理時間: τ₃ = 174ms
+    • バッファ容量: 250KB
+    • 制御形式: 連続制御
+    • 並列度: 独立スレッド
+  }
+
+  node "JPEG Channel Q₂" as Q2 {
+    **Q₂ = jpeg_channel**
+    ═══════════════════
+    • 容量: C₂ = ∞ (unbounded)
+    • 遅延: τq₂ ≈ 0ms
+    • 制御: MPSC非ブロッキング
+    • 特性: 理想的バッファ
+  }
+
+  node "Decoder G₄(s)" as G4 {
+    **G₄(s) = JPEG Decoder**
+    ════════════════════
+    • 処理時間: τ₄ = 2.07ms
+    • ゲイン: K₄ = 1 (無損失)
+    • 制御周期: 非同期
+    • 並列性: 独立処理
+  }
+
+  node "GUI Channel Q₃" as Q3 {
+    **Q₃ = gui_channel**
+    ══════════════════
+    • 容量: C₃ = ∞ (unbounded)
+    • アクセス: try_recv()
+    • 制御: 非ブロッキング
+    • 遅延: τq₃ ≈ 0ms
+  }
+
+  node "GUI Controller G₅(s)" as G5 {
+    **G₅(s) = GUI制御系**
+    ════════════════════
+    • 制御周期: T₅ = 16.7ms (60fps)
+    • 応答性: リアルタイム
+    • フィードバック: フレーム可用性
+    • 目標: スムーズ表示
+  }
+
+  T --> G3 : network_input
+  G3 --> Q2 : parsed_frames
+  Q2 --> G4 : queued_frames
+  G4 --> Q3 : decoded_frames
+  Q3 --> G5 : display_ready
+}
+
+package "健全性監視制御系" #Gold {
+  node "Health Monitor H(s)" as H {
+    **H(s) = 健全性制御系**
+    ═══════════════════════
+    • サンプリング: T_s = 3s
+    • 制御目標: h_target = 134ms
+    • フィルタ: 移動平均 (10点)
+    • 閾値: h_thresh = 200ms
+  }
+
+  node "Predictive Controller P(s)" as P {
+    **P(s) = 予測制御**
+    ═════════════════
+    • 予測ホライゾン: N = 10
+    • 制御ホライゾン: M = 3
+    • 制御則: MPC
+    • 目的関数: J = Σ(e² + λu²)
+  }
+
+  node "Reconnection Actuator R(s)" as R {
+    **R(s) = 再接続制御**
+    ════════════════════
+    • 応答時間: τ_r = 3s
+    • 制御動作: ON/OFF
+    • 効果: 90%改善
+    • リセット特性: 瞬時回復
+  }
+
+  G2 --> H : health_feedback
+  H --> P : health_analysis
+  P --> R : control_command
+  R --> G2 : reconnection_signal
+}
+
+package "システム出力" #LightSalmon {
+  node "Final Output Y(s)" as OUTPUT {
+    **Y(s) = Display FPS**
+    ═══════════════════════
+    • 実測値: y(t) = 6.74 fps
+    • 理論値: y_theo = 5.7 fps
+    • 改善率: +125% vs Phase 7.3.3
+    • 安定性: 健全性保証下
+  }
+
+  G5 --> OUTPUT : display_fps
+}
+
+' フィードバックループ
+OUTPUT -.-> INPUT : system_feedback
+H -.-> G1 : health_to_queue_feedback
+P -.-> G2 : predictive_feedback
+
+@enduml

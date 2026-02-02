@@ -1,0 +1,161 @@
+@startuml control_systems_analysis
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title 制御工学観点でのキュー入出力システム分析
+
+package "入力信号生成系" #LightGreen {
+  [Camera\nISX012] as CAM
+  note top of CAM
+    **入力信号 u(t)**
+    • 周波数: 30Hz (30fps)
+    • 振幅: 57±2KB/frame
+    • 信号特性: 周期的パルス列
+    • 制御性: 固定(非制御)
+  end note
+}
+
+package "第1段バッファ制御系" #LightYellow {
+  [action_queue\nController] as AQ_CTRL
+  [action_queue\nBuffer(MAX=7)] as AQ_BUF
+
+  CAM --> AQ_CTRL : u(t) = 30fps
+  AQ_CTRL --> AQ_BUF : buffered signal
+
+  note bottom of AQ_CTRL
+    **制御器特性**
+    • 制御則: First-In-First-Out
+    • 制御周期: 33ms
+    • 飽和制限: MAX=7 frames
+    • フィードバック: queue_depth
+  end note
+
+  note right of AQ_BUF
+    **バッファ動特性**
+    • 容量: C₁ = 7 frames
+    • 状態変数: q₁(t) = depth
+    • 入力: u₁(t) = camera frames
+    • 出力: y₁(t) = tcp frames
+    • 制約: 0 ≤ q₁(t) ≤ 7
+  end note
+}
+
+package "通信制御系" #LightCyan {
+  [TCP Thread\nController] as TCP_CTRL
+  [GS2200M\nTransmission] as TCP_TRANS
+
+  AQ_BUF --> TCP_CTRL : y₁(t)
+  TCP_CTRL --> TCP_TRANS : controlled signal
+
+  note bottom of TCP_CTRL
+    **TCP制御器**
+    • 制御周期: 134ms平均
+    • 制御目標: 安定送信
+    • フィードバック: health metrics
+    • 適応制御: reconnection logic
+  end note
+
+  note right of TCP_TRANS
+    **通信系動特性**
+    • 伝達関数: G₂(s) = K₂/(τ₂s + 1)
+    • 時定数: τ₂ = 134ms
+    • ゲイン: K₂ ≈ 1 (理想)
+    • 非線形性: 帯域制限
+  end note
+}
+
+package "PC側パイプライン制御系" #LightBlue {
+  [TCP Reader\nThread] as TCP_RD
+  [jpeg_channel\nQueue] as JQ
+  [JPEG Decoder\nThread] as DEC
+  [gui_channel\nQueue] as GQ
+  [GUI Thread\nController] as GUI
+
+  TCP_TRANS --> TCP_RD : network signal
+  TCP_RD --> JQ : parsed frames
+  JQ --> DEC : queued frames
+  DEC --> GQ : decoded frames
+  GQ --> GUI : display ready
+
+  note bottom of TCP_RD
+    **TCP Reader制御器**
+    • 制御周期: 174ms
+    • バッファ容量: 250KB
+    • 制御目標: 連続読み取り
+    • 非ブロッキング動作
+  end note
+
+  note bottom of JQ
+    **jpeg_channel特性**
+    • 容量: C₂ = unbounded
+    • メッセージタイプ: JPEG + Metrics
+    • 制御則: MPSC非ブロッキング
+    • 遅延: ≈0ms (メモリ制限内)
+  end note
+
+  note bottom of DEC
+    **JPEG Decoder制御器**
+    • 処理時間: 2.07ms平均
+    • 制御目標: RGB変換
+    • 並列度: 独立スレッド
+    • エラー処理: 前フレーム維持
+  end note
+
+  note bottom of GQ
+    **gui_channel特性**
+    • 容量: C₃ = unbounded
+    • メッセージ: RGB + Health
+    • アクセス: try_recv()
+    • 制御特性: 非ブロッキング
+  end note
+
+  note bottom of GUI
+    **GUI制御器**
+    • 制御周期: 16.7ms (60fps)
+    • 制御目標: スムーズ表示
+    • フィードバック: フレーム可用性
+    • 応答性: リアルタイム要求
+  end note
+}
+
+package "健全性監視制御系" #Gold {
+  [Health Monitor\nController] as HM
+  [Metrics Analysis\nEngine] as MAE
+  [Reconnection\nController] as RC
+
+  TCP_CTRL --> HM : health data
+  HM --> MAE : metrics processing
+  MAE --> RC : health analysis
+  RC --> TCP_CTRL : control action
+
+  note bottom of HM
+    **健全性制御器**
+    • サンプリング周期: 3s
+    • 制御目標: 安定性維持
+    • フィードバック: moving average
+    • 予測制御: spike detection
+  end note
+
+  note right of MAE
+    **分析エンジン**
+    • 制御アルゴリズム: 移動平均
+    • 窓関数: 10サンプル
+    • 閾値制御: 200ms, 5 spikes
+    • 出力: 健全性ステータス
+  end note
+
+  note bottom of RC
+    **再接続制御器**
+    • 制御則: 予防的制御
+    • 応答時間: 3s以内
+    • 制御目標: 切断予防
+    • 効果: 90%改善達成
+  end note
+}
+
+' システム全体のフィードバック
+GUI -.-> CAM : user feedback (optional)
+MAE -.-> AQ_CTRL : health feedback
+RC -.-> TCP_TRANS : reconnection signal
+
+@enduml

@@ -1,0 +1,146 @@
+@startuml architecture_evolution_overview
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam componentBackgroundColor #LightBlue
+skinparam componentBorderColor #DarkBlue
+skinparam interfaceBackgroundColor #LightYellow
+skinparam noteBackgroundColor #LightGreen
+skinparam component {
+    Padding 15
+}
+skinparam note {
+    FontSize 11
+    Padding 10
+}
+skinparam minClassWidth 140
+skinparam ComponentFontSize 10
+skinparam PackagePadding 20
+
+title Spresense Security Camera: アーキテクチャ進化概要 (Phase 7.3.3 → Phase 9.2)
+
+package "Phase 7.3.3: シングルスレッド構成" as P7 {
+    component [Camera ISX012] as CAM7
+    queue "action_queue\n(MAX=7)" as AQ7 #LightYellow
+    component [Spresense\nTCP Thread\n**×1**] as TCP7 #LightCyan
+    component [PC Main Thread\n**×1**] as PC7 #Pink
+    component [GUI\n(応答不可)] as GUI7 #LightGray
+
+    CAM7 --> AQ7 : 30fps
+    AQ7 --> TCP7 : pull()
+    TCP7 --> PC7 : **ブロッキング**\n236ms
+    PC7 --> GUI7 : 停止中
+
+    note top of P7 #Red
+    **🚫 Phase 7.3.3 制約**
+    • シングルスレッド設計
+    • TCP読み込み中GUI完全停止
+    • 実測: 3.0fps
+    • ドロップ率: 72.9%
+    • ユーザー体験: 😞
+    end note
+}
+
+package "Phase 8: 3スレッドパイプライン" as P8 {
+    component [Camera ISX012] as CAM8
+    queue "action_queue\n(MAX=7)" as AQ8 #LightYellow
+    component [TCP Reader\nThread **×1**] as TCP8 #LightCyan
+    queue "jpeg_channel\n(mpsc)" as JCH8 #Orange
+    component [JPEG Decoder\nThread **×1**] as JPEG8 #LightPink
+    queue "gui_channel\n(mpsc)" as GCH8 #LightGray
+    component [GUI Update\nThread **×1**] as GUI8 #LightSalmon
+
+    CAM8 --> AQ8 : 30fps
+    AQ8 --> TCP8 : pull()
+    TCP8 --> JCH8 : **非ブロッキング**
+    JCH8 --> JPEG8 : 2ms
+    JPEG8 --> GCH8 : decoded
+    GCH8 --> GUI8 : **常時応答**
+
+    note top of P8 #Green
+    **✅ Phase 8 改善**
+    • 3スレッド並列処理
+    • mpscチャネル通信
+    • 実測: 4.2fps (+40%改善)
+    • ドロップ率: 0%
+    • ユーザー体験: 😊
+    end note
+}
+
+package "Phase 9.2: 健全性監視統合" as P9 {
+    component [Camera ISX012] as CAM9
+    queue "action_queue\n(MAX=7)" as AQ9 #LightYellow
+    component [TCP Reader\nThread **×1**\n+ Monitor] as TCP9 #LightCyan
+    component [Health Monitor\n(移動平均)] as HM9 #Yellow
+    queue "jpeg_channel\n(mpsc)" as JCH9 #Orange
+    component [JPEG Decoder\nThread **×1**\n+ Metrics] as JPEG9 #LightPink
+    queue "gui_channel\n(mpsc)" as GCH9 #LightGray
+    component [GUI Update\nThread **×1**\n+ Health View] as GUI9 #LightSalmon
+    database "Metrics DB\n(58 bytes)" as MDB9 #LightGreen
+
+    CAM9 --> AQ9 : 30fps
+    AQ9 --> TCP9 : pull()
+    TCP9 --> HM9 : 送信時間計測
+    HM9 --> MDB9 : 健全性データ
+    TCP9 --> JCH9 : **監視付き**
+    JCH9 --> JPEG9 : + メトリクス
+    JPEG9 --> MDB9 : CRC最適化
+    JPEG9 --> GCH9 : + 診断情報
+    GCH9 --> GUI9 : **透明性確保**
+
+    HM9 ..> TCP9 : **予防的再接続**\n3秒以内
+
+    note top of P9 #LightGreen
+    **🔬 Phase 9.2 拡張**
+    • TCP健全性リアルタイム監視
+    • 予防的自動再接続 (3秒)
+    • メトリクス拡張: 50→58 bytes
+    • CRC-16-CCITT最適化
+    • 詳細診断情報提供
+    • 実測: 4.2fps維持 + 安定性向上
+    end note
+}
+
+' 進化の矢印
+P7 -down-> P8 : **Phase 8改革**\nパイプライン化
+P8 -down-> P9 : **Phase 9.2拡張**\n健全性監視統合
+
+' 性能比較表
+note as perfcomp #LightBlue
+**📊 性能指標比較**
+
+| 項目 | Phase 7.3.3 | Phase 8 | Phase 9.2 |
+|------|-------------|---------|-----------|
+| **FPS** | 3.0fps | 4.2fps | 4.2fps |
+| **GUI応答** | 😞 停止 | 😊 応答 | 😊 応答 |
+| **ドロップ率** | 72.9% | 0% | 0% |
+| **スレッド数** | 1 | 3 | 3 |
+| **監視機能** | なし | なし | ✅ あり |
+| **自動復旧** | なし | なし | ✅ 3秒 |
+| **メトリクス** | 基本 | 拡張 | 健全性統合 |
+| **アーキテクチャ** | 単純 | パイプライン | 監視統合 |
+end note
+
+' キューの使用状況
+note as queueusage #LightYellow
+**📈 action_queueの使用状況推移**
+
+**Phase 7.3.3:**
+• 平均深度: 5-7 (高負荷)
+• 最大深度: 7 (満杯頻発)
+• 満杯時動作: フレームドロップ
+• 効率: 低 (27.1%)
+
+**Phase 8:**
+• 平均深度: 2-3 (最適)
+• 最大深度: 5 (稀)
+• 満杯時動作: なし
+• 効率: 高 (100%)
+
+**Phase 9.2:**
+• 平均深度: 2-3 (継続最適)
+• 健全性保護: 予防的制御
+• 異常時動作: 自動再接続
+• 効率: 高 (100% + 安定性)
+end note
+
+@enduml

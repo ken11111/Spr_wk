@@ -1,0 +1,196 @@
+@startuml phase9_2_health_monitoring_integration
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+skinparam participant {
+    BackgroundColor #LightBlue
+    Padding 25
+    FontSize 10
+}
+skinparam lifeline {
+    BackgroundColor #LightYellow
+}
+skinparam note {
+    FontSize 10
+    Padding 15
+}
+skinparam sequence {
+    ParticipantPadding 50
+    BoxPadding 20
+    MessageAlignment center
+    ArrowThickness 2
+}
+skinparam minClassWidth 150
+skinparam ParticipantPadding 25
+skinparam TitleFontSize 14
+skinparam groupPadding 20
+skinparam dividerBackgroundColor #F0F0F0
+skinparam dividerFontSize 12
+
+title Phase 9.2: TCP Health Monitoring Integration and Metrics Extension
+
+participant "Camera\n(ISX012)\n[ライフライン×1]" as CAM #LightGreen
+participant "action_queue\n(MAX=7)\n[キュー×1]" as AQ #LightYellow
+participant "TCP Reader\nThread\n(Spresense)\n[スレッド×1]" as TCP_SP #LightCyan
+participant "Health Monitor\n(移動平均)\n[監視×1]" as HM #Yellow
+participant "Metrics Packet\n(58 bytes)\n[拡張×1]" as MP #Orange
+participant "JPEG Decoder\nThread\n(PC)\n[スレッド×1]" as JPEG #LightPink
+participant "GUI Update\nThread\n(PC)\n[スレッド×1]" as GUI #LightSalmon
+
+== 正常動作フェーズ: 健全性監視開始 ==
+CAM -> AQ: push(frame1, 57KB)
+note over AQ #LightGreen: depth=0→1\n正常レベル
+AQ -> TCP_SP: pull()
+note over AQ #LightGreen: **depth=1→0**\n効率的処理\n✅ 健全維持
+
+TCP_SP -> TCP_SP: **start_timer()**
+note over TCP_SP #LightCyan: **📊 送信時間計測開始**
+
+TCP_SP -> TCP_SP: tcp_send()\n**実測: 180ms**
+note over TCP_SP: **✅ 正常範囲**\n< 500ms閾値
+
+TCP_SP -> TCP_SP: **end_timer()**
+TCP_SP -> HM: update(180ms)
+note over HM #Yellow
+**📈 移動平均更新**
+• 窓サイズ: 10フレーム
+• 現在平均: 185ms
+• スパイク回数: 0
+• 状態: 健全
+end note
+
+HM -> MP: **metrics_update()**
+note over MP #Orange
+**📦 Phase 9.2拡張メトリクス**
+```c
+typedef struct {
+    // 既存 Phase 8 (50 bytes)
+    u32 frame_count;
+    u32 fps_x100;
+    u32 tcp_send_time_ms;
+    u32 queue_depth;
+    // Phase 9.2 健全性拡張 (8 bytes)
+    u32 tcp_health_moving_avg_ms;  // 185
+    u32 tcp_health_total_spikes;   // 0
+    u16 crc16;  // CRC-16-CCITT最適化
+} metrics_packet_t; // 総58 bytes
+```
+end note
+
+TCP_SP -> JPEG: send(frame1 + metrics)
+JPEG -> GUI: decoded_frame + health_info
+
+== 異常検知フェーズ: スパイク発生 ==
+CAM -> AQ: push(frame15, 59KB)
+note over AQ #Orange: depth=0→1\n通常増加
+AQ -> TCP_SP: pull()
+note over AQ #Orange: **depth=1→0**\n正常減少\n(TCP遅延は内部)
+
+TCP_SP -> TCP_SP: **start_timer()**
+TCP_SP -> TCP_SP: tcp_send()\n**実測: 750ms** ⚠️
+note over TCP_SP #Red: **🚨 異常値検出**\n> 500ms閾値超過
+
+TCP_SP -> TCP_SP: **end_timer()**
+TCP_SP -> HM: update(750ms)
+note over HM #Red
+**⚠️ スパイク検出処理**
+• 新平均: 241ms (↑上昇)
+• スパイク回数: 1 (初回)
+• 状態: 注意レベル
+• 閾値: 500ms超過確認
+end note
+
+HM -> MP: **spike_metrics_update()**
+note over MP #Orange
+**📦 異常時メトリクス**
+```c
+{
+    frame_count: 15,
+    fps_x100: 420,
+    tcp_send_time_ms: 750,    // ⚠️ 異常値
+    queue_depth: 3,
+    tcp_health_moving_avg_ms: 241,  // ↑上昇
+    tcp_health_total_spikes: 1,     // 初回検出
+    crc16: 0xA3F2  // 整合性保証
+}
+```
+end note
+
+== 予防的再接続フェーズ: 3秒監視 ==
+loop 3秒間連続監視
+    CAM -> AQ: push(frame_n)
+    note over AQ #LightGreen: depth=0→1\n通常動作
+    AQ -> TCP_SP: pull()
+    note over AQ #LightGreen: **depth=1→0**\n安定処理
+
+    alt 正常復帰ケース
+        TCP_SP -> TCP_SP: tcp_send()\n**200ms** ✅
+        TCP_SP -> HM: update(200ms)
+        note over HM #LightGreen: **回復傾向**\n平均低下中
+    else 継続異常ケース
+        TCP_SP -> TCP_SP: tcp_send()\n**800ms** 🚨
+        note over AQ #Orange: **depth維持=0**\nキュー影響なし\n(TCP内部遅延)
+        TCP_SP -> HM: update(800ms)
+        note over HM #Red
+        **🚨 継続異常**
+        • スパイク回数: 2→3
+        • 平均: 300ms超過
+        • **予防的再接続要求**
+        end note
+
+        HM -> TCP_SP: **trigger_reconnect()**
+        note over TCP_SP #Orange: **🔄 予防的再接続**\n3秒以内実行
+
+        TCP_SP -> TCP_SP: **close() + connect()**
+        note over TCP_SP #LightGreen: **✅ 接続リセット**\n健全性復元
+    end
+end
+
+== 健全性復元確認 ==
+CAM -> AQ: push(frame_recovery)
+note over AQ #LightGreen: depth=0→1\n復元後正常
+AQ -> TCP_SP: pull()
+note over AQ #LightGreen: **depth=1→0**\n理想的balance\n✅ 完全復旧
+TCP_SP -> TCP_SP: tcp_send()\n**150ms** ✅
+TCP_SP -> HM: update(150ms)
+note over HM #LightGreen
+**✅ 健全性復元**
+• 平均: 180ms復帰
+• 接続状態: 安定
+• 予防効果: 確認
+end note
+
+HM -> MP: **recovery_metrics_update()**
+note over MP #LightGreen
+**📦 復元完了メトリクス**
+```c
+{
+    tcp_health_moving_avg_ms: 180,  // ✅ 正常復帰
+    tcp_health_total_spikes: 3,     // 累積記録
+    reconnect_count: 1,             // 予防実行回数
+    recovery_time_ms: 2100          // 2.1秒で復元
+}
+```
+end note
+
+== Phase 9.2 統合効果 ==
+note over CAM, GUI #LightGreen
+**✅ Phase 9.2 総合成果**
+• **健全性監視**: TCP送信時間リアルタイム追跡
+• **予防的保護**: 3秒以内自動再接続
+• **メトリクス拡張**: 50→58 bytes (16%増加)
+• **CRC最適化**: 整合性保証 + 効率化
+• **安定性向上**: 異常状態の早期検出・復旧
+• **透明性確保**: 詳細診断情報をGUIに提供
+end note
+
+note over HM #Yellow
+**📊 健全性指標定義**
+• **正常**: < 500ms (緑)
+• **注意**: 500-1000ms (黄)
+• **異常**: > 1000ms (赤)
+• **予防閾値**: 3秒間継続
+• **移動平均**: 10フレーム窓
+end note
+
+@enduml

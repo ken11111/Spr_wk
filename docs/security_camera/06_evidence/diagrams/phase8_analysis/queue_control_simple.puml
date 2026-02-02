@@ -1,0 +1,80 @@
+@startuml queue_control_simple
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title キュー制御システム分析 - 制御工学観点
+
+' コンポーネント定義
+component "Camera\nISX012" as CAM #LightGreen
+component "action_queue\nController" as QC #LightYellow
+component "action_queue\nBuffer(MAX=7)" as QB #LightYellow
+component "TCP Controller\n134ms avg" as TCP #LightCyan
+component "GS2200M\nWiFi Module" as WIFI #LightCyan
+component "TCP Reader\n174ms" as TCPR #LightBlue
+component "JPEG Decoder\n2.07ms" as DEC #LightBlue
+component "GUI Thread\n60fps" as GUI #LightBlue
+component "Health Monitor\n3s interval" as HM #Gold
+component "Display Output\n6.74fps" as OUT #LightSalmon
+
+' 制御フロー
+CAM --> QC : u(t)=30fps
+QC --> QB : frames
+QB --> TCP : y1(t)
+TCP --> WIFI : tcp_send
+WIFI --> TCPR : network
+TCPR --> DEC : jpeg_data
+DEC --> GUI : rgb_data
+GUI --> OUT : display
+
+' 健全性監視ループ
+TCP --> HM : health_data
+HM --> TCP : reconnect_cmd
+
+' フィードバック
+HM -.-> QC : health_fb
+OUT -.-> CAM : user_fb
+
+note top of CAM
+制御入力 u(t)
+・30fps固定
+・57±2KB/frame
+・周期的信号
+end note
+
+note right of QC
+制御器G1(s)
+・FIFO制御
+・飽和制限:MAX=7
+・応答時間:33ms
+end note
+
+note right of QB
+状態変数 q1(t)
+・dq1/dt = u1-y1
+・制約: 0≤q1≤7
+・平衡点: q1*=1-2
+end note
+
+note bottom of TCP
+伝達関数G2(s)
+・G2=0.85e^(-θs)/(0.134s+1)
+・遅延θ=10-50ms
+・帯域幅:1.19Hz
+end note
+
+note bottom of HM
+適応制御H(s)
+・移動平均フィルタ
+・スパイク検出
+・予測制御MPC
+・90%改善達成
+end note
+
+note bottom of OUT
+制御出力 y(t)
+・実測:6.74fps
+・改善率:+125%
+・安定性:保証済
+end note
+
+@enduml

@@ -1,0 +1,25 @@
+{
+  "visualization_tool": "svg_pure_python",
+  "generated_files": 5,
+  "file_list": [
+    "svg_bode_plot.svg",
+    "svg_nyquist_plot.svg",
+    "svg_step_response.svg",
+    "svg_phase_comparison.svg",
+    "control_engineering_visualization.html"
+  ],
+  "system_parameters": {
+    "K1": 1.0,
+    "tau1": 0.033,
+    "K2": 0.85,
+    "tau2": 0.134,
+    "theta": 0.025
+  },
+  "analysis_types": [
+    "SVG Bode線図",
+    "SVG Nyquist線図",
+    "SVG ステップ応答",
+    "SVG Phase別比較",
+    "HTML統合ビューア"
+  ]
+}

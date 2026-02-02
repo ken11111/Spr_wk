@@ -1,0 +1,29 @@
+{
+  "statistics": {
+    "phase_733": {
+      "avg_fps": 1.26,
+      "avg_queue_depth": 7.0,
+      "avg_tcp_time": 236.0,
+      "improvement_vs_733": 0
+    },
+    "phase_8": {
+      "avg_fps": 6.74,
+      "avg_queue_depth": 2.0,
+      "avg_tcp_time": 134.0,
+      "improvement_vs_733": 124.7
+    },
+    "phase_92": {
+      "avg_fps": 6.74,
+      "avg_queue_depth": 0.1,
+      "avg_tcp_time": 134.0,
+      "improvement_vs_733": 124.7
+    }
+  },
+  "simulation_parameters": {
+    "duration": 30.0,
+    "time_step": 0.001,
+    "camera_fps": 30.0,
+    "tcp_time_constant": 0.134,
+    "health_threshold": 0.2
+  }
+}

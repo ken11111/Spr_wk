@@ -1,0 +1,18 @@
+{
+  "visualization_types": [
+    "Bode線図",
+    "Nyquist線図",
+    "根軌跡",
+    "ステップ応答",
+    "安定余裕解析",
+    "Phase別比較"
+  ],
+  "system_parameters": {
+    "K1": 1.0,
+    "tau1": 0.033,
+    "K2": 0.85,
+    "tau2": 0.134,
+    "theta": 0.025
+  },
+  "generated_graphs": 6
+}

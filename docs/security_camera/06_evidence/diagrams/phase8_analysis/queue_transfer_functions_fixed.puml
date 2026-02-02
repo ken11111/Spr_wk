@@ -1,0 +1,142 @@
+@startuml queue_transfer_functions_fixed
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title Queue System Control Analysis - Transfer Functions
+
+' 各コンポーネントを単独で定義
+[Camera\nISX012] as INPUT #LightGreen
+[action_queue\nController] as G1 #LightYellow
+[action_queue\nBuffer] as B1 #LightYellow
+[TCP Controller] as G2 #LightCyan
+[WiFi GS2200M] as TCP_TX #LightCyan
+[TCP Reader] as G3 #LightBlue
+[JPEG Decoder] as G4 #LightBlue
+[GUI Thread] as G5 #LightBlue
+[Health Controller] as H #Gold
+[Reconnection] as R #Gold
+[Display FPS] as OUTPUT #LightSalmon
+
+' 信号フロー
+INPUT --> G1 : u(t)
+G1 --> B1 : controlled_input
+B1 --> G2 : y1(t)
+G2 --> TCP_TX : tcp_signal
+TCP_TX --> G3 : network_data
+G3 --> G4 : jpeg_frames
+G4 --> G5 : rgb_frames
+G5 --> OUTPUT : display_signal
+
+' 健全性監視ループ
+G2 --> H : health_feedback
+H --> R : control_command
+R --> G2 : reconnection_signal
+
+' フィードバックループ
+H -.-> G1 : health_feedback
+OUTPUT -.-> INPUT : user_feedback
+
+' Notes for each component
+note top of INPUT
+  u(t) = Camera Frames
+  Amplitude: 57±2 KB
+  Frequency: 30 Hz
+  Period: 33.33 ms
+end note
+
+note bottom of G1
+  Transfer Function:
+  G1(s) = K1/(τ1s + 1)
+  K1 = 1.0 (ideal)
+  τ1 = 33ms
+end note
+
+note bottom of B1
+  State Equation:
+  dq1/dt = u1(t) - y1(t)
+  Constraint: 0 ≤ q1 ≤ 7
+end note
+
+note bottom of G2
+  G2(s) = K2*exp(-θs)/(τ2s + 1)
+  K2 = 0.85 (measured)
+  τ2 = 134ms
+  θ = 10-50ms (delay)
+end note
+
+note right of TCP_TX
+  WiFi Module
+  Bandwidth: 1-2 Mbps
+  Latency: 10-50ms
+end note
+
+note bottom of G3
+  Processing Time: 174ms
+  Buffer: 250KB
+  Non-blocking read
+end note
+
+note bottom of G4
+  Processing Time: 2.07ms
+  Parallel Thread
+  JPEG -> RGB
+end note
+
+note bottom of G5
+  Update Rate: 60fps
+  Non-blocking: try_recv()
+  Real-time display
+end note
+
+note right of H
+  Sampling: 3s interval
+  Filter: 10-point moving avg
+  Threshold: 200ms
+  Spike detection
+end note
+
+note right of R
+  Response Time: 3s
+  Control Action: ON/OFF
+  Effect: 90% improvement
+  Recovery: Instant
+end note
+
+note bottom of OUTPUT
+  Final Output:
+  y(t) = 6.74fps
+  Improvement: +125%
+  Stability: Guaranteed
+end note
+
+' グループ化（視覚的分類）
+rectangle "Input Generation" #LightGreen {
+  INPUT
+}
+
+rectangle "Queue Control System" #LightYellow {
+  G1
+  B1
+}
+
+rectangle "TCP Communication" #LightCyan {
+  G2
+  TCP_TX
+}
+
+rectangle "PC Pipeline" #LightBlue {
+  G3
+  G4
+  G5
+}
+
+rectangle "Health Monitoring" #Gold {
+  H
+  R
+}
+
+rectangle "System Output" #LightSalmon {
+  OUTPUT
+}
+
+@enduml

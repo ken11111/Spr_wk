@@ -1,0 +1,56 @@
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+' Maximum spacing settings to prevent overlap
+skinparam participant {
+    BackgroundColor #LightBlue
+    Padding 35
+    FontSize 9
+}
+
+' Lifeline settings with more space
+skinparam lifeline {
+    BackgroundColor #LightYellow
+}
+
+' Note settings with maximum readability
+skinparam note {
+    FontSize 9
+    Padding 20
+    BorderThickness 1
+    WordWrap true
+}
+
+' Sequence diagram with maximum spacing
+skinparam sequence {
+    ParticipantPadding 70
+    BoxPadding 30
+    MessageAlignment center
+    ArrowThickness 2
+    LifelineBorderColor black
+}
+
+' General layout with maximum spacing
+skinparam minClassWidth 200
+skinparam ParticipantPadding 35
+skinparam TitleFontSize 12
+skinparam groupPadding 30
+skinparam dividerBackgroundColor #F0F0F0
+skinparam dividerFontSize 11
+skinparam maxMessageSize 300
+
+' Component settings (for architecture diagrams)
+skinparam component {
+    Padding 25
+    FontSize 9
+}
+
+' Package settings with more space
+skinparam PackagePadding 30
+skinparam ComponentFontSize 9
+
+' Additional spacing settings
+skinparam ActorPadding 20
+skinparam BoxPadding 25
+skinparam ClassPadding 15

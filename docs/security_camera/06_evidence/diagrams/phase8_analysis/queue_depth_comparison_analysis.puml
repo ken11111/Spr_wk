@@ -1,0 +1,129 @@
+@startuml queue_depth_comparison_analysis
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+skinparam participant {
+    BackgroundColor #LightBlue
+    Padding 20
+}
+skinparam lifeline {
+    BackgroundColor #LightYellow
+}
+skinparam note {
+    FontSize 11
+    Padding 10
+}
+skinparam sequence {
+    ParticipantPadding 40
+    BoxPadding 15
+    MessageAlignment center
+}
+skinparam minClassWidth 120
+skinparam ParticipantPadding 20
+
+title キューの深度分析: Phase 7.3.3 vs Phase 8 vs Phase 9.2比較
+
+participant "Phase 7.3.3\nシングルスレッド" as P7 #Pink
+participant "action_queue\n(MAX=7)" as AQ7 #LightYellow
+participant "TCP/GUI\nブロッキング" as TCP7 #LightGray
+
+participant "Phase 8\n3スレッドパイプライン" as P8 #LightGreen
+participant "action_queue\n(MAX=7)" as AQ8 #LightYellow
+participant "TCP/JPEG/GUI\n並列処理" as TCP8 #LightCyan
+
+participant "Phase 9.2\n健全性監視統合" as P9 #LightBlue
+participant "action_queue\n(MAX=7)" as AQ9 #LightYellow
+participant "TCP+Health\n予防的保護" as TCP9 #Gold
+
+== Phase 7.3.3: キュー滞留問題 ==
+P7 -> AQ7: push(frame1)
+note over AQ7 #LightGreen: depth=0→1\n正常開始
+
+P7 -> AQ7: push(frame2,3,4...)
+note over AQ7 #Orange: depth=1→2→3→4\n急速蓄積
+
+AQ7 -> TCP7: pull() **遅延**
+note over TCP7 #Red: 236ms処理\nGUI完全停止
+
+note over AQ7 #Red: depth=4→5→6→7\n**キュー飽和**
+
+TCP7 -> TCP7: 処理完了
+note over AQ7 #Red: depth=7→6→5\n**僅かな減少**\n**追いつかず**
+
+note over P7 #Red
+**Phase 7.3.3 結果**
+• 実測: 3.0fps
+• ドロップ率: 72.9%
+• GUI応答: 停止頻発
+• キュー状態: 常時飽和
+end note
+
+== Phase 8: パイプライン改善 ==
+P8 -> AQ8: push(frame1)
+note over AQ8 #LightGreen: depth=0→1\n正常受信
+
+AQ8 -> TCP8: pull() **即座**
+note over AQ8 #LightGreen: depth=1→0\n**理想的バランス**
+
+P8 -> AQ8: push(frame2)
+note over AQ8 #LightGreen: depth=0→1
+
+AQ8 -> TCP8: pull() **並列**
+note over AQ8 #LightGreen: depth=1→0\n**継続安定**
+
+note over TCP8 #LightCyan: 3スレッド並列\n• TCP Reader\n• JPEG Decoder\n• GUI Thread
+
+note over P8 #LightGreen
+**Phase 8 結果**
+• 実測: 6.74fps (+125%)
+• ドロップ率: 0%
+• GUI応答: 60fps維持
+• キュー状態: 理想的循環
+end note
+
+== Phase 9.2: 健全性保護 ==
+P9 -> AQ9: push(frame1)
+note over AQ9 #LightGreen: depth=0→1\n健全受信
+
+AQ9 -> TCP9: pull() + **健全性監視**
+note over AQ9 #LightGreen: depth=1→0\n**監視下安定**
+
+note over TCP9 #Gold: TCP健全性チェック\n• 送信時間: 134ms\n• スパイク: 0回\n• 状態: 健全
+
+alt 正常動作時
+    P9 -> AQ9: push(frame2)
+    note over AQ9 #LightGreen: depth=0→1\n継続健全
+    AQ9 -> TCP9: pull() **安定**
+    note over AQ9 #LightGreen: depth=1→0\n理想維持
+else 異常検出時
+    note over TCP9 #Orange: 健全性警告\n送信遅延検出
+    TCP9 -> TCP9: **予防的再接続**\n3秒以内実行
+    note over AQ9 #LightGreen: depth影響なし\nTCP内部問題解決
+    TCP9 -> TCP9: 接続復旧
+    note over AQ9 #LightGreen: depth=0→1→0\n**完全回復**
+end
+
+note over P9 #LightBlue
+**Phase 9.2 結果**
+• 実測: 6.74fps (維持)
+• ドロップ率: 0% (維持)
+• GUI応答: 60fps + 診断情報
+• キュー状態: 健全性保護下安定
+• 再接続: 30秒→3秒 (90%改善)
+end note
+
+== 総合比較サマリー ==
+note over P7, TCP9 #LightYellow
+**Queue深度パターン比較**
+
+**Phase 7.3.3**: 1→2→3→4→5→6→7 (制御不能蓄積)
+**Phase 8**: 0→1→0 (理想的サイクル)
+**Phase 9.2**: 0→1→0 + 健全性保護 (予防的安定)
+
+**性能指標統合評価**
+• FPS: 3.0 → 6.74 → 6.74(+健全性)
+• Queue効率: 低 → 高 → 高(+監視)
+• 安定性: C → B+ → A-
+end note
+
+@enduml

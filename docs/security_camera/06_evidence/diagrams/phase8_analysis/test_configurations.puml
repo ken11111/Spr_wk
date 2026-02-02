@@ -1,0 +1,68 @@
+@startuml test_configurations
+' Test configuration for text overlap investigation
+' Version: PlantUML 1.2024.8 compatibility test
+
+!theme plain
+skinparam backgroundColor #FFFFFF
+
+' === Test 1: Maximum spacing configuration ===
+skinparam participant {
+    BackgroundColor #LightBlue
+    Padding 50
+    FontSize 8
+}
+
+skinparam note {
+    FontSize 8
+    Padding 25
+    WordWrap true
+    BorderThickness 1
+}
+
+skinparam sequence {
+    ParticipantPadding 100
+    BoxPadding 40
+    MessageAlignment center
+}
+
+' === Test 2: Font specifications ===
+skinparam DefaultFontName Arial
+skinparam DefaultFontSize 8
+skinparam TitleFontSize 10
+
+' === Test 3: Advanced settings (may not work in old versions) ===
+skinparam minClassWidth 250
+skinparam maxMessageSize 200
+skinparam groupPadding 30
+skinparam dividerBackgroundColor #F5F5F5
+skinparam dividerFontSize 9
+
+' === Test 4: DPI and quality settings ===
+skinparam dpi 150
+
+title Test Configuration for Text Overlap Prevention
+
+' Short participant names to minimize overlap
+participant "CAM" as C #LightGreen
+participant "Queue" as Q #LightYellow
+participant "TCP" as T #LightCyan
+
+C -> Q: push
+note over Q #LightYellow
+Test note with
+multiple lines
+to check overlap
+end note
+
+Q -> T: pull
+note over T #LightCyan
+TCP processing
+236ms duration
+end note
+
+== Test Section ==
+
+C -> Q: frame data
+Q -> T: process
+
+@enduml

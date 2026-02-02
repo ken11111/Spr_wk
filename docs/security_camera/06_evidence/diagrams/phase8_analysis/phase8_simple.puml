@@ -1,0 +1,41 @@
+@startuml phase8_simple
+!theme plain
+skinparam backgroundColor white
+skinparam DefaultFontName Arial
+skinparam DefaultFontSize 10
+
+' Extreme spacing to prevent overlap
+skinparam participant {
+    Padding 40
+    FontSize 8
+}
+skinparam sequence {
+    ParticipantPadding 80
+    BoxPadding 40
+}
+skinparam minClassWidth 220
+skinparam TitleFontSize 10
+
+title Phase 8 Pipeline Improvement (Simplified)
+
+' Use simple names without complex descriptions
+actor CAM
+database Queue
+control TCP
+control JPEG
+boundary GUI
+
+CAM -> Queue: push frame
+Queue -> TCP: pull frame
+TCP -> JPEG: send data
+JPEG -> GUI: update display
+
+note over CAM, GUI
+Phase 8 achieves 6.74fps with 3-thread pipeline
+- Camera: 30fps generation
+- TCP: Non-blocking processing
+- JPEG: Parallel decoding
+- GUI: Continuous response
+end note
+
+@enduml

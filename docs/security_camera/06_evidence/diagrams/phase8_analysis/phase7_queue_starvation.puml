@@ -1,0 +1,103 @@
+@startuml phase7_queue_starvation
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+skinparam participant {
+    BackgroundColor #LightBlue
+    Padding 20
+}
+skinparam lifeline {
+    BackgroundColor #LightYellow
+}
+skinparam note {
+    FontSize 11
+    Padding 10
+}
+skinparam sequence {
+    ParticipantPadding 40
+    BoxPadding 15
+    MessageAlignment center
+}
+skinparam minClassWidth 120
+skinparam ParticipantPadding 20
+
+title Phase 7.3.3: シングルスレッド方式のキュー滞留問題
+
+participant "Camera\n(ISX012)\n[ライフライン×1]" as CAM #LightGreen
+participant "action_queue\n(MAX=7)\n[キュー×1]" as AQ #LightYellow
+participant "TCP Thread\n(Spresense)\n[スレッド×1]" as TCP_SP #LightCyan
+participant "GS2200M\nWiFi Buffer\n[バッファ×1]" as WIFI #LightBlue
+participant "TCP Stream\n[ネットワーク×1]" as NET #LightGray
+participant "Main Thread\n(PC)\n[スレッド×1]" as PC #Pink
+participant "GUI\n[表示×1]" as GUI #LightSalmon
+
+== フレーム1: 正常処理開始 ==
+CAM -> AQ: push(frame1, 57KB)\n30fps生成
+note over AQ #LightGreen: depth=1→1\n正常範囲
+AQ -> TCP_SP: pull()
+note over AQ #LightGreen: **depth=1→0**\n即座に減少
+TCP_SP -> WIFI: send(57KB)
+note over WIFI: WiFi送信\n236ms平均
+WIFI -> NET: TCP transmit
+NET -> PC: read() **🚫 ブロッキング**
+note over PC #Pink: **GUI停止中**\n(236ms)\n応答不可
+PC -> PC: JPEG decode\n(2ms)
+PC -> GUI: update()
+
+== フレーム2-4: キュー蓄積開始 ==
+par Camera継続生成
+    CAM -> AQ: push(frame2, 58KB)
+    note over AQ #Orange: depth=0→1\n注意レベル
+    CAM -> AQ: push(frame3, 56KB)
+    note over AQ #Orange: depth=1→2\n蓄積進行
+    CAM -> AQ: push(frame4, 59KB)
+    note over AQ #Red: depth=2→3\n⚠️ 滞留発生
+else TCP送信継続(遅延)
+    AQ -> TCP_SP: pull(frame2)
+    note over AQ #Orange: **depth=3→2**\n1つ減少(遅い)
+    TCP_SP -> WIFI: send(58KB)
+    note over WIFI #Orange: バッファ圧迫\n送信遅延
+
+    AQ -> TCP_SP: pull(frame3)
+    note over AQ #Orange: **depth=2→1**\n更に減少(追いつかず)
+end
+
+== フレーム5-7: キュー飽和状態 ==
+CAM -> AQ: push(frame5, 60KB)
+note over AQ #Red: depth=1→2\n蓄積再開
+CAM -> AQ: push(frame6, 58KB)
+note over AQ #Red: depth=2→3→4\n急速増加
+CAM -> AQ: push(frame7, 57KB)
+note over AQ #Red: depth=4→5→6→7\n**MAX到達**\n🚫 飽和
+
+par TCP処理継続(限界)
+    AQ -> TCP_SP: pull(frame5)
+    note over AQ #Red: **depth=7→6**\n僅かに減少
+    TCP_SP -> WIFI: send(60KB)
+
+    AQ -> TCP_SP: pull(frame6)
+    note over AQ #Red: **depth=6→5**\n追いつかず
+else Camera側制限
+    CAM --> CAM: **🚫 フレームドロップ開始**
+    note over CAM #Red: **72.9%ドロップ**\n生産性低下\nキュー満杯により\n新フレーム受付不可
+end
+
+== 根本的ボトルネック ==
+note over PC #Pink
+**🚫 Phase 7.3.3 問題点**
+• TCP read中はGUI完全停止
+• 1フレーム処理時間: 238ms
+• 理論限界: 4.2fps
+• 実測: 3.0fps (オーバーヘッド)
+• ユーザー体験: 😞 応答不良
+end note
+
+note over AQ #Red
+**🚫 キュー滞留メカニズム**
+• カメラ生成: 30fps (33ms間隔)
+• TCP送信: 236ms/frame
+• 比率: 236/33 ≈ 7.1倍の遅延
+• 結果: 必然的キュー飽和
+end note
+
+@enduml

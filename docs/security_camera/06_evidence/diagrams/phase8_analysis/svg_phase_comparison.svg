@@ -1,0 +1,74 @@
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <style>
+                .title { font: bold 16px Arial; text-anchor: middle; }
+                .axis-label { font: 12px Arial; text-anchor: middle; }
+                .tick-label { font: 10px Arial; text-anchor: middle; }
+                .bar-label { font: 10px Arial; text-anchor: middle; }
+                .axis { stroke: black; stroke-width: 2; }
+                .grid { stroke: #e0e0e0; stroke-width: 1; }
+            </style>
+        </defs>
+
+        <!-- Title -->
+        <text x="400" y="30" class="title">Phase別性能比較 - FPS性能</text>
+
+        <!-- FPS Chart -->
+        <g transform="translate(100, 100)">
+            <!-- Grid lines -->
+        <line x1="0" y1="300.0" x2="300" y2="300.0" class="grid"/>
+<text x="-10" y="303.0" class="tick-label" text-anchor="end">0%</text>
+<line x1="0" y1="240.0" x2="300" y2="240.0" class="grid"/>
+<text x="-10" y="243.0" class="tick-label" text-anchor="end">20%</text>
+<line x1="0" y1="180.0" x2="300" y2="180.0" class="grid"/>
+<text x="-10" y="183.0" class="tick-label" text-anchor="end">40%</text>
+<line x1="0" y1="120.0" x2="300" y2="120.0" class="grid"/>
+<text x="-10" y="123.0" class="tick-label" text-anchor="end">60%</text>
+<line x1="0" y1="60.0" x2="300" y2="60.0" class="grid"/>
+<text x="-10" y="63.0" class="tick-label" text-anchor="end">80%</text>
+<line x1="0" y1="0.0" x2="300" y2="0.0" class="grid"/>
+<text x="-10" y="3.0" class="tick-label" text-anchor="end">100%</text>
+<line x1="0" y1="0" x2="0" y2="300" class="axis"/>
+<line x1="0" y1="300" x2="300" y2="300" class="axis"/>
+<rect x="20" y="166.46884272997033" width="60" height="133.53115727002967" fill="#ff7f7f" stroke="black" stroke-width="1"/>
+<text x="50" y="161.46884272997033" class="bar-label">3.0</text>
+<text x="50" y="315" class="bar-label">Phase 7.3.3</text>
+<rect x="120" y="0.0" width="60" height="300.0" fill="#7f7fff" stroke="black" stroke-width="1"/>
+<text x="150" y="-5.0" class="bar-label">6.7</text>
+<text x="150" y="315" class="bar-label">Phase 8</text>
+<rect x="220" y="0.0" width="60" height="300.0" fill="#7fff7f" stroke="black" stroke-width="1"/>
+<text x="250" y="-5.0" class="bar-label">6.7</text>
+<text x="250" y="315" class="bar-label">Phase 9.2</text>
+<text x="150" y="340" class="axis-label">Phase</text>
+<text x="-40" y="150" class="axis-label" transform="rotate(-90, -40, 150)">FPS性能 [%]</text>
+</g>
+
+        <!-- TCP Time Chart -->
+        <text x="400" y="470" class="title">TCP応答時間比較</text>
+        <g transform="translate(100, 500)">
+            <!-- Grid lines -->
+        <line x1="0" y1="300.0" x2="300" y2="300.0" class="grid"/>
+<text x="-10" y="303.0" class="tick-label" text-anchor="end">0ms</text>
+<line x1="0" y1="236.4406779661017" x2="300" y2="236.4406779661017" class="grid"/>
+<text x="-10" y="239.4406779661017" class="tick-label" text-anchor="end">50ms</text>
+<line x1="0" y1="172.8813559322034" x2="300" y2="172.8813559322034" class="grid"/>
+<text x="-10" y="175.8813559322034" class="tick-label" text-anchor="end">100ms</text>
+<line x1="0" y1="109.32203389830508" x2="300" y2="109.32203389830508" class="grid"/>
+<text x="-10" y="112.32203389830508" class="tick-label" text-anchor="end">150ms</text>
+<line x1="0" y1="45.76271186440678" x2="300" y2="45.76271186440678" class="grid"/>
+<text x="-10" y="48.76271186440678" class="tick-label" text-anchor="end">200ms</text>
+<line x1="0" y1="0" x2="0" y2="300" class="axis"/>
+<line x1="0" y1="300" x2="300" y2="300" class="axis"/>
+<rect x="20" y="0.0" width="60" height="300.0" fill="#ff7f7f" stroke="black" stroke-width="1"/>
+<text x="50" y="-5.0" class="bar-label">236ms</text>
+<text x="50" y="315" class="bar-label">Phase 7.3.3</text>
+<rect x="120" y="129.66101694915253" width="60" height="170.33898305084747" fill="#7f7fff" stroke="black" stroke-width="1"/>
+<text x="150" y="124.66101694915253" class="bar-label">134ms</text>
+<text x="150" y="315" class="bar-label">Phase 8</text>
+<rect x="220" y="129.66101694915253" width="60" height="170.33898305084747" fill="#7fff7f" stroke="black" stroke-width="1"/>
+<text x="250" y="124.66101694915253" class="bar-label">134ms</text>
+<text x="250" y="315" class="bar-label">Phase 9.2</text>
+<text x="150" y="340" class="axis-label">Phase</text>
+<text x="-40" y="150" class="axis-label" transform="rotate(-90, -40, 150)">TCP時間 [ms]</text>
+</g>
+</svg>

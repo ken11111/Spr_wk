@@ -49,6 +49,7 @@
 
 #define CAMERA_THREAD_PRIORITY  110  /* Higher priority for camera */
 #define USB_THREAD_PRIORITY     100  /* Lower priority for USB */
+#define CONTROL_THREAD_PRIORITY 95   /* Phase 10: PID control thread */
 #define THREAD_STACK_SIZE       4096 /* 4KB stack per thread */
 
 /****************************************************************************
@@ -136,6 +137,21 @@ void *camera_thread_func(void *arg);
  */
 
 void *usb_thread_func(void *arg);
+
+/**
+ * @brief Adjust thread priority at runtime (Phase 10)
+ * @param thread Thread handle
+ * @param new_priority New priority (1-255)
+ * @return 0: success, <0: error
+ */
+
+int adjust_thread_priority(pthread_t thread, int new_priority);
+
+/**
+ * @brief Fallback to static configuration on control failure (Phase 10)
+ */
+
+void fallback_to_static_config(void);
 
 #undef EXTERN
 #ifdef __cplusplus

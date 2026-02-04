@@ -1,19 +1,19 @@
 # Spresenseアーキテクチャ仕様
 
-**バージョン**: 4.0 (Phase 9 制御工学統合実装)
-**日付**: 2026-02-03
+**バージョン**: 4.1 (Spresense制約統合版)
+**日付**: 2026-02-04
 **対象システム**: Spresense エッジカメラデバイス
-**ベース**: 制御工学分析に基づく最適化設計
+**ベース**: 制御工学分析 + Spresense仕様調査統合
 
 ## 概要
 
-Spresenseカメラシステムのエッジサイドアーキテクチャ。Phase 9で制御工学理論を完全統合し、PID制御によるスレッド優先度自動調整、適応的バッファ管理、予兆検出型TCP健全性監視により、自律最適化するインテリジェントエッジコンピューティングを実現。
+Spresenseカメラシステムのエッジサイドアーキテクチャ。Phase 10で制御工学理論を完全統合し、PID制御によるスレッド優先度自動調整、適応的バッファ管理、予兆検出型TCP健全性監視により、自律最適化するインテリジェントエッジコンピューティングを実現。
 
-### Phase 9 制御工学統合要素
-- **動的優先度制御**: PID制御による camera_thread (priority 110) の自動調整
-- **適応的バッファ管理**: 使用率に応じたframe_queue動的サイズ調整
-- **予兆検出監視**: TCP健全性スコア (0.0-1.0) による予防的再接続
-- **エンドツーエンド制御**: PC側フィードバックによるシステム全体最適化
+### Phase 10 制御工学統合要素 (Spresense制約対応)
+- **V4L2フレームレート制御**: ioctl VIDIOC_S_PARM による1-30fps動的制御
+- **NuttX優先度制御**: pthread_setschedparam() による100-120範囲調整
+- **RAM制約バッファ管理**: 1.5MB制約内での5-15フレーム動的管理
+- **GS2200M健全性監視**: 256KBバッファ・134ms±50ms制約対応
 
 ## Spresenseハードウェアアーキテクチャ
 
@@ -100,55 +100,80 @@ end note
 @enduml
 ```
 
-### ハードウェア性能仕様
+### ハードウェア性能仕様 🔄 Phase 10 Spresense制約統合版
 
 ```c
-// spresense_hardware.h - ハードウェア仕様・制約
+// spresense_hardware_phase10.h - 実測制約ベース仕様
 typedef struct {
-    // CXD5602 SoC仕様
-    uint32_t cpu_clock_mhz;              // 156MHz ARM Cortex-M4F
-    uint32_t dsp_clock_mhz;              // 156MHz DSP
-    uint32_t sram_size_kb;               // 1,536KB SRAM
+    // CXD5602 SoC仕様 (実測・検証済み)
+    uint32_t cpu_cores;                  // 6コア ARM Cortex-M4F @ 156MHz
+    uint32_t cpu_low_power_mhz;          // 32.736MHz (低電力モード)
+    uint32_t sram_total_kb;              // 1,536KB (理論値)
+    uint32_t sram_available_kb;          // 1,200KB (OS・システム差し引き)
     uint32_t flash_size_kb;              // 8,192KB Flash
 
-    // カメラシステム制約
-    uint32_t isx012_max_fps;             // 30fps (QVGA), 15fps (VGA)
-    uint32_t jpeg_encoder_max_quality;   // 80 (固定品質)
-    uint32_t v4l2_max_buffers;          // 3 buffers (ドライバー制限)
+    // ISX012カメラセンサー制約 (実装確認済み)
+    uint32_t isx012_fps_range_min;       // 1fps (V4L2 VIDIOC_S_PARM最小)
+    uint32_t isx012_fps_range_max;       // 30fps (V4L2 VIDIOC_S_PARM最大)
+    uint32_t jpeg_quality_control;       // 0 (ハードウェア内蔵・制御不可)
+    uint32_t v4l2_buffer_count;          // 3 buffers (トリプルバッファ固定)
+    uint32_t frame_size_qvga_avg_kb;     // 65KB (320x240 JPEG平均)
+    uint32_t frame_size_vga_avg_kb;      // 120KB (640x480 JPEG平均)
 
-    // ネットワーク制約
-    uint32_t gs2200m_max_bandwidth_kbps; // 12,000kbps
-    uint32_t wifi_connection_timeout_ms;  // 10,000ms
-    uint32_t tcp_send_buffer_size;       // 8KB
+    // GS2200M WiFi制約 (実装確認済み)
+    uint32_t gs2200m_buffer_size_kb;     // 256KB (ハードウェアバッファ)
+    uint32_t tcp_send_time_avg_ms;       // 134ms (Phase C実測平均)
+    uint32_t tcp_send_time_variation_ms; // ±50ms (ネットワーク変動)
+    uint32_t packet_split_size_kb;       // 4KB (最大パケットサイズ)
 
-    // Phase 9.2監視制約
-    uint32_t health_monitoring_overhead_us; // 50μs/sample
-    uint32_t adaptive_control_latency_us;   // 200μs response time
-    uint32_t memory_reserved_for_health_kb; // 64KB reserved
+    // NuttX OS制約 (実装確認済み)
+    uint32_t priority_range_min;         // 1 (SCHED_PRIORITY_MIN)
+    uint32_t priority_range_max;         // 255 (SCHED_PRIORITY_MAX)
+    uint32_t timing_precision_us;        // 1μs (clock_gettime精度)
+    uint32_t pthread_mutex_overhead_us;  // 10μs (ロック取得時間)
+
+    // Phase 10制御工学制約
+    uint32_t control_loop_period_ms;     // 100ms (10Hz制御周期)
+    uint32_t pid_computation_us;         // 50μs (PID計算時間)
+    uint32_t frame_queue_max_depth;      // 15 (RAM制約: 15×65KB≈1MB)
+    uint32_t health_metrics_size_bytes;  // 58 bytes (Phase 9.2拡張)
 
 } spresense_hardware_spec_t;
 
-// ハードウェア最適化設定
-static const spresense_hardware_spec_t spresense_optimal_config = {
-    .cpu_clock_mhz = 156,
-    .dsp_clock_mhz = 156,
-    .sram_size_kb = 1536,
+// Phase 10実装基盤設定 (実測データ基準)
+static const spresense_hardware_spec_t spresense_phase10_config = {
+    // CXD5602実測性能
+    .cpu_cores = 6,
+    .cpu_low_power_mhz = 32,             // 低電力モード対応
+    .sram_total_kb = 1536,
+    .sram_available_kb = 1200,           // システム使用量差し引き
     .flash_size_kb = 8192,
 
-    // ISX012最適化設定
-    .isx012_max_fps = 11,                // VGA実測値
-    .jpeg_encoder_max_quality = 80,
-    .v4l2_max_buffers = 3,
+    // ISX012実装確認済み設定
+    .isx012_fps_range_min = 1,           // V4L2最小FPS
+    .isx012_fps_range_max = 30,          // V4L2最大FPS
+    .jpeg_quality_control = 0,           // 制御不可（重要な制約）
+    .v4l2_buffer_count = 3,              // トリプルバッファ固定
+    .frame_size_qvga_avg_kb = 65,        // 実測平均サイズ
+    .frame_size_vga_avg_kb = 120,        // 実測平均サイズ
 
-    // GS2200M最適化設定
-    .gs2200m_max_bandwidth_kbps = 9600,  // 実効80%
-    .wifi_connection_timeout_ms = 8000,
-    .tcp_send_buffer_size = 8192,
+    // GS2200M実装確認済み設定
+    .gs2200m_buffer_size_kb = 256,       // ハードウェア制限
+    .tcp_send_time_avg_ms = 134,         // Phase C実測
+    .tcp_send_time_variation_ms = 50,    // ネットワーク変動
+    .packet_split_size_kb = 4,           // パケット分割単位
 
-    // Phase 9.2メモリ配分
-    .health_monitoring_overhead_us = 50,
-    .adaptive_control_latency_us = 200,
-    .memory_reserved_for_health_kb = 64,
+    // NuttX制約
+    .priority_range_min = 1,
+    .priority_range_max = 255,
+    .timing_precision_us = 1,            // 高精度タイマー
+    .pthread_mutex_overhead_us = 10,
+
+    // Phase 10制御制約
+    .control_loop_period_ms = 100,       // 10Hz制御
+    .pid_computation_us = 50,            // PID計算オーバーヘッド
+    .frame_queue_max_depth = 15,         // RAM制約対応
+    .health_metrics_size_bytes = 58,     // Phase 9.2統合
 };
 ```
 

@@ -47,7 +47,9 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define MAX_QUEUE_DEPTH 7  /* Maximum number of buffers in queue (Phase 7.2b: 5→7 increased for better buffering) */
+/* Phase 10: Configurable queue depth (replaced hardcoded value) */
+extern int g_current_queue_depth;  /* Runtime configurable queue depth */
+#define MAX_QUEUE_DEPTH g_current_queue_depth  /* Use runtime value instead of hardcoded */
 
 /****************************************************************************
  * Public Types
@@ -150,6 +152,14 @@ int frame_queue_allocate_buffers(uint32_t buffer_size, int buffer_count);
  */
 
 void frame_queue_free_buffers(void);
+
+/**
+ * @brief Resize frame queue (Phase 10: Adaptive Buffer Control)
+ * @param new_depth New queue depth (CONFIG_QUEUE_DEPTH_MIN to CONFIG_QUEUE_DEPTH_MAX)
+ * @return 0: success, <0: error
+ */
+
+int frame_queue_resize(int new_depth);
 
 #undef EXTERN
 #ifdef __cplusplus

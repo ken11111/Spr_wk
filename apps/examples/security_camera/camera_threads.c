@@ -52,6 +52,7 @@
 #include "mjpeg_protocol.h"
 #include "usb_transport.h"
 #include "perf_logger.h"
+#include "fps_controller.h"
 #include "config.h"
 
 /* Phase 7: WiFi/TCP transport support */
@@ -59,6 +60,10 @@
 #ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
 #include "tcp_server.h"
 #endif
+
+/* External declarations for safety fallback (Phase 10) */
+extern frame_buffer_t *g_buffer_pool;
+extern int g_buffer_pool_size;
 
 /****************************************************************************
  * Performance Optimization Strategy (Step 5)
@@ -95,6 +100,7 @@
 
 pthread_t g_camera_thread;
 pthread_t g_usb_thread;
+pthread_t g_control_thread;  /* Phase 10: PID control thread */
 
 /****************************************************************************
  * Private Data
@@ -113,6 +119,10 @@ static struct timespec g_start_time;
 static struct timespec g_last_metrics_time;
 
 #define METRICS_INTERVAL_MS 1000  /* Send metrics every 1 second */
+
+/* Phase 10: PID Controller */
+
+static fps_controller_t g_fps_controller;
 
 /* Phase 7.3.3c: Unified frame drop logic with OR condition
  *
@@ -189,6 +199,21 @@ static uint32_t get_uptime_ms(void)
            (uint64_t)now.tv_nsec / 1000000ULL;
 
   return (uint32_t)(now_ms - start_ms);
+}
+
+/****************************************************************************
+ * Name: get_timestamp_us
+ *
+ * Description:
+ *   Get current timestamp in microseconds (Phase 10: Safety fallback)
+ *
+ ****************************************************************************/
+
+static uint64_t get_timestamp_us(void)
+{
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)ts.tv_nsec / 1000ULL;
 }
 
 /****************************************************************************
@@ -1129,6 +1154,91 @@ void *usb_thread_func(void *arg)
 }
 
 /****************************************************************************
+ * Name: control_thread_func
+ *
+ * Description:
+ *   PID control thread for dynamic FPS adjustment (Phase 10)
+ *
+ ****************************************************************************/
+
+void *control_thread_func(void *arg)
+{
+  thread_context_t *ctx = (thread_context_t *)arg;
+  int queue_depth;
+  float fps_output;
+  int current_fps;
+
+  LOG_INFO("== Control thread started (Phase 10 PID Controller) ==");
+
+  /* Initialize PID controller */
+  fps_controller_init(&g_fps_controller,
+                     FPS_CONTROLLER_SETPOINT,
+                     FPS_CONTROLLER_KP,
+                     FPS_CONTROLLER_KI,
+                     FPS_CONTROLLER_KD);
+
+  /* Enable controller */
+  fps_controller_enable(&g_fps_controller, true);
+
+  /* Control loop - 10Hz (100ms period) */
+  static uint32_t control_cycle_count = 0;
+  static uint64_t last_metrics_log_us = 0;
+
+  while (!g_shutdown_requested)
+    {
+      control_cycle_count++;
+
+      /* Check for control failures */
+      if (detect_control_failure())
+        {
+          fallback_to_static_config();
+          break; /* Exit control loop, let static config take over */
+        }
+
+      /* Get current queue depth */
+      pthread_mutex_lock(&g_queue_mutex);
+      queue_depth = frame_queue_depth(g_action_queue);
+      pthread_mutex_unlock(&g_queue_mutex);
+
+      /* Update PID controller */
+      fps_output = fps_controller_update(&g_fps_controller, (float)queue_depth);
+
+      /* Apply FPS adjustment */
+      current_fps = (int)(fps_output + 0.5f); /* Round to nearest integer */
+      camera_set_fps_runtime(current_fps);
+
+      /* Apply priority boost based on queue saturation */
+      apply_priority_boost(queue_depth);
+
+      LOG_DEBUG("Control: queue_depth=%d fps_output=%.1f current_fps=%d",
+               queue_depth, fps_output, current_fps);
+
+      /* Detailed control metrics every 5 seconds (50 cycles at 10Hz) */
+      uint64_t current_time_us = get_timestamp_us();
+      if (current_time_us - last_metrics_log_us >= 5000000ULL) /* 5 seconds */
+        {
+          control_metrics_t metrics;
+          fps_controller_get_metrics(&g_fps_controller, &metrics);
+
+          LOG_INFO("=== Phase 10 Control Metrics ===");
+          LOG_INFO("Cycles: %lu, Queue: %.1f, Error: %.2f, FPS: %.1f",
+                   (unsigned long)control_cycle_count, metrics.queue_depth,
+                   metrics.error, metrics.control_output);
+          LOG_INFO("PID Terms - P: %.3f, I: %.3f, Buffer Depth: %d",
+                   metrics.proportional_term, metrics.integral_term, g_current_queue_depth);
+
+          last_metrics_log_us = current_time_us;
+        }
+
+      /* Wait for next control period (100ms) */
+      usleep(FPS_CONTROLLER_PERIOD_US);
+    }
+
+  LOG_INFO("== Control thread exiting ==");
+  return NULL;
+}
+
+/****************************************************************************
  * Name: camera_threads_init
  *
  * Description:
@@ -1170,9 +1280,12 @@ int camera_threads_init(thread_context_t *ctx)
       return ret;
     }
 
+  /* Initialize configurable queue depth (Phase 10) */
+  g_current_queue_depth = CONFIG_QUEUE_DEPTH_DEFAULT;
+
   /* Allocate buffer pool (Step 2) */
 
-  ret = frame_queue_allocate_buffers(ctx->packet_buffer_size, MAX_QUEUE_DEPTH);
+  ret = frame_queue_allocate_buffers(ctx->packet_buffer_size, g_current_queue_depth);
   if (ret < 0)
     {
       LOG_ERROR("Failed to allocate buffer pool: %d", ret);
@@ -1226,9 +1339,196 @@ int camera_threads_init(thread_context_t *ctx)
     }
 
   LOG_INFO("USB thread created (priority %d)", USB_THREAD_PRIORITY);
-  LOG_INFO("Threading system initialized (Step 1: stub threads)");
+
+  /* Phase 10: Create control thread with lowest priority */
+
+  pthread_attr_init(&attr);
+  sparam.sched_priority = CONTROL_THREAD_PRIORITY;
+  pthread_attr_setschedparam(&attr, &sparam);
+  pthread_attr_setstacksize(&attr, THREAD_STACK_SIZE);
+
+  ret = pthread_create(&g_control_thread, &attr, control_thread_func, ctx);
+  pthread_attr_destroy(&attr);
+
+  if (ret != 0)
+    {
+      LOG_ERROR("Failed to create control thread: %d", ret);
+
+      /* Cleanup existing threads */
+
+      pthread_mutex_lock(&g_queue_mutex);
+      g_shutdown_requested = true;
+      pthread_cond_broadcast(&g_queue_cond);
+      pthread_mutex_unlock(&g_queue_mutex);
+
+      pthread_join(g_usb_thread, NULL);
+      pthread_join(g_camera_thread, NULL);
+      frame_queue_cleanup();
+      return -ret;
+    }
+
+  LOG_INFO("Control thread created (priority %d)", CONTROL_THREAD_PRIORITY);
+  LOG_INFO("Threading system initialized with Phase 10 PID control");
 
   return 0;
+}
+
+/****************************************************************************
+ * Name: adjust_thread_priority
+ *
+ * Description:
+ *   Adjust thread priority at runtime (Phase 10)
+ *
+ ****************************************************************************/
+
+int adjust_thread_priority(pthread_t thread, int new_priority)
+{
+  struct sched_param param;
+  int ret;
+
+  if (new_priority < 1 || new_priority > 255)
+    {
+      LOG_ERROR("Invalid priority %d (valid range: 1-255)", new_priority);
+      return -EINVAL;
+    }
+
+  param.sched_priority = new_priority;
+  ret = pthread_setschedparam(thread, SCHED_RR, &param);
+  if (ret != 0)
+    {
+      LOG_ERROR("Failed to set thread priority to %d: %d", new_priority, ret);
+      return -ret;
+    }
+
+  LOG_DEBUG("Thread priority adjusted to %d", new_priority);
+  return 0;
+}
+
+/****************************************************************************
+ * Name: apply_priority_boost
+ *
+ * Description:
+ *   Apply priority boost based on queue saturation (Phase 10)
+ *
+ ****************************************************************************/
+
+static void apply_priority_boost(int queue_depth)
+{
+  static bool usb_boosted = false;
+  int ret;
+
+  /* Priority boost logic based on queue saturation */
+  if (queue_depth >= 6 && !usb_boosted)
+    {
+      /* Boost USB thread priority when queue is saturated */
+      ret = adjust_thread_priority(g_usb_thread, 105);
+      if (ret == 0)
+        {
+          usb_boosted = true;
+          LOG_INFO("USB thread priority boosted to 105 (queue depth: %d)", queue_depth);
+        }
+    }
+  else if (queue_depth <= 2 && usb_boosted)
+    {
+      /* Reset USB thread priority when queue is light */
+      ret = adjust_thread_priority(g_usb_thread, USB_THREAD_PRIORITY);
+      if (ret == 0)
+        {
+          usb_boosted = false;
+          LOG_INFO("USB thread priority reset to %d (queue depth: %d)",
+                   USB_THREAD_PRIORITY, queue_depth);
+        }
+    }
+}
+
+/****************************************************************************
+ * Name: fallback_to_static_config
+ *
+ * Description:
+ *   Fallback to static configuration on control failure (Phase 10)
+ *
+ ****************************************************************************/
+
+void fallback_to_static_config(void)
+{
+  LOG_WARN("=== CONTROL SYSTEM FAILURE - ACTIVATING FALLBACK ===");
+
+  /* Disable PID controller */
+  fps_controller_enable(&g_fps_controller, false);
+
+  /* Revert to static 30fps */
+  camera_set_fps_runtime(30);
+  LOG_INFO("FPS reverted to static 30fps");
+
+  /* Reset thread priorities to baseline */
+  adjust_thread_priority(g_camera_thread, CAMERA_THREAD_PRIORITY);
+  adjust_thread_priority(g_usb_thread, USB_THREAD_PRIORITY);
+  LOG_INFO("Thread priorities reset to baseline");
+
+  /* Reset queue depth to default */
+  g_current_queue_depth = CONFIG_QUEUE_DEPTH_DEFAULT;
+  LOG_INFO("Queue depth reset to default: %d", CONFIG_QUEUE_DEPTH_DEFAULT);
+
+  LOG_WARN("=== FALLBACK COMPLETE - SYSTEM RUNNING IN SAFE MODE ===");
+}
+
+/****************************************************************************
+ * Name: detect_control_failure
+ *
+ * Description:
+ *   Detect control system failures (Phase 10)
+ *
+ ****************************************************************************/
+
+static bool detect_control_failure(void)
+{
+  static int failure_count = 0;
+  static uint64_t last_check_us = 0;
+  uint64_t current_time_us = get_timestamp_us();
+  bool controller_unstable;
+  bool allocation_failed;
+
+  /* Check every 5 seconds to avoid false positives */
+  if (current_time_us - last_check_us < 5000000ULL)
+    {
+      return false;
+    }
+
+  last_check_us = current_time_us;
+
+  /* Check controller stability */
+  controller_unstable = !fps_controller_is_stable(&g_fps_controller);
+
+  /* Check for memory allocation failures */
+  allocation_failed = (g_buffer_pool_size == 0 || g_buffer_pool == NULL);
+
+  /* Count failures */
+  if (controller_unstable || allocation_failed)
+    {
+      failure_count++;
+      LOG_WARN("Control failure detected (count: %d) - unstable: %s, alloc_fail: %s",
+               failure_count,
+               controller_unstable ? "yes" : "no",
+               allocation_failed ? "yes" : "no");
+
+      /* Trigger fallback after 3 consecutive failures */
+      if (failure_count >= 3)
+        {
+          failure_count = 0; /* Reset counter */
+          return true;
+        }
+    }
+  else
+    {
+      /* Reset counter on successful operation */
+      if (failure_count > 0)
+        {
+          LOG_INFO("Control system recovered, failure count reset");
+        }
+      failure_count = 0;
+    }
+
+  return false;
 }
 
 /****************************************************************************

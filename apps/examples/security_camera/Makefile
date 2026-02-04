@@ -52,6 +52,7 @@ CSRCS += mjpeg_protocol.c
 CSRCS += perf_logger.c
 CSRCS += frame_queue.c
 CSRCS += camera_threads.c
+CSRCS += fps_controller.c
 
 # Phase 7: WiFi/TCP transport
 ifeq ($(CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI),y)

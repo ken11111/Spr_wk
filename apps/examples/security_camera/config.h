@@ -117,6 +117,12 @@
 #define CONFIG_MAX_RECONNECT_RETRY   3
 #define CONFIG_RECONNECT_DELAY_MS    1000
 
+/* Phase 10: Adaptive Buffer Control */
+
+#define CONFIG_QUEUE_DEPTH_MIN       5      /* Minimum queue depth */
+#define CONFIG_QUEUE_DEPTH_MAX       9      /* Maximum queue depth */
+#define CONFIG_QUEUE_DEPTH_DEFAULT   7      /* Default queue depth */
+
 /* Debug Configuration */
 
 #define CONFIG_DEBUG_ENABLE          1

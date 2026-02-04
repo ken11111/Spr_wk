@@ -161,6 +161,13 @@ void frame_queue_free_buffers(void);
 
 int frame_queue_resize(int new_depth);
 
+/**
+ * @brief Check if buffer pool is properly allocated (Phase 10: Safety check)
+ * @return true if buffer pool is healthy, false otherwise
+ */
+
+bool frame_queue_is_buffer_pool_healthy(void);
+
 #undef EXTERN
 #ifdef __cplusplus
 }

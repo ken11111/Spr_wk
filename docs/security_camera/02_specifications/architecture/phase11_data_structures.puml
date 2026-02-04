@@ -1,0 +1,112 @@
+@startuml Phase11_Data_Structures
+
+!theme plain
+title Phase 11 データ構造設計
+
+' === 拡張フレーム統計構造体 ===
+class frame_statistics_t {
+  + uint32_t frame_count
+  + uint32_t total_size_bytes
+  + uint32_t avg_size_bytes
+  + uint32_t min_size_bytes
+  + uint32_t max_size_bytes
+  + uint32_t size_variance
+  + float complexity_index
+  + uint32_t window_size
+  + uint32_t size_history[10]
+  + uint8_t history_index
+  --
+  + update_statistics(size)
+  + calculate_complexity()
+  + get_size_trend()
+}
+
+' === 多変数制御入力構造体 ===
+class multi_variable_input_t {
+  + float queue_depth
+  + float avg_frame_size_kb
+  + float frame_size_variance
+  + float transmission_time_ms
+  + float predicted_queue_load
+  + float complexity_index
+  + uint64_t timestamp_us
+  --
+  + normalize_inputs()
+  + validate_inputs()
+}
+
+' === 適応PIDコントローラ ===
+class adaptive_pid_controller_t {
+  + float base_kp
+  + float base_ki
+  + float base_kd
+  + float current_kp
+  + float current_ki
+  + float current_kd
+  + float adaptation_factor
+  + float complexity_threshold
+  + bool adaptation_enabled
+  + uint32_t adaptation_count
+  --
+  + adapt_gains(complexity)
+  + reset_to_base_gains()
+  + calculate_pid_output()
+}
+
+' === 予測制御構造体 ===
+class predictive_controller_t {
+  + float size_history[5]
+  + float trend_coefficient
+  + float prediction_accuracy
+  + uint32_t prediction_count
+  + uint32_t correct_predictions
+  + bool prediction_enabled
+  --
+  + predict_frame_size()
+  + update_trend()
+  + calculate_accuracy()
+}
+
+' === 動的バッファ管理構造体 ===
+class buffer_manager_t {
+  + uint32_t base_buffer_size
+  + uint32_t current_buffer_size
+  + uint32_t min_buffer_size
+  + uint32_t max_buffer_size
+  + float size_multiplier
+  + uint32_t resize_count
+  + bool auto_resize_enabled
+  --
+  + calculate_optimal_size()
+  + resize_buffers()
+  + validate_size_limits()
+}
+
+' === 総合制御システム ===
+class enhanced_control_system_t {
+  + frame_statistics_t stats
+  + adaptive_pid_controller_t pid
+  + predictive_controller_t predictor
+  + buffer_manager_t buffer_mgr
+  + multi_variable_input_t input
+  + bool system_enabled
+  + uint32_t control_cycles
+  + uint32_t fallback_count
+  --
+  + initialize_system()
+  + execute_control_cycle()
+  + handle_fallback()
+}
+
+' === 関係性 ===
+enhanced_control_system_t ||--|| frame_statistics_t
+enhanced_control_system_t ||--|| adaptive_pid_controller_t
+enhanced_control_system_t ||--|| predictive_controller_t
+enhanced_control_system_t ||--|| buffer_manager_t
+enhanced_control_system_t ||--|| multi_variable_input_t
+
+frame_statistics_t ..> multi_variable_input_t : "provides statistics"
+predictive_controller_t ..> multi_variable_input_t : "provides predictions"
+adaptive_pid_controller_t ..> frame_statistics_t : "uses complexity_index"
+
+@enduml

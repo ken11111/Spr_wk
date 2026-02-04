@@ -459,3 +459,16 @@ int frame_queue_resize(int new_depth)
   LOG_INFO("Queue depth resized: %d → %d", old_depth, new_depth);
   return 0;
 }
+
+/****************************************************************************
+ * Name: frame_queue_is_buffer_pool_healthy
+ *
+ * Description:
+ *   Check if buffer pool is properly allocated (Phase 10: Safety check)
+ *
+ ****************************************************************************/
+
+bool frame_queue_is_buffer_pool_healthy(void)
+{
+  return (g_buffer_pool != NULL && g_buffer_pool_size > 0);
+}

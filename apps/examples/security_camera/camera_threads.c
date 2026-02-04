@@ -61,9 +61,7 @@
 #include "tcp_server.h"
 #endif
 
-/* External declarations for safety fallback (Phase 10) */
-extern frame_buffer_t *g_buffer_pool;
-extern int g_buffer_pool_size;
+/* Phase 10: Control engineering implementation */
 
 /****************************************************************************
  * Performance Optimization Strategy (Step 5)
@@ -1154,6 +1152,133 @@ void *usb_thread_func(void *arg)
 }
 
 /****************************************************************************
+ * Name: apply_priority_boost
+ *
+ * Description:
+ *   Apply priority boost based on queue saturation (Phase 10)
+ *
+ ****************************************************************************/
+
+static void apply_priority_boost(int queue_depth)
+{
+  static bool usb_boosted = false;
+  int ret;
+
+  /* Priority boost logic based on queue saturation */
+  if (queue_depth >= 6 && !usb_boosted)
+    {
+      /* Boost USB thread priority when queue is saturated */
+      ret = adjust_thread_priority(g_usb_thread, 105);
+      if (ret == 0)
+        {
+          usb_boosted = true;
+          LOG_INFO("USB thread priority boosted to 105 (queue depth: %d)", queue_depth);
+        }
+    }
+  else if (queue_depth <= 2 && usb_boosted)
+    {
+      /* Reset USB thread priority when queue is light */
+      ret = adjust_thread_priority(g_usb_thread, USB_THREAD_PRIORITY);
+      if (ret == 0)
+        {
+          usb_boosted = false;
+          LOG_INFO("USB thread priority reset to %d (queue depth: %d)",
+                   USB_THREAD_PRIORITY, queue_depth);
+        }
+    }
+}
+
+/****************************************************************************
+ * Name: detect_control_failure
+ *
+ * Description:
+ *   Detect control system failures (Phase 10)
+ *
+ ****************************************************************************/
+
+static bool detect_control_failure(void)
+{
+  static int failure_count = 0;
+  static uint64_t last_check_us = 0;
+  uint64_t current_time_us = get_timestamp_us();
+  bool controller_unstable;
+  bool allocation_failed;
+
+  /* Check every 5 seconds to avoid false positives */
+  if (current_time_us - last_check_us < 5000000ULL)
+    {
+      return false;
+    }
+
+  last_check_us = current_time_us;
+
+  /* Check controller stability */
+  controller_unstable = !fps_controller_is_stable(&g_fps_controller);
+
+  /* Check for memory allocation failures */
+  allocation_failed = !frame_queue_is_buffer_pool_healthy();
+
+  /* Count failures */
+  if (controller_unstable || allocation_failed)
+    {
+      failure_count++;
+      LOG_WARN("Control failure detected (count: %d) - unstable: %s, alloc_fail: %s",
+               failure_count,
+               controller_unstable ? "yes" : "no",
+               allocation_failed ? "yes" : "no");
+
+      /* Trigger fallback after 3 consecutive failures */
+      if (failure_count >= 3)
+        {
+          failure_count = 0; /* Reset counter */
+          return true;
+        }
+    }
+  else
+    {
+      /* Reset counter on successful operation */
+      if (failure_count > 0)
+        {
+          LOG_INFO("Control system recovered, failure count reset");
+        }
+      failure_count = 0;
+    }
+
+  return false;
+}
+
+/****************************************************************************
+ * Name: fallback_to_static_config
+ *
+ * Description:
+ *   Fallback to static configuration on control failure (Phase 10)
+ *
+ ****************************************************************************/
+
+void fallback_to_static_config(void)
+{
+  LOG_WARN("=== CONTROL SYSTEM FAILURE - ACTIVATING FALLBACK ===");
+
+  /* Disable PID controller */
+  fps_controller_enable(&g_fps_controller, false);
+
+  /* Revert to static 30fps */
+  camera_set_fps_runtime(30);
+  LOG_INFO("FPS reverted to static 30fps");
+
+  /* Reset thread priorities to baseline */
+  adjust_thread_priority(g_camera_thread, CAMERA_THREAD_PRIORITY);
+  adjust_thread_priority(g_usb_thread, USB_THREAD_PRIORITY);
+  LOG_INFO("Thread priorities reset to baseline");
+
+  /* Reset queue depth to default */
+  g_current_queue_depth = CONFIG_QUEUE_DEPTH_DEFAULT;
+  LOG_INFO("Queue depth reset to default: %d", CONFIG_QUEUE_DEPTH_DEFAULT);
+
+  LOG_WARN("=== FALLBACK COMPLETE - SYSTEM RUNNING IN SAFE MODE ===");
+}
+
+/****************************************************************************
  * Name: control_thread_func
  *
  * Description:
@@ -1404,132 +1529,6 @@ int adjust_thread_priority(pthread_t thread, int new_priority)
   return 0;
 }
 
-/****************************************************************************
- * Name: apply_priority_boost
- *
- * Description:
- *   Apply priority boost based on queue saturation (Phase 10)
- *
- ****************************************************************************/
-
-static void apply_priority_boost(int queue_depth)
-{
-  static bool usb_boosted = false;
-  int ret;
-
-  /* Priority boost logic based on queue saturation */
-  if (queue_depth >= 6 && !usb_boosted)
-    {
-      /* Boost USB thread priority when queue is saturated */
-      ret = adjust_thread_priority(g_usb_thread, 105);
-      if (ret == 0)
-        {
-          usb_boosted = true;
-          LOG_INFO("USB thread priority boosted to 105 (queue depth: %d)", queue_depth);
-        }
-    }
-  else if (queue_depth <= 2 && usb_boosted)
-    {
-      /* Reset USB thread priority when queue is light */
-      ret = adjust_thread_priority(g_usb_thread, USB_THREAD_PRIORITY);
-      if (ret == 0)
-        {
-          usb_boosted = false;
-          LOG_INFO("USB thread priority reset to %d (queue depth: %d)",
-                   USB_THREAD_PRIORITY, queue_depth);
-        }
-    }
-}
-
-/****************************************************************************
- * Name: fallback_to_static_config
- *
- * Description:
- *   Fallback to static configuration on control failure (Phase 10)
- *
- ****************************************************************************/
-
-void fallback_to_static_config(void)
-{
-  LOG_WARN("=== CONTROL SYSTEM FAILURE - ACTIVATING FALLBACK ===");
-
-  /* Disable PID controller */
-  fps_controller_enable(&g_fps_controller, false);
-
-  /* Revert to static 30fps */
-  camera_set_fps_runtime(30);
-  LOG_INFO("FPS reverted to static 30fps");
-
-  /* Reset thread priorities to baseline */
-  adjust_thread_priority(g_camera_thread, CAMERA_THREAD_PRIORITY);
-  adjust_thread_priority(g_usb_thread, USB_THREAD_PRIORITY);
-  LOG_INFO("Thread priorities reset to baseline");
-
-  /* Reset queue depth to default */
-  g_current_queue_depth = CONFIG_QUEUE_DEPTH_DEFAULT;
-  LOG_INFO("Queue depth reset to default: %d", CONFIG_QUEUE_DEPTH_DEFAULT);
-
-  LOG_WARN("=== FALLBACK COMPLETE - SYSTEM RUNNING IN SAFE MODE ===");
-}
-
-/****************************************************************************
- * Name: detect_control_failure
- *
- * Description:
- *   Detect control system failures (Phase 10)
- *
- ****************************************************************************/
-
-static bool detect_control_failure(void)
-{
-  static int failure_count = 0;
-  static uint64_t last_check_us = 0;
-  uint64_t current_time_us = get_timestamp_us();
-  bool controller_unstable;
-  bool allocation_failed;
-
-  /* Check every 5 seconds to avoid false positives */
-  if (current_time_us - last_check_us < 5000000ULL)
-    {
-      return false;
-    }
-
-  last_check_us = current_time_us;
-
-  /* Check controller stability */
-  controller_unstable = !fps_controller_is_stable(&g_fps_controller);
-
-  /* Check for memory allocation failures */
-  allocation_failed = (g_buffer_pool_size == 0 || g_buffer_pool == NULL);
-
-  /* Count failures */
-  if (controller_unstable || allocation_failed)
-    {
-      failure_count++;
-      LOG_WARN("Control failure detected (count: %d) - unstable: %s, alloc_fail: %s",
-               failure_count,
-               controller_unstable ? "yes" : "no",
-               allocation_failed ? "yes" : "no");
-
-      /* Trigger fallback after 3 consecutive failures */
-      if (failure_count >= 3)
-        {
-          failure_count = 0; /* Reset counter */
-          return true;
-        }
-    }
-  else
-    {
-      /* Reset counter on successful operation */
-      if (failure_count > 0)
-        {
-          LOG_INFO("Control system recovered, failure count reset");
-        }
-      failure_count = 0;
-    }
-
-  return false;
-}
 
 /****************************************************************************
  * Name: camera_threads_cleanup

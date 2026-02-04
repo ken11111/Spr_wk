@@ -1,0 +1,89 @@
+@startuml Phase11_Control_Algorithm
+
+!theme plain
+title Phase 11 適応制御アルゴリズム詳細
+
+' === 制御ループ詳細 ===
+
+participant "Camera Thread" as CT
+participant "Frame Size Analyzer" as FSA
+participant "Multi-Variable Controller" as MVC
+participant "Adaptive PID" as APID
+participant "Predictive Control" as PC
+participant "Buffer Manager" as BM
+
+== 制御サイクル (100ms周期) ==
+
+CT -> FSA : frame_data, size, timestamp
+activate FSA
+
+FSA -> FSA : update_size_statistics()
+note right : 直近10フレームの\nサイズ統計を更新
+
+FSA -> FSA : calculate_complexity_index()
+note right : シーン複雑度指数\n= size_variance / avg_size
+
+FSA -> PC : size_trend, complexity_index
+activate PC
+
+PC -> PC : predict_next_frame_size()
+note right : 線形回帰による\nサイズ予測
+
+PC -> PC : estimate_queue_impact()
+note right : 予測サイズから\nキュー影響を推定
+
+PC --> MVC : predicted_load
+deactivate PC
+
+FSA --> MVC : current_stats
+deactivate FSA
+
+' キュー深度取得
+CT -> MVC : current_queue_depth
+
+' 制御計算
+activate MVC
+
+MVC -> MVC : normalize_input_vector()
+note right : 入力正規化:\nqueue_depth, avg_size,\nvariance, transmission_time
+
+MVC -> APID : control_vector
+activate APID
+
+APID -> APID : adapt_gains()
+note right : 複雑度に応じてゲイン調整:\nif complexity > threshold:\n  Kp *= 0.8, Ki *= 0.5
+
+APID -> APID : pid_calculation()
+note right : 拡張PID計算:\nP = Kp * error\nI = Ki * ∫error dt\nD = Kd * derror/dt
+
+APID --> MVC : fps_adjustment
+deactivate APID
+
+MVC -> BM : buffer_recommendation
+activate BM
+
+BM -> BM : calculate_optimal_buffer_size()
+note right : 統計に基づく\n動的バッファサイズ計算
+
+BM --> MVC : buffer_config
+deactivate BM
+
+MVC --> CT : fps_output, buffer_size
+deactivate MVC
+
+CT -> CT : apply_fps_change()
+CT -> CT : apply_buffer_resize()
+
+== 異常検出・フォールバック ==
+
+alt 制御不安定検出
+  MVC -> MVC : stability_check()
+  note right : 出力振動、発散検出
+
+  MVC -> "Safety Fallback" : trigger_fallback()
+
+  "Safety Fallback" -> "Original PID" : revert_to_phase10()
+  note right : Phase 10制御に復帰
+end
+
+@enduml

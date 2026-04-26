@@ -1,0 +1,82 @@
+@startuml ADR_004_CRC_Lookup_Optimization
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+
+title ADR-004: CRC-16-CCITT テーブルルックアップ最適化 (**※ 実装未統合**)\n(ADR 主張: パケット処理 23.3ms → 8.7ms, **-62.7%**)
+
+header
+  🔴 **実装乖離警告 (2026-04-27 検証)**
+  ADR-004 は「テーブル化実装完了」と主張するが、現 ``apps/examples/security_camera/mjpeg_protocol.c:32-56``
+  は bitwise (8 重ループ) のままで ``crc16_table`` 配列は存在しない。
+  ``git log -S "crc16_table"`` の結果、テーブル化コードは ADR_004.md / CRC_VALIDATION_SPEC.md
+  内のサンプルとしてのみ存在し、**実コード ``.c`` への統合は一度も発生していない**。
+  → 以下の図は「目標設計」の可視化であり、実装状態と一致しない。
+  → 対応案: (a) 実装をテーブル化、(b) ADR-004 のステータスを「計画」に格下げ、いずれかが必要。
+end header
+
+|🔴 現コード (実装中): Bitwise O(8n)|
+start
+:crc = 0xFFFF;
+note right
+  **ボトルネック分析**:
+  64KB × 8 bit × 8 iter
+  = 4,194,304 ビット演算
+  ≈ 15-18ms 消費
+  (Cortex-M4F @ 156MHz)
+end note
+repeat :i = 0 .. len ;
+  :data[i] を読み込み;
+  :crc ^= (data[i] << 8);
+  repeat :j = 0 .. 8 ;
+    if (crc & 0x8000 ?) then (yes)
+      :crc = (crc << 1) ^ 0x1021;
+    else (no)
+      :crc = crc << 1;
+    endif
+  repeat while (j < 8 ?)
+  note right
+    分岐予測ミス多発
+    パイプラインストール
+  end note
+repeat while (i < len ?)
+:return crc;
+stop
+
+|🟢 目標 (未統合): Lookup O(n)|
+start
+:**起動時 1 回**:\n256 エントリ × 2B = 512B\nCRC16 テーブル事前計算;
+note right #LightGreen
+  const 修飾で ROM 配置
+  RAM 圧迫なし
+  L1 キャッシュヒット
+end note
+:crc = 0xFFFF;
+repeat :i = 0 .. len ;
+  :index = (crc >> 8) ^ data[i];
+  :crc = (crc << 8) ^ crc16_table[index];
+  note right
+    1 byte = 1 テーブル参照
+    分岐予測ミス排除
+  end note
+repeat while (i < len ?)
+:return crc;
+stop
+
+footer
+**ADR 主張の実測効果 (VGA 90 フレーム, 平均 JPEG 40.76KB)** ※ 現コードでは再現不能:
+| 指標 | (主張) 最適化前 | (主張) 最適化後 | (主張) 改善率 |
+| パケット処理時間 | 23.3ms | 8.7ms | -62.7% |
+| 総レイテンシ | 58.6ms | 47.9ms | -18.3% |
+| FPS | 9.8 | 11.0 | +12.2% |
+| フレーム間隔 | 102ms | 91ms | -10.8% |
+
+**互換性パラメータ (実装する場合の仕様)**:
+多項式 0x1021 / 初期値 0xFFFF / MSB-first / 最終 XOR なし
+(NuttX crc16ccitt() は LSB-first 初期値 0x0000 のため使用不可)
+
+**検証コマンド**:
+git log -S "crc16_table" --all  → .md のみ、.c には不在
+grep "crc16_table" apps/examples/security_camera/*.c  → 0 件
+end footer
+
+@enduml

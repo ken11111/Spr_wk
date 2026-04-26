@@ -1,0 +1,89 @@
+@startuml ADR_002_TCP_Health_Monitoring
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+title ADR-002: TCP Health Monitoring + 予防的再接続\n(ADR 主張: ダウンタイム 30s → 2.8s, **90% 削減**) ※ 数値裏付け要追加調査
+
+header
+  🟡 **検証注記 (2026-04-27)**
+  • Spresense 側実装: ✅ ``mjpeg_protocol.h:88-89`` に ``tcp_health_moving_avg_ms`` / ``tcp_health_total_spikes`` 存在
+  • PC 側実装 (Rust_ws/security_camera_viewer master = Phase 4.1):
+    - ``tcp_connection.rs`` に基本的な reconnect ロジックあり
+    - **移動平均 / スパイク検出 / 予防的再接続トリガーは未確認** (master ブランチには存在せず)
+  • 「30s → 2.8s, 90% 削減」の数値: ``06_evidence/metrics_analysis/`` および ``bak/04_test_results/`` を全文検索しても **裏付けデータなし**
+  • bak/26_PHASE9_AUTO_RECONNECT, 27_PHASE9_RECONNECT_FAILURE 実測:
+    - Phase 9 自動再接続テスト (71.8 分, 147 分): ドロップ率 **74-75%** (Phase 8 の 53.7% から悪化)
+    - Phase 9.1 では再接続失敗ケースあり (RST 拒否、要再起動)
+  → ADR-002 の「90% 削減」は **目標値または理論計算値**で、実測の裏付けは現状不在。
+  → 対応案: (a) 実測ログ場所をユーザーに確認、(b) ADR-002 を「設計目標」に格下げ、(c) 実測値で書き換え
+end header
+
+participant "Spresense\nTCP送信" as TX
+participant "Health Monitor\n(8 サンプル移動平均)" as HM
+participant "Spike Detector" as SD
+participant "Preventive\nReconnection" as PR
+participant "PC 側\nDashboard" as PC
+
+== 🟢 通常動作: RTT 134ms 平均 ==
+
+TX -> HM : RTT = 134ms
+HM -> HM : moving_avg_ms 更新\n(8 サンプル window)
+HM ->> PC : metrics 58 byte (3 秒間隔)\ntcp_health_moving_avg_ms = 134\ntcp_health_total_spikes = 0
+note right of PC #LightGreen
+  Health Status: HEALTHY
+  (85-95% Health Score)
+end note
+
+== 🟡 段階的劣化開始 ==
+
+TX -> HM : RTT = 350ms
+HM -> SD : current > avg × 3 ?
+SD -> SD : spike_count = 1
+note right of SD : 注意レベル\n(70-84% Score)
+
+== 🔴 クリティカル → 予防再接続トリガー ==
+
+TX -> HM : RTT = 1100ms
+HM -> SD : current > avg × 3 ? (Yes)
+SD -> SD : spike_count = 2
+SD -> PR : **連続 2 回スパイク**\n**OR > 1000ms**\n→ 予防再接続実行
+note right of PR #Gold
+  **判定ロジック**:
+  spike_count >= 2
+  || current_rtt_ms > 1000
+end note
+
+== ⚡ 予防再接続 (3 秒以内) ==
+
+PR -> TX : disconnect()
+PR -> TX : reconnect()
+note right of PR #LightCoral
+  **従来 reactive 方式**:
+  切断検出 → 復旧まで平均 30 秒
+
+  **予防的 proactive 方式**:
+  予兆検出 → 復旧まで平均 2.8 秒
+  → **90.7% ダウンタイム削減**
+end note
+TX -->> HM : RTT = 134ms (正常復帰)
+HM ->> PC : metrics 58 byte (HEALTHY)
+
+note over TX, PC #LightYellow
+  **ADR-002 主張の Phase 9.1 → 9.2 改善** ※ 実測裏付け未確認:
+  | 指標 | (主張) Phase 9.1 | (主張) Phase 9.2 | (主張) 改善率 |
+  | 平均復旧時間 | 30.2s | 2.8s | -90.7% |
+  | 最大切断時間 | 45s | 4.1s | -90.9% |
+  | 1 時間あたり切断 | 3.2 回 | 0.1 回 | -96.9% |
+  | ストリーミング可用率 | 87.3% | 98.9% | +11.6% |
+
+  **bak 実測との対比 (2026-01-17 Phase 9 テスト, 71.8 分)**:
+  | 指標 | 実測値 |
+  | ドロップ率 | **74.2%** (Phase 8 の 53.7% から悪化) |
+  | TCP 平均送信時間 | 227.2 ms |
+  | TCP 最大送信時間 | 5,228.8 ms |
+  | PC FPS 平均 | 2.77 fps |
+  | 再接続結果 | Phase 9.1 では失敗ケースあり (RST 拒否、要再起動) |
+end note
+
+@enduml

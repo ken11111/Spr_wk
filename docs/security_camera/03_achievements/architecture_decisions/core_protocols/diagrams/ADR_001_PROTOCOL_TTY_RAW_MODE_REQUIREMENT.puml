@@ -1,0 +1,52 @@
+@startuml ADR_001_TTY_Raw_Mode
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+title ADR-001: USB CDC-ACM TTY Raw Mode 要件\n(canonical mode 破損 vs raw mode 成功の比較)
+
+participant "Spresense\n(USB CDC 送信)" as SP
+participant "Linux TTY\n/dev/ttyACM0" as TTY
+participant "PC アプリ\n(プロトコルパーサー)" as APP
+
+== 🔴 canonical mode (デフォルト): バイナリ破損 ==
+
+SP -> TTY : send(0xCA 0xFE 0xBA 0xBE\n[JPEG payload] 0x0A 0x0D ...)
+note right of TTY #LightCoral
+  **canonical / cooked mode の処理**:
+  • 0x0A (LF) → 行終端解釈
+  • 0x0D (CR) → 行終端変換
+  • 制御文字をテキストとして処理
+  • エコーバック有効
+  → バイナリデータ破損
+end note
+TTY -->> APP : 0xCA 0xFE 0xBA 0xBE [破損 payload] ...
+APP --> APP : 同期ワード検出失敗\n**0/90 フレーム成功 (100% 破損)**
+
+== 🟢 raw mode: バイナリ完全保持 ==
+
+note over TTY #LightGreen
+  **設定コマンド** (システム起動後 1 回):
+  ``stty -F /dev/ttyACM0 raw -echo 115200``
+  • raw: canonical mode 無効
+  • -echo: エコーバック無効
+  • 115200: ボーレート設定
+end note
+
+SP -> TTY : send(0xCA 0xFE 0xBA 0xBE\n[JPEG payload] 0x0A 0x0D ...)
+TTY ->> APP : 0xCA 0xFE 0xBA 0xBE [JPEG payload] 0x0A 0x0D ...
+APP --> APP : 同期ワード検出成功\n**90/90 フレーム成功 (100%)**
+
+note over SP, APP #LightYellow
+  **検証結果 (Phase 1A, 90 フレーム連続キャプチャ)**:
+  | mode | 成功率 | 破損 |
+  | canonical | 0/90 | 100% |
+  | raw | 90/90 | 0% |
+
+  **却下案**:
+  ❌ プロトコル側エスケープ処理: オーバーヘッド増、根本解決にならず
+  ❌ USB HID/カスタムドライバ: 開発工数増、Spresense 非対応
+  ❌ TCP/WiFi 移行: Phase 1 スコープ外
+end note
+
+@enduml

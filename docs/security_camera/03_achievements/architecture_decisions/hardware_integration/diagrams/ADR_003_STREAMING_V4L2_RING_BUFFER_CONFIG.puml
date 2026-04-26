@@ -1,0 +1,76 @@
+@startuml ADR_003_V4L2_RING_Buffer
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title ADR-003: V4L2 VIDEO_CAPTURE + RING Buffer 設定\n(Phase 1.5: 90/90 フレーム成功率 100%)
+
+package "ハードウェア層" #LightBlue {
+  [ISX012 / ISX019\nカメラセンサー] as CAM
+}
+
+package "NuttX V4L2 ドライバ" #LightCyan {
+  rectangle "RING Buffer (循環)" as RING #Gold {
+    rectangle "Buffer 0\n65,536 B" as B0
+    rectangle "Buffer 1\n65,536 B" as B1
+    rectangle "Buffer 2\n65,536 B" as B2
+  }
+  note bottom of RING
+    **必須設定**:
+    • V4L2_BUF_TYPE_VIDEO_CAPTURE
+      (STILL_CAPTURE は連続撮影不可)
+    • V4L2_BUF_MODE_RING
+      (FIFO は管理複雑、性能劣化)
+    • DMA 32 byte alignment
+      (memalign(32, size) 必須)
+    • sizeimage = 65536
+      (実測 7-22KB の 3 倍マージン)
+
+    **req.count の扱い (履歴 vs 現コード)**:
+    ─ ADR-003 発見当時: req.count = 5 要求
+        → ドライバが 3 返却 (HW 制限発見)
+    ─ 現コード (camera_manager.c:61):
+        #define CAMERA_BUFFER_NUM 3
+        req.count = 3 (学習後の最終形)
+    → ADR は史実、コードは結論を直接実装
+  end note
+}
+
+package "アプリケーション層" #LightYellow {
+  [VIDIOC_DQBUF\n(取り出し)] as DQ
+  [JPEG 処理\n(7-22KB 可変長)] as JPEG
+  [VIDIOC_QBUF\n(返却)] as QB
+}
+
+CAM -down-> B0 : DMA 転送
+B0 -right-> B1 : 循環
+B1 -right-> B2 : 循環
+B2 -down-> B0 : 古いフレーム上書き OK\n(メモリリーク無し)
+
+RING -down-> DQ : 完成フレーム
+DQ -right-> JPEG
+JPEG -right-> QB
+QB -up-> RING : 空きバッファ復帰
+
+legend right
+  **検証結果 (Phase 1.5 VGA 640×480)**
+  | 項目 | 結果 |
+  | 成功率 | 90/90 (100%) |
+  | USB 再試行 | 0 回 |
+  | カメラタイムアウト | 0 回 |
+  | 連続動作時間 | 24.8 秒 |
+  | メモリ使用 | 192KB (64KB×3) |
+  | 平均 JPEG サイズ | 63.97KB (98% 使用率) |
+
+  **メモリ削減効果**
+  設定前: 1.5MB (ヒープ超過で失敗)
+  設定後: 192KB (-87% 削減)
+
+  **却下案**
+  ❌ STILL_CAPTURE: 連続撮影タイムアウト
+  ❌ FIFO Mode: 管理複雑、性能劣化
+  ❌ Memory-mapped 直接制御: 過剰設計
+  ❌ 外部 JPEG エンコーダ: HW 追加コスト
+endlegend
+
+@enduml

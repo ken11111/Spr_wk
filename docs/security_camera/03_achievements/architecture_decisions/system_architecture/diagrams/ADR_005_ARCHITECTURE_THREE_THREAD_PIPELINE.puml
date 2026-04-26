@@ -1,0 +1,90 @@
+@startuml ADR_005_Three_Thread_Pipeline
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title ADR-005: PC 側 Three-Thread Pipeline Architecture (Phase 8)\nFPS 3.0 → 6.74 (**+125%**), GUI 60fps 維持
+
+header
+  🟡 **実装乖離注記 (2026-04-27 検証)**
+  実装は ``/home/ken/Rust_ws/security_camera_viewer/`` に存在 (master = Phase 4.1 baseline)。
+  Phase 7.3.3 / 8 の主要数値は ``bak/04_test_results/21_,22_`` 実測ログと整合 (236ms, 72.9%, 134ms, 6.74fps, 53.7%, 2.07ms)。
+  ただし以下の構造的乖離あり:
+    • ファイル構成: ADR は ``src/tcp_reader.rs`` ``src/jpeg_decoder.rs`` ``src/gui/main.rs`` 別ファイルと記述
+      → 実装は ``pipeline.rs`` 1 ファイル (``fn tcp_reader_thread``, ``fn jpeg_decoder_thread``) + ``gui_main.rs`` フラット
+    • Channel 種別: ADR は **Unbounded Channels** と明記 (バックプレッシャー無し)
+      → 実装は ``mpsc::sync_channel(3)`` = **bounded 容量 3** (PACKET_CHANNEL_CAPACITY = 3)
+      → これは ADR と矛盾する設計変更 (おそらく意図的、メモリ膨張対策)
+    • ``pipeline.rs`` のコメント値: TCP 200ms / JPEG 40ms / GUI 20ms (ADR の 134/2.07/16ms より遅い、測定条件差の可能性)
+  → 設計判断は ADR、現在挙動は実装コードを正とする。Channel 種別変更の根拠を ADR-005 改訂版で文書化推奨。
+end header
+
+actor "ユーザー" as USER
+node "Spresense" as SPR #LightBlue
+node "Display" as DISP #LightPink
+
+package "PC Application" as PC #FEFEFE {
+
+  component "TCP Reader Thread" as TCP #LightGreen {
+    note bottom
+      • 非ブロッキング TCP 受信
+      • プロトコル解析 (0xCAFEBABF batch)
+      • 平均 134ms / batch
+      • set_nonblocking(true) +
+        thread::yield_now()
+    end note
+  }
+
+  queue "jpeg_channel\n(ADR: MPSC unbounded\n実装: sync_channel(3))" as JC #Gold
+
+  component "JPEG Decoder Thread" as JPEG #LightCyan {
+    note bottom
+      • CPU 集約的復号処理
+      • RGB 変換
+      • 平均 2.07ms / frame
+      • blocking recv() で
+        TCP/GUI と独立動作
+    end note
+  }
+
+  queue "gui_channel\n(MPSC unbounded\nここは実装も unbounded)" as GC #Gold
+
+  component "GUI Thread (Main)" as GUI #LightYellow {
+    note bottom
+      • 60fps 描画維持
+      • try_recv() 非ブロッキング
+      • マウス/キーボード即応
+      • 健全性ダッシュボード
+    end note
+  }
+}
+
+SPR --> TCP : MJPEG packets\n(WiFi / USB)
+TCP --> JC : send(JpegFrame(Vec<u8>))
+JC --> JPEG : recv()
+JPEG --> GC : send(DecodedFrame(RgbImage))
+GC --> GUI : try_recv()
+TCP ..> GC : Metrics(Health) [Phase 9.2 拡張]
+USER --> GUI : Mouse / Keyboard
+GUI --> DISP : 60fps render
+
+legend right
+  **改善効果 (Phase 7.3.3 → Phase 8)**
+  | 指標 | 7.3.3 | 8 | 改善 |
+  | FPS | 3.0 | 6.74 | **+125%** |
+  | TCP 応答 (avg) | 236ms | 134ms | **-43%** |
+  | GUI 応答性 | ブロッキング | 60fps 維持 | **+∞** |
+  | ドロップ率 | 72.9% | 53.7% | **-26%** |
+
+  **並列効果の理論値**
+  Effective Time = max(134, 2.07, 16) = 134ms
+  → 7.5 fps 理論値 / 6.74 fps 実測 (90% 効率)
+
+  **却下案**
+  ❌ 非同期 I/O single thread: GUI ブロック残存
+  ❌ Work-stealing thread pool: レイテンシ増
+  ❌ GPU JPEG decode: 移植性問題
+  ❌ メッセージキューシステム: 過剰設計
+endlegend
+
+@enduml

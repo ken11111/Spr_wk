@@ -4,6 +4,7 @@
 *.bin
 *.log
 *.elf
+*.o
 
 # Temporary files
 *.tmp

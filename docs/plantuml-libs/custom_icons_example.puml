@@ -1,0 +1,38 @@
+@startuml custom_icons_example
+!theme plain
+
+title Security Camera Network (Custom Icon Style)
+
+' カスタムアイコン風スタイル定義
+!define CAMERA_ICON(alias, label) rectangle label as alias <<camera>> #E3F2FD
+!define SERVER_ICON(alias, label) rectangle label as alias <<server>> #FFE0B2
+!define NETWORK_ICON(alias, label) rectangle label as alias <<network>> #E8F5E8
+!define PC_ICON(alias, label) rectangle label as alias <<computer>> #F3E5F5
+
+' アイコンスタイル使用
+CAMERA_ICON(cam1, "📷 Spresense\nCamera 1")
+CAMERA_ICON(cam2, "📷 Spresense\nCamera 2")
+CAMERA_ICON(cam3, "📷 Spresense\nCamera 3")
+CAMERA_ICON(cam4, "📷 Spresense\nCamera 4")
+
+NETWORK_ICON(router, "🔀 WiFi Router\n(iS110B)")
+SERVER_ICON(gateway, "🖥️ Network\nGateway")
+PC_ICON(pc_host, "💻 PC Host\nApplication")
+
+' 接続関係
+cam1 --> router : "TCP/10081"
+cam2 --> router : "TCP/10082"
+cam3 --> router : "TCP/10083"
+cam4 --> router : "TCP/10084"
+
+router --> gateway : "LAN"
+gateway --> pc_host : "Aggregated Stream"
+
+note bottom
+  ✅ Standard PlantUML only
+  ✅ No external dependencies
+  ✅ Unicode emoji icons
+  ✅ Custom color coding
+end note
+
+@enduml

@@ -117,6 +117,64 @@
 #define CONFIG_MAX_RECONNECT_RETRY   3
 #define CONFIG_RECONNECT_DELAY_MS    1000
 
+/* Phase 10: Adaptive Buffer Control */
+
+#define CONFIG_QUEUE_DEPTH_MIN       5      /* Minimum queue depth */
+#define CONFIG_QUEUE_DEPTH_MAX       9      /* Maximum queue depth */
+#define CONFIG_QUEUE_DEPTH_DEFAULT   7      /* Default queue depth */
+
+/* Phase 11: Enhanced Adaptive Control System */
+
+#ifndef CONFIG_PHASE11_ENABLE
+#define CONFIG_PHASE11_ENABLE        1      /* Enable Phase 11 enhanced control */
+#endif
+
+/* Frame Statistics Configuration */
+#define CONFIG_FRAME_STATISTICS_WINDOW_SIZE   10     /* Frame statistics window size */
+#define CONFIG_COMPLEXITY_THRESHOLD           0.5f   /* Scene complexity threshold */
+#define CONFIG_STATISTICS_UPDATE_INTERVAL_MS  100    /* Statistics update interval */
+#define CONFIG_COMPLEXITY_SMOOTHING_FACTOR    0.8f   /* Complexity smoothing factor */
+
+/* Multi-Variable Control Configuration */
+#define CONFIG_CONTROL_WEIGHT_QUEUE          0.6f   /* Queue depth weight */
+#define CONFIG_CONTROL_WEIGHT_SIZE           0.2f   /* Frame size weight */
+#define CONFIG_CONTROL_WEIGHT_TRANSMISSION   0.1f   /* Transmission time weight */
+#define CONFIG_CONTROL_WEIGHT_PREDICTION     0.1f   /* Prediction weight */
+
+/* Adaptive PID Configuration */
+#define CONFIG_ADAPTIVE_PID_BASE_KP          0.15f  /* Base Kp gain */
+#define CONFIG_ADAPTIVE_PID_BASE_KI          0.02f  /* Base Ki gain */
+#define CONFIG_ADAPTIVE_PID_BASE_KD          0.0f   /* Base Kd gain */
+#define CONFIG_ADAPTATION_FACTOR             0.8f   /* Adaptation factor */
+#define CONFIG_MAX_ADAPTATION_RATE           0.2f   /* Maximum adaptation rate */
+
+/* Predictive Control Configuration */
+#define CONFIG_PREDICTION_WINDOW_SIZE        5      /* Prediction window size */
+#define CONFIG_PREDICTION_ACCURACY_THRESHOLD 0.8f   /* Minimum prediction accuracy */
+#define CONFIG_TRANSMISSION_TIME_THRESHOLD   150.0f /* Transmission time threshold (ms) */
+
+/* Buffer Management Configuration */
+#define CONFIG_BUFFER_RESIZE_THRESHOLD       0.9f   /* Buffer resize threshold */
+#define CONFIG_MIN_BUFFER_SIZE_FRAMES        5      /* Minimum buffer size in frames */
+#define CONFIG_MAX_BUFFER_SIZE_FRAMES        9      /* Maximum buffer size in frames */
+#define CONFIG_BUFFER_SIZE_MULTIPLIER        1.2f   /* Buffer size multiplier */
+
+/* Stability and Safety Configuration */
+#define CONFIG_STABILITY_VARIANCE_THRESHOLD  0.5f   /* Stability variance threshold */
+#define CONFIG_STABILITY_HISTORY_SIZE        5      /* Stability history size */
+#define CONFIG_FALLBACK_TRIGGER_COUNT        3      /* Fallback trigger count */
+#define CONFIG_ENHANCED_CONTROL_CYCLE_MS     100    /* Enhanced control cycle (ms) */
+#define CONFIG_ENHANCED_CONTROL_TIMEOUT_MS   500    /* Enhanced control timeout (ms) */
+
+/* Normalization Parameters */
+#define CONFIG_NORMALIZE_QUEUE_DEPTH_MAX     10.0f  /* Queue depth normalization max */
+#define CONFIG_NORMALIZE_FRAME_SIZE_MAX_KB   128.0f /* Frame size normalization max (KB) */
+#define CONFIG_NORMALIZE_TRANSMISSION_MAX_MS 200.0f /* Transmission time normalization max (ms) */
+#define CONFIG_NORMALIZE_COMPLEXITY_MAX      2.0f   /* Complexity normalization max */
+
+/* Memory Limits */
+#define CONFIG_PHASE11_MAX_MEMORY_KB         200    /* Maximum additional memory for Phase 11 (KB) */
+
 /* Debug Configuration */
 
 #define CONFIG_DEBUG_ENABLE          1

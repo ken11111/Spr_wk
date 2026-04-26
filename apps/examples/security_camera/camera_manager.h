@@ -99,6 +99,21 @@ int camera_get_frame(camera_frame_t *frame);
 
 int camera_manager_cleanup(void);
 
+/**
+ * @brief Set camera frame rate at runtime (Phase 10)
+ * @param new_fps Target frame rate (5-30 fps)
+ * @return 0: success, <0: error
+ */
+
+int camera_set_fps_runtime(int new_fps);
+
+/**
+ * @brief Get current camera frame rate (Phase 10)
+ * @return Current FPS setting, <0: error
+ */
+
+int camera_get_current_fps(void);
+
 #ifdef __cplusplus
 }
 #endif

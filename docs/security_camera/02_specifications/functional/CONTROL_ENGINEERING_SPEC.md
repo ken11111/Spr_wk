@@ -1,13 +1,13 @@
 # 制御工学統合機能仕様
 
-**バージョン**: 1.0 (Phase 9 新規)
-**日付**: 2026-02-03
-**対象システム**: Phase 9 制御工学統合実装
-**ベース**: Phase 8-9.2制御工学分析結果
+**バージョン**: 1.1 (Spresense制約統合版)
+**日付**: 2026-02-04
+**対象システム**: Phase 10 制御工学統合実装
+**ベース**: Phase 8-9.2制御工学分析結果 + Spresense仕様調査結果
 
 ## 概要
 
-Phase 9で新規導入する制御工学理論統合による自律最適化機能。PID制御、適応制御、予測制御を組み合わせた包括的システム最適化により、従来のスタティック制御からダイナミック制御へのパラダイムシフトを実現する。
+Phase 10で新規導入する制御工学理論統合による自律最適化機能。PID制御、適応制御、予測制御を組み合わせた包括的システム最適化により、従来のスタティック制御からダイナミック制御へのパラダイムシフトを実現する。Phase 11 AI統合への基盤も同時に構築。
 
 ### 制御工学統合の技術価値
 - **理論的裏付け**: 数学的モデルG₁(s), G₂(s)による設計根拠
@@ -15,65 +15,108 @@ Phase 9で新規導入する制御工学理論統合による自律最適化機�
 - **予測制御**: 機械学習統合による先行制御
 - **システム統合**: エンドツーエンド全体最適化
 
+## Spresenseハードウェア制約統合
+
+### ハードウェア仕様制約
+- **CPU**: CXD5602 (ARM Cortex-M4F × 6コア @ 156MHz)
+- **RAM**: 1.5MB利用可能 (バッファ制御最大1.3MB)
+- **カメラ**: ISX012 (1-30 FPS, V4L2制御)
+- **WiFi**: GS2200M (256KBバッファ, TCP送信制御)
+- **OS**: NuttX (優先度範囲 0-255, リアルタイム制御対応)
+
+### 実装可能性評価結果
+```yaml
+制御箇所別実装可能性:
+  フレームレート制御: ✅ 高 (V4L2 ioctl実装済み)
+  キュー深度制御: ✅ 高 (frame_queue.c基盤実装済み)
+  TCP送信間隔制御: ✅ 中 (WiFi遅延変動±50ms制約)
+  スレッド優先度制御: ✅ 高 (NuttX pthread実装済み)
+  メモリ制御: ✅ 高 (動的バッファ割り当て実装済み)
+  E2E遅延制御: ✅ 高 (マイクロ秒精度計測可能)
+  解像度制御: ✅ 中 (ストリーミング停止200-500ms必要)
+  JPEG圧縮制御: ❌ 不可 (ISX012センサー内蔵制御なし)
+  WiFi品質適応: ⚠️ 限定 (GS2200M制約)
+  CPU周波数制御: ✅ 中 (156MHz⇔32.736MHz切り替え)
+```
+
 ## 機能要件
 
-### FR-CE-001: PID制御によるスレッド優先度制御
+### FR-CE-001: PID制御によるフレームレート制御 🔄 Spresense対応版
 ```
 要件ID: FR-CE-001
 優先度: 高
-内容: カメラスレッド優先度のPID制御による自動調整
+内容: V4L2 ioctl経由のカメラフレームレート制御
 
-制御仕様:
-- 目標値: TARGET_FPS = 30fps
-- 制御変数: camera_thread priority (90-120範囲)
-- 制御周期: 100ms
-- PIDパラメータ: Kp=1.2, Ki=0.1, Kd=0.05
+制御仕様 (Spresense制約適用):
+- 目標値: TARGET_FPS = 7.0fps (Phase C実性能基準)
+- 制御変数: camera_fps setting (1-30fps範囲, ISX012制約)
+- 制御周期: 100ms (NuttX clock_gettime精度内)
+- PIDパラメータ: Kp=0.15, Ki=0.02, Kd=0.0 (Phase C調整版)
 
 制御アルゴリズム:
-error(t) = TARGET_FPS - current_fps
+error(t) = TARGET_FPS - measured_fps
 integral += error(t) * dt
-derivative = (error(t) - prev_error) / dt
-output = Kp*error + Ki*integral + Kd*derivative
-priority_adjustment = clamp(output, -20, +20)
+integral = clamp(integral, -5.0, 5.0)  // 積分飽和防止
+output = Kp*error + Ki*integral
+new_fps = clamp(current_fps + output, 1.0, 30.0)
+
+実装方法:
+camera_set_fps((int)new_fps) → V4L2 VIDIOC_S_PARM ioctl
+応答時間: <1ms (ioctl即座変更)
+制御精度: 1fps単位 (V4L2ドライバ制限)
 ```
 
-### FR-CE-002: 適応的バッファサイズ制御
+### FR-CE-002: 適応的バッファサイズ制御 🔄 Spresense対応版
 ```
 要件ID: FR-CE-002
 優先度: 高
 内容: フレームバッファの動的サイズ調整
 
-適応制御仕様:
-- サイズ範囲: 5-20フレーム
+適応制御仕様 (Spresense制約適用):
+- サイズ範囲: 5-15フレーム (RAM制約: 1.5MB → 最大1MB使用)
+- 単位バッファサイズ: 65KB (ISX012 QVGA JPEG)
 - 監視期間: 60秒間の使用率履歴
 - 拡張閾値: 使用率80%以上
 - 縮小閾値: 使用率30%以下
-- 調整単位: ±1-2フレーム
+- 調整単位: ±1フレーム (安全性優先)
+
+実装基盤活用:
+- frame_queue_allocate_buffers() 拡張
+- frame_queue_depth() リアルタイム監視
+- pthread_mutex_lock() による安全操作
 
 制御ロジック:
-if (avg_usage > 80% && current_size < max_size)
-    expand_buffer(current_size + 2)
-else if (avg_usage < 30% && current_size > min_size)
-    shrink_buffer(current_size - 1)
+current_depth = frame_queue_depth(g_action_queue)
+memory_usage = current_depth * 65536  // bytes
+if (avg_usage > 80% && memory_usage < 1048576)  // <1MB
+    allocate_additional_buffer(1)
+else if (avg_usage < 30% && current_depth > 5)
+    deallocate_buffer(1)
 ```
 
-### FR-CE-003: TCP健全性予兆検出制御
+### FR-CE-003: TCP健全性予兆検出制御 🔄 Spresense対応版
 ```
 要件ID: FR-CE-003
 優先度: 必須
-内容: 健全性スコアによる予防的接続制御
+内容: GS2200M WiFiモジュール健全性による予防的接続制御
 
-予兆検出仕様:
+予兆検出仕様 (Spresense制約適用):
 - 健全性スコア範囲: 0.0-1.0
-- 監視項目: TCP応答時間、エラー率
-- 履歴期間: 60秒間
+- 監視項目: TCP応答時間(134ms基準±50ms)、WiFi信号強度
+- 履歴期間: 60秒間 (NuttX clock_gettime精度)
 - 予防的再接続閾値: 0.7以下
-- 重み付け: 応答時間60%, エラー率40%
+- 重み付け: 応答時間50%, 信号強度30%, エラー率20%
 
-計算式:
-response_factor = 1.0 - (avg_response_time / MAX_ACCEPTABLE_TIME)
+計算式 (GS2200M特性対応):
+response_factor = 1.0 - (avg_response_time / 250.0)  // 250ms上限
+wifi_signal_factor = (signal_strength + 100) / 100.0  // RSSI正規化
 error_factor = 1.0 - (error_count / total_requests)
-health_score = response_factor * 0.6 + error_factor * 0.4
+health_score = response_factor*0.5 + wifi_signal_factor*0.3 + error_factor*0.2
+
+GS2200M制約考慮:
+- WiFiバッファ: 256KB制限監視
+- パケット分割対応: 4KB単位
+- 応答時間変動: ±50ms許容範囲
 ```
 
 ### FR-CE-004: 適応的再接続間隔制御
@@ -97,19 +140,110 @@ else if (failure_count > 3)
     current_interval = max(base_interval / 2, 1000ms)
 ```
 
-### FR-CE-005: インテリジェントフレーム破棄
+### FR-CE-005: インテリジェントフレーム破棄 🔄 Spresense対応版
 ```
 要件ID: FR-CE-005
 優先度: 中
-内容: 品質・動きレベルに基づく最適フレーム選択
+内容: ISX012 JPEG圧縮制約下でのフレーム選択最適化
 
-インテリジェント制御仕様:
-- 評価要素: 品質スコア、動きレベル、キーフレーム判定
-- 破棄優先度: 非キーフレーム > 低品質 > 低動き
-- スコア計算: drop_score = (1-motion)*0.6 + (1-quality)*0.4
-- キーフレーム保護: 重要フレームの優先保持
+インテリジェント制御仕様 (Spresense制約適用):
+- 評価要素: タイムスタンプ、フレームサイズ、キュー深度
+- 破棄優先度: 古いフレーム > 大きなフレーム > キュー過多時
+- ISX012制約: JPEG品質制御不可 → サイズベース評価
+- メモリ制約: RAM 1.5MB範囲内での効率的破棄
 
-選択アルゴリズム:
+選択アルゴリズム (JPEG品質制御なし):
+frame_age = current_time - frame->timestamp_us
+size_factor = frame->size / AVERAGE_FRAME_SIZE  // 65KB基準
+queue_pressure = current_queue_depth / MAX_QUEUE_DEPTH
+drop_score = frame_age*0.5 + size_factor*0.3 + queue_pressure*0.2
+
+実装方法:
+- get_timestamp_us() 活用 (マイクロ秒精度)
+- frame_queue_depth() リアルタイム監視
+- frame->size フィールド活用
+```
+
+### FR-CE-006: Spresense専用スレッド優先度制御 🆕 新規
+```
+要件ID: FR-CE-006
+優先度: 高
+内容: NuttX優先度範囲を活用した動的スレッド制御
+
+NuttX優先度制御仕様:
+- 優先度範囲: 1-255 (SCHED_PRIORITY_MIN-MAX)
+- カメラスレッド: 110 (高優先度) → 100-120動的調整
+- TCPスレッド: 100 (中優先度) → 90-110動的調整
+- 制御周期: 100ms (NuttXスケジューラ対応)
+- 優先度逆転防止: PTHREAD_PRIO_INHERIT実装済み
+
+実装基盤活用:
+- pthread_setschedparam() 使用
+- 既存優先度差(110 vs 100)維持
+- camera_threads.c優先度設定拡張
+
+制御アルゴリズム:
+fps_error = target_fps - current_fps
+if (fps_error > 1.0)
+    camera_priority = min(110 + 10, 120)  // 高優先化
+else if (fps_error < -1.0)
+    camera_priority = max(110 - 10, 100)  // 低優先化
+pthread_setschedparam(g_camera_thread, SCHED_RR, &param)
+```
+
+### FR-CE-007: Spresense電力管理統合制御 🆕 新規
+```
+要件ID: FR-CE-007
+優先度: 中
+内容: CXD5602電力管理機能統合による効率最適化
+
+電力管理制御仕様:
+- CPU周波数: 156MHz⇔32.736MHz切り替え
+- コア制御: 6コア中1-2コア活用 (残りスリープ)
+- 低電力モード: バッテリー残量30%以下で自動移行
+- 温度制御: 過熱時の周波数ダウンクロック
+
+制御条件:
+- 高性能モード: FPS > 10, CPU使用率 > 70%
+- 省電力モード: FPS < 5, CPU使用率 < 30%
+- 緊急モード: 温度 > 85°C, バッテリー < 10%
+
+実装制約:
+- NuttX電力管理API依存
+- 周波数変更時のカメラタイミング影響要検証
+- Phase 10.3での実装予定 (安定化後)
+```
+
+## 技術制約マトリックス
+
+### 実装優先度と制約レベル
+| 機能要件 | Spresense対応 | 実装難易度 | Phase 10優先度 |
+|---------|-------------|-----------|-------------|
+| FR-CE-001 フレームレート制御 | ✅ V4L2対応済み | 低 | **P1 (10.1)** |
+| FR-CE-002 バッファサイズ制御 | ✅ RAM制約内実装 | 中 | **P1 (10.2)** |
+| FR-CE-003 TCP健全性制御 | ✅ GS2200M対応 | 中 | **P1 (10.1)** |
+| FR-CE-004 再接続間隔制御 | ✅ WiFi制約対応 | 低 | P2 (10.2) |
+| FR-CE-005 フレーム破棄制御 | ✅ JPEG制約対応 | 中 | P2 (10.2) |
+| FR-CE-006 スレッド優先度制御 | ✅ NuttX対応 | 低 | **P1 (10.1)** |
+| FR-CE-007 電力管理制御 | ⚠️ API制約 | 高 | P3 (10.3) |
+
+### Spresense制約回避策
+```yaml
+JPEG圧縮制御不可問題:
+  回避策: フレームサイズベース品質推定
+  代替手段: 解像度動的変更 (200-500ms遅延許容)
+
+WiFi変動制約問題:
+  回避策: 134ms±50ms範囲での適応制御
+  代替手段: バッファリング強化による吸収
+
+メモリ制約問題:
+  回避策: 最大1MB以内でのバッファ制御
+  代替手段: 動的メモリ解放・再割り当て
+
+CPU周波数制御問題:
+  回避策: 段階的実装 (Phase 10.3)
+  代替手段: スレッド優先度制御での代替
 for each frame in buffer:
     if (!frame.is_key_frame)
         motion_score = motion_detector.analyze(frame)

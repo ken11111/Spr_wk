@@ -1,0 +1,70 @@
+@startuml Phase11_Adaptive_Control_Architecture
+
+!theme plain
+title Phase 11 適応制御アーキテクチャ
+
+' === システム全体図 ===
+package "Spresense Security Camera System" {
+
+  ' Camera Hardware Layer
+  package "Camera Hardware" {
+    [ISX012 Sensor] as Camera
+    [V4L2 Driver] as V4L2
+  }
+
+  ' Enhanced Control System (Phase 11)
+  package "Enhanced Control System" {
+    [Multi-Variable Controller] as MVC
+    [Adaptive PID] as APID
+    [Frame Size Analyzer] as FSA
+    [Predictive Control] as PC
+    [Buffer Manager] as BM
+  }
+
+  ' Phase 10 Base System
+  package "Base Control (Phase 10)" {
+    [Original PID] as OPID
+    [Thread Priority Control] as TPC
+    [Safety Fallback] as SF
+  }
+
+  ' Data Pipeline
+  package "Data Pipeline" {
+    [Frame Queue] as FQ
+    [USB Transport] as USB
+    [TCP Transport] as TCP
+  }
+
+  ' Monitoring
+  package "Monitoring" {
+    [Control Metrics] as CM
+    [Performance Logger] as PL
+  }
+}
+
+' === 制御フロー ===
+Camera --> V4L2 : "JPEG Frames"
+V4L2 --> FSA : "Frame + Metadata"
+FSA --> MVC : "Size Statistics"
+FQ --> MVC : "Queue Depth"
+USB --> MVC : "Transmission Time"
+
+MVC --> APID : "Control Input Vector"
+APID --> BM : "Buffer Adjustment"
+APID --> TPC : "Priority Control"
+PC --> APID : "Predictive Signal"
+
+' === フォールバック ===
+MVC --> SF : "Failure Detection"
+SF --> OPID : "Safe Mode"
+
+' === データフロー ===
+V4L2 --> FQ : "Buffered Frames"
+FQ --> USB : "Frame Output"
+FQ --> TCP : "Frame Output"
+
+' === 監視・ログ ===
+MVC --> CM : "Control Data"
+APID --> PL : "Performance Data"
+
+@enduml

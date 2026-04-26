@@ -59,6 +59,9 @@ static int g_buffer_pool_size = 0;            /* Number of buffers allocated */
  * Public Data
  ****************************************************************************/
 
+/* Phase 10: Runtime configurable queue depth */
+int g_current_queue_depth = 7;  /* Initialize to default value */
+
 /* Frame queues */
 
 frame_buffer_t *g_action_queue = NULL;  /* Filled frames (camera → USB) */
@@ -389,4 +392,83 @@ void frame_queue_free_buffers(void)
   g_buffer_pool_size = 0;
 
   LOG_INFO("Buffer pool freed");
+}
+
+/****************************************************************************
+ * Name: frame_queue_resize
+ *
+ * Description:
+ *   Resize frame queue (Phase 10: Adaptive Buffer Control)
+ *
+ ****************************************************************************/
+
+int frame_queue_resize(int new_depth)
+{
+  int old_depth;
+  uint32_t buffer_size;
+  int ret;
+
+  /* Validate new depth */
+  if (new_depth < CONFIG_QUEUE_DEPTH_MIN || new_depth > CONFIG_QUEUE_DEPTH_MAX)
+    {
+      LOG_ERROR("Invalid queue depth %d (range: %d-%d)",
+                new_depth, CONFIG_QUEUE_DEPTH_MIN, CONFIG_QUEUE_DEPTH_MAX);
+      return -EINVAL;
+    }
+
+  /* Check if change is needed */
+  pthread_mutex_lock(&g_queue_mutex);
+  old_depth = g_current_queue_depth;
+  if (new_depth == old_depth)
+    {
+      pthread_mutex_unlock(&g_queue_mutex);
+      return 0; /* No change needed */
+    }
+
+  /* Store buffer size before freeing */
+  if (g_buffer_pool_size > 0 && g_buffer_pool != NULL)
+    {
+      buffer_size = g_buffer_pool[0].length; /* All buffers same size */
+    }
+  else
+    {
+      pthread_mutex_unlock(&g_queue_mutex);
+      LOG_ERROR("No existing buffer pool to resize");
+      return -EINVAL;
+    }
+
+  /* Free existing buffers */
+  frame_queue_free_buffers();
+
+  /* Update global depth */
+  g_current_queue_depth = new_depth;
+
+  pthread_mutex_unlock(&g_queue_mutex);
+
+  /* Reallocate with new depth */
+  ret = frame_queue_allocate_buffers(buffer_size, new_depth);
+  if (ret < 0)
+    {
+      /* Revert on failure */
+      LOG_ERROR("Failed to reallocate buffers, reverting to depth %d", old_depth);
+      g_current_queue_depth = old_depth;
+      frame_queue_allocate_buffers(buffer_size, old_depth);
+      return ret;
+    }
+
+  LOG_INFO("Queue depth resized: %d → %d", old_depth, new_depth);
+  return 0;
+}
+
+/****************************************************************************
+ * Name: frame_queue_is_buffer_pool_healthy
+ *
+ * Description:
+ *   Check if buffer pool is properly allocated (Phase 10: Safety check)
+ *
+ ****************************************************************************/
+
+bool frame_queue_is_buffer_pool_healthy(void)
+{
+  return (g_buffer_pool != NULL && g_buffer_pool_size > 0);
 }

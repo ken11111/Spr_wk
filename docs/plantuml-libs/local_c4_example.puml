@@ -1,0 +1,41 @@
+@startuml local_c4_example
+!include ./C4_Component.puml
+
+LAYOUT_TOP_DOWN()
+
+title Local C4 Component Diagram - Security Camera PC Host
+
+Person(operator, "Security Operator", "Monitors camera feeds")
+
+Container_Boundary(pc_app, "PC Host Application") {
+    Component(receiver, "Stream Receiver", "Python/Socket", "Receives TCP streams from Spresense cameras")
+    Component(analyzer, "Metrics Analyzer", "Python/Pandas", "Real-time performance analysis")
+    Component(display, "Multi-Camera Display", "Qt/OpenCV", "4-camera video grid interface")
+    Component(recorder, "Video Recorder", "Python/FFmpeg", "Records video streams to files")
+    ComponentDb(metrics_db, "Metrics Database", "SQLite", "Historical performance data")
+    ComponentQueue(frame_buffer, "Frame Buffer", "Queue", "Video frame buffering system")
+}
+
+System_Ext(spresense1, "Spresense Camera 1", "Security camera with adaptive control")
+System_Ext(spresense2, "Spresense Camera 2", "Security camera with adaptive control")
+System_Ext(spresense3, "Spresense Camera 3", "Security camera with adaptive control")
+System_Ext(spresense4, "Spresense Camera 4", "Security camera with adaptive control")
+
+Rel(operator, display, "Views video feeds", "GUI")
+Rel(operator, analyzer, "Monitors metrics", "Dashboard")
+
+Rel(spresense1, receiver, "Video stream", "TCP/10081")
+Rel(spresense2, receiver, "Video stream", "TCP/10082")
+Rel(spresense3, receiver, "Video stream", "TCP/10083")
+Rel(spresense4, receiver, "Video stream", "TCP/10084")
+
+Rel(receiver, frame_buffer, "Buffers frames", "Memory queue")
+Rel(frame_buffer, display, "Display frames", "Qt signals")
+Rel(frame_buffer, recorder, "Record frames", "File I/O")
+
+Rel(receiver, analyzer, "Performance data", "Function call")
+Rel(analyzer, metrics_db, "Store metrics", "SQL INSERT")
+
+LAYOUT_WITH_LEGEND()
+
+@enduml

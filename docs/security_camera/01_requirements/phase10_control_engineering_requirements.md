@@ -1,10 +1,10 @@
 # Phase 10 制御工学統合実装 要求仕様・計画書
 
-**作成日**: 2026-02-03
+**作成日**: 2026-02-04 (Spresense制約統合版)
 **Phase番号**: Phase 10 (制御工学統合実装)
-**ベース**: Phase 8-9.2制御工学分析結果
-**目的**: 制御工学理論の完全実装による自律最適化システム構築
-**優先方針**: 実用性重視、リスク最小化、段階的実装
+**ベース**: Phase 8-9.2制御工学分析 + Spresense仕様調査統合
+**目的**: Spresense制約内での制御工学理論実装による自律最適化システム構築
+**優先方針**: 実装可能性重視、ハードウェア制約適応、段階的実装
 
 ---
 
@@ -13,102 +13,196 @@
 ### 🎯 プロジェクト目標
 Phase 8-9.2制御工学分析結果に基づき、PID制御・適応制御・予測制御を統合した**自律最適化セキュリティカメラシステム**を実現。従来の手動調整・固定パラメータから脱却し、制御工学理論による**システム性能とロバスト性の革新的向上**を図る。
 
-### 📊 期待成果 (定量目標)
+### 📊 期待成果 (Spresense制約対応修正版)
 ```yaml
-性能改善目標:
-  FPS性能:      6.74fps → 9.2fps (+36%改善)
-  TCP応答時間:  134ms → 95ms (-29%改善)
-  キュー深度:    1.2 → 0.8 (-33%改善)
-  CPU効率:      標準 → +40%向上
-  安定性:       Grade A → Grade A+
-  メモリ効率:   標準 → +30%向上
+性能改善目標 (実装可能性基準):
+  FPS性能:      5.32fps(Phase C) → 7.0fps (+32%改善, 段階的)
+  TCP応答時間:  134ms → 110ms (-18%改善, WiFi変動制約考慮)
+  キュー深度:    現行深度 → 理想的0→1→0パターン維持
+  FPS安定性:    35.5%CV → <15%CV (制御工学効果)
+  メモリ効率:   現行 → +20%向上 (RAM 1.5MB制約内)
+  優先度制御:   固定 → 動的調整100-120範囲(NuttX制約)
 ```
 
-### 🏗️ 対象システム構成
+### 🏗️ 対象システム構成 (Spresense制約対応)
 ```
-Target Architecture:
-Camera (Spresense/NuttX/C) ←→ TCP ←→ PC Viewer (Rust)
-├─ camera_threads.c: 2スレッド構成最適化
-├─ tcp_server.c: TCP健全性監視強化
-├─ frame_queue.c: 適応的バッファ管理
-└─ tcp_connection.rs: 非同期ストリーム処理
+Target Architecture (Spresense制約統合):
+Camera (Spresense/NuttX/C) ←→ GS2200M WiFi ←→ PC Viewer (Rust)
+
+Spresense側実装基盤活用:
+├─ camera_manager.c: V4L2 ioctl FPS制御 (1-30fps)
+├─ frame_queue.c: 動的バッファ管理 (5-15フレーム, RAM制約)
+├─ camera_threads.c: NuttX優先度制御 (100-120範囲)
+└─ tcp_server.c: GS2200M健全性監視 (134ms±50ms対応)
+
+制約適応設計:
+├─ ISX012 JPEG制御不可 → フレームサイズベース品質推定
+├─ RAM 1.5MB制限 → 最大1MB制御バッファ
+├─ WiFi変動±50ms → 適応的制御ゲイン調整
+└─ NuttX優先度255段階 → 100-120範囲動的制御
 ```
 
 ---
 
 ## 1. 実装優先順位と段階計画
 
-### 1.1 短期実装 (Phase 10.1: 2ヶ月)
+### 1.1 短期実装 (Phase 10.1: 2ヶ月) - Spresense制約対応
 
-#### **Priority 1: TCP健全性監視改善**
+#### **Priority 1: V4L2フレームレート制御** 🔄 修正
+**工数**: 15-25時間 (実装基盤活用)
+**リスク**: 低 (V4L2 API使用)
+**期待効果**: FPS制御精度+90%, 安定性向上
+
+**実装内容** (Spresense実装基盤活用):
+```c
+// camera_manager.c 拡張
+int camera_set_fps_dynamic(int target_fps) {
+    struct v4l2_streamparm parm = {0};
+    parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    parm.parm.capture.timeperframe.numerator = 1;
+    parm.parm.capture.timeperframe.denominator = clamp(target_fps, 1, 30);
+    return ioctl(g_camera_mgr.fd, VIDIOC_S_PARM, (uintptr_t)&parm);
+}
+
+// PID制御器統合
+typedef struct {
+    float kp, ki;         // Kp=0.15, Ki=0.02 (Phase C調整)
+    float error_integral; // 積分項 (-5.0 to +5.0)
+    float target_fps;     // 7.0fps初期目標
+} fps_pid_controller_t;
+```
+
+#### **Priority 2: GS2200M健全性監視改善** 🔄 修正
 **工数**: 20-30時間
-**リスク**: 低
-**期待効果**: +80%予測精度、-60%ダウンタイム
+**リスク**: 低 (既存Phase 9.2基盤)
+**期待効果**: WiFi変動±50ms対応, 予測精度+60%
 
-**実装内容**:
+**実装内容** (GS2200M制約対応):
 ```c
 // tcp_server.c 改善
 typedef struct {
-    uint32_t response_times[HISTORY_SIZE];
+    uint32_t response_times[60];     // 60秒履歴
+    int8_t wifi_signal_strength;     // RSSI値 (-100 to 0)
     uint32_t error_count;
-    float health_score;  // 0.0-1.0の健全性スコア
-} tcp_health_monitor_t;
+    float health_score;              // GS2200M特性対応
+} gs2200m_health_monitor_t;
 
-// 予兆検出アルゴリズム実装
-static bool should_preemptive_reconnect(void);
-static float calculate_health_score(void);
+// GS2200M制約対応計算
+static float calculate_health_score_gs2200m(void) {
+    float response_factor = 1.0 - (avg_response / 250.0);  // 250ms上限
+    float signal_factor = (signal_strength + 100) / 100.0; // RSSI正規化
+    return response_factor * 0.6 + signal_factor * 0.4;
+}
 ```
 
-#### **Priority 2: 適応的再接続間隔**
+#### **Priority 3: NuttX優先度動的制御** 🔄 修正
 **工数**: 15-20時間
-**リスク**: 低
-**期待効果**: -50%不要接続、+30%検出速度
+**リスク**: 低 (NuttX pthread API使用)
+**期待効果**: フレームドロップ-20%, CPU効率+15%
 
-**実装内容**:
+**実装内容** (NuttX制約対応):
 ```c
-typedef struct {
-    uint32_t base_interval;     // 基本間隔 (3秒)
-    uint32_t current_interval;  // 現在間隔
-    uint32_t success_count;     // 連続成功回数
-    uint32_t failure_count;     // 連続失敗回数
-} adaptive_reconnect_t;
+// camera_threads.c 拡張
+int adjust_thread_priority_nuttx(pthread_t thread, int fps_error) {
+    struct sched_param param;
+    int new_priority = 110;  // カメラスレッドベース優先度
 
-static uint32_t calculate_adaptive_interval(adaptive_reconnect_t* ctrl);
+    if (fps_error > 1.0) {
+        new_priority = min(110 + 10, 120);  // 高優先化
+    } else if (fps_error < -1.0) {
+        new_priority = max(110 - 10, 100);  // 低優先化
+    }
+
+    param.sched_priority = new_priority;
+    return pthread_setschedparam(thread, SCHED_RR, &param);
+}
 ```
 
-### 1.2 中期実装 (Phase 10.2: 3ヶ月)
+### 1.2 中期実装 (Phase 10.2: 3ヶ月) - Spresense制約対応
 
-#### **Priority 3: 動的優先度調整**
-**工数**: 40-50時間
-**リスク**: 中
-**期待効果**: -30%フレームドロップ、+15%CPU効率
+#### **Priority 4: 適応的バッファサイズ制御** 🔄 修正
+**工数**: 30-40時間 (既存基盤活用)
+**リスク**: 中 (RAM制約管理)
+**期待効果**: メモリ効率+20%, オーバーフロー-80%
 
-**実装内容**:
+**実装内容** (Spresense RAM制約対応):
 ```c
-// camera_threads.c 改善
+// frame_queue.c 拡張
 typedef struct {
-    float kp, ki, kd;  // PIDゲイン
-    float error_sum;   // 積分項
-    float prev_error;  // 微分項用
-    uint32_t target_fps;
-    uint32_t current_fps;
-} pid_controller_t;
+    uint32_t min_buffers;    // 5 (最小フレーム数)
+    uint32_t max_buffers;    // 15 (RAM 1MB制限)
+    uint32_t current_buffers; // 現在バッファ数
+    uint32_t usage_history[60]; // 使用率履歴 (1分間)
+    uint32_t buffer_size;    // 65KB (ISX012 QVGA平均)
+} adaptive_buffer_controller_t;
 
-static int calculate_priority_adjustment(void);
-static void adjust_thread_priority(void);
+// RAM制約内での動的制御
+static int adjust_buffer_count_safe(int target_count) {
+    uint32_t required_memory = target_count * 65536;  // 65KB/frame
+    if (required_memory > 1048576) return -1;  // 1MB制限
+    return frame_queue_reallocate_buffers(target_count);
+}
 ```
 
-#### **Priority 4: 適応的バッファサイズ**
-**工数**: 35-45時間
-**リスク**: 中
-**期待効果**: -25%メモリ使用、-90%オーバーフロー
+#### **Priority 5: インテリジェントフレーム選択** 🔄 新規
+**工数**: 25-35時間 (JPEG制約対応)
+**リスク**: 低 (既存データ活用)
+**期待効果**: 品質維持+効率化+15%
 
-**実装内容**:
+**実装内容** (ISX012 JPEG制約対応):
 ```c
-// frame_queue.c 改善
+// frame_queue.c 新機能
 typedef struct {
-    uint32_t min_size, max_size, current_size;
-    uint32_t usage_history[60]; // 使用率履歴
+    uint64_t timestamp_us;   // get_timestamp_us()活用
+    uint32_t frame_size;     // JPEG圧縮後サイズ
+    float drop_score;        // 破棄優先度スコア
+} frame_metadata_t;
+
+// JPEG品質制御不可対応の選択アルゴリズム
+static float calculate_drop_score(frame_metadata_t* frame) {
+    uint64_t current_time = get_timestamp_us();
+    float age_factor = (current_time - frame->timestamp_us) / 1000000.0; // 秒
+    float size_factor = frame->frame_size / 65536.0;  // 平均サイズ比
+    return age_factor * 0.7 + size_factor * 0.3;  // 古い+大きい=破棄優先
+}
+```
+
+---
+
+## Spresense実装制約マトリックス 🆕
+
+### ハードウェア制約対応まとめ
+
+| 制約項目 | Spresense制限 | 制御実装対応策 | 実装優先度 |
+|---------|-------------|-------------|-----------|
+| **CPU制御** | 6コア×156MHz, 32.736MHz低電力 | 優先度制御で代替 | Phase 10.3 |
+| **メモリ** | 1.5MB (実用1.2MB) | 最大1MB制御バッファ | **Phase 10.2** |
+| **ISX012** | 1-30fps, JPEG品質制御不可 | サイズベース品質推定 | **Phase 10.1** |
+| **GS2200M** | 256KB, 134ms±50ms変動 | 適応制御ゲイン調整 | **Phase 10.1** |
+| **NuttX** | 優先度1-255, 1μs精度 | pthread制御活用 | **Phase 10.1** |
+| **V4L2** | トリプルバッファ, ioctl制御 | 既存API拡張 | **Phase 10.1** |
+
+### 実装可能性評価結果
+
+**✅ 高実装可能性 (Phase 10.1-10.2)**
+- V4L2フレームレート制御: 既存camera_manager.c拡張
+- キュー深度制御: 既存frame_queue.c拡張
+- NuttX優先度制御: 既存camera_threads.c拡張
+- TCP健全性監視: 既存Phase 9.2基盤活用
+
+**⚠️ 制約付き実装可能 (Phase 10.2-10.3)**
+- 適応バッファサイズ: RAM 1MB制限内実装
+- フレーム品質制御: JPEG制御不可→代替手法
+- WiFi品質適応: GS2200M機能制限内実装
+
+**❌ 実装困難/延期 (Phase 11以降)**
+- JPEG圧縮率制御: ISX012ハードウェア制限
+- CPU周波数動的制御: NuttX API制限
+- 高精度WiFi制御: GS2200Mドライバ制限
+
+### 段階的実装戦略
+
+**Phase 10実装方針**: Spresenseの**既存実装基盤を最大活用**し、制約回避策を組み合わせた現実的な制御工学統合を実現。JPEG制御不可等の根本的制約は代替技術で補完し、Phase 11での抜本的改良に向けた基盤を構築。
     uint32_t resize_threshold;
 } adaptive_buffer_t;
 

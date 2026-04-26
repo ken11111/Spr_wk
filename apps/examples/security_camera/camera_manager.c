@@ -443,3 +443,68 @@ int camera_manager_cleanup(void)
 
   return ERR_OK;
 }
+
+/****************************************************************************
+ * Name: camera_set_fps_runtime
+ *
+ * Description:
+ *   Set camera frame rate at runtime (Phase 10)
+ *
+ ****************************************************************************/
+
+int camera_set_fps_runtime(int new_fps)
+{
+  struct v4l2_streamparm parm;
+  int ret;
+
+  if (!g_camera_mgr.initialized)
+    {
+      LOG_ERROR("Camera not initialized");
+      return ERR_CAMERA_INIT;
+    }
+
+  /* Validate FPS range (5-30 fps) */
+  if (new_fps < 5 || new_fps > 30)
+    {
+      LOG_WARN("FPS %d out of range [5,30], clamping", new_fps);
+      new_fps = (new_fps < 5) ? 5 : 30;
+    }
+
+  /* Reuse existing V4L2 pattern from camera initialization */
+  memset(&parm, 0, sizeof(struct v4l2_streamparm));
+  parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  parm.parm.capture.timeperframe.numerator = 1;
+  parm.parm.capture.timeperframe.denominator = new_fps;
+
+  ret = ioctl(g_camera_mgr.fd, VIDIOC_S_PARM, (uintptr_t)&parm);
+  if (ret < 0)
+    {
+      LOG_ERROR("Failed to set runtime FPS %d: %d", new_fps, errno);
+      return ERR_CAMERA_CONFIG;
+    }
+
+  /* Update stored configuration */
+  g_camera_mgr.config.fps = new_fps;
+  LOG_INFO("Runtime FPS adjusted: %d", new_fps);
+
+  return ERR_OK;
+}
+
+/****************************************************************************
+ * Name: camera_get_current_fps
+ *
+ * Description:
+ *   Get current camera frame rate (Phase 10)
+ *
+ ****************************************************************************/
+
+int camera_get_current_fps(void)
+{
+  if (!g_camera_mgr.initialized)
+    {
+      LOG_ERROR("Camera not initialized");
+      return ERR_CAMERA_INIT;
+    }
+
+  return g_camera_mgr.config.fps;
+}

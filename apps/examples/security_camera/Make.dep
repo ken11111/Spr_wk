@@ -493,7 +493,7 @@ camera_threads.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/ioctl.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/serial/tioctl.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video_controls.h \
- tcp_server.h
+ frame_statistics.h enhanced_control.h tcp_server.h
 fps_controller.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
  fps_controller.c \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/config.h \
@@ -559,6 +559,34 @@ fps_controller.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/ioctl.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/serial/tioctl.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video_controls.h
+frame_statistics.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
+ frame_statistics.c frame_statistics.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdint.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/config.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/compiler.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/types.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/inttypes.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/limits.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/arch/limits.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stdbool.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/string.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/stddef.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/types.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/alloca.h \
+ /usr/include/newlib/math.h /usr/include/newlib/sys/reent.h \
+ /usr/include/newlib/_ansi.h /usr/include/newlib/newlib.h \
+ /usr/include/newlib/_newlib_version.h /usr/include/newlib/sys/config.h \
+ /usr/include/newlib/machine/ieeefp.h /usr/include/newlib/sys/features.h \
+ /usr/include/newlib/sys/_types.h /usr/include/newlib/machine/_types.h \
+ /usr/include/newlib/machine/_default_types.h \
+ /usr/include/newlib/sys/lock.h /usr/include/newlib/sys/cdefs.h \
+ /usr/include/newlib/_ansi.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/time.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/time.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/select.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/signal.h \
+ /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/syslog.h \
+ /usr/lib/gcc/arm-none-eabi/9.2.1/include/stdarg.h
 wifi_manager.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
  wifi_manager.c \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/config.h \
@@ -760,7 +788,7 @@ camera_app_main.c.home.ken.Spr_ws.GH_wk_test.apps.examples.security_camera.o: \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/fs/ioctl.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/serial/tioctl.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/nuttx/video/video_controls.h \
- camera_threads.h frame_queue.h wifi_manager.h \
+ camera_threads.h frame_queue.h frame_statistics.h wifi_manager.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/netinet/in.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/endian.h \
  /home/ken/Spr_ws/GH_wk_test/spresense/nuttx/include/sys/endian.h \

@@ -43,6 +43,11 @@
 #include <stdbool.h>
 #include "frame_queue.h"
 
+/* Phase 11: Frame statistics support */
+#ifdef CONFIG_PHASE11_ENABLE
+#include "frame_statistics.h"
+#endif
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -152,6 +157,22 @@ int adjust_thread_priority(pthread_t thread, int new_priority);
  */
 
 void fallback_to_static_config(void);
+
+#ifdef CONFIG_PHASE11_ENABLE
+/**
+ * @brief Get current frame statistics for enhanced control system (Phase 11)
+ * @return Pointer to frame statistics, NULL if not initialized
+ */
+
+const frame_statistics_t* get_frame_statistics(void);
+
+/**
+ * @brief Reset frame statistics (Phase 11)
+ * @return 0: success, <0: error
+ */
+
+int reset_frame_statistics(void);
+#endif
 
 #undef EXTERN
 #ifdef __cplusplus

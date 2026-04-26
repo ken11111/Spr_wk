@@ -969,6 +969,147 @@ end note
 @enduml
 ```
 
+### Figure 5: Enhanced Multi-Variable Control System
+
+Phase 11の詳細フィードバック制御システム - フレームサイズ、伝送時間、その他性能メトリクスを統合した制御工学設計を示します。
+
+```plantuml
+@startuml enhanced_multivariable_control_system
+!theme plain
+
+skinparam rectangle {
+    BackgroundColor lightblue
+    BorderColor blue
+    FontSize 11
+    RoundCorner 10
+}
+
+skinparam package {
+    BackgroundColor lightyellow
+    BorderColor orange
+    FontSize 12
+}
+
+skinparam note {
+    BackgroundColor lightyellow
+    BorderColor orange
+    FontSize 10
+}
+
+title Figure 5: Enhanced Multi-Variable Control System (Phase 11)\nVerified Implementation Parameters
+
+' Input measurements (left side)
+rectangle "Frame Size\nSensor\n[1-128 KB]\n(Normalized: /128)" as FrameSize #LightBlue
+rectangle "Transmission\nTimer\n[0-200 ms]\n(Normalized: /200)" as TxTime #LightBlue
+rectangle "Queue Depth\nMonitor\n[0-9 frames]\n(Setpoint: 3.5)" as QueueMon #LightBlue
+rectangle "Scene Complexity\nAnalyzer\n[0.0-2.0]\n(Threshold: 0.5)" as ComplexAnal #LightBlue
+rectangle "Frame Statistics\nPredictor\n(5-frame window)" as Predictor #LightBlue
+
+' Multi-variable controller (center)
+package "Phase 11 Enhanced Controller\n(100ms cycle, 10Hz)" #LightYellow {
+  rectangle "Input Normalizer\n[0,1] range" as Norm
+  rectangle "Weight Matrix\nQueue: 0.6\nSize: 0.2\nTrans: 0.1\nPred: 0.1" as Weights
+  rectangle "Weighted Sum\nu_total = Σ(wi×ui)\nΣwi = 1.0" as Sum
+  rectangle "Adaptive PID\nKp: 0.15 ± 0.8×complexity\nKi: 0.02 ± 0.8×complexity\nKd: 0.0 (disabled)" as PID
+  rectangle "Stability Monitor\nVariance < 0.5\n(5-sample window)" as StabMon
+}
+
+' Fallback mechanism
+rectangle "Phase 10 Fallback\nClassic PID\n(3 failures trigger)" as Fallback #Pink
+
+' Actuators (right side)
+rectangle "FPS Actuator\n[5-30 fps]\nBase: 7 fps" as FPSCtrl #LightGreen
+rectangle "Quality Control\n[50-95%]\n(JPEG quality)" as QualCtrl #LightGreen
+rectangle "Thread Priority\n[100→105]\n(Queue ≥6 boost)" as PrioCtrl #LightGreen
+
+' Plant models
+rectangle "Camera Plant\nG₁(s)=1/(33ms·s+1)\n(ISX012 + JPEG)" as CamPlant #LightCoral
+rectangle "USB Plant\nG₂(s)=0.85/(134ms·s+1)\n(CDC transmission)" as USBPlant #LightCoral
+rectangle "System Response\nG_sys(s)=1/(14.05s·s+1)\n(Overall dynamics)" as SysPlant #LightCoral
+
+' Forward paths
+FrameSize --> Norm
+TxTime --> Norm
+QueueMon --> Norm
+ComplexAnal --> Norm
+Predictor --> Norm
+
+Norm --> Weights
+Weights --> Sum
+Sum --> PID
+ComplexAnal --> PID : "Gain adaptation"
+PID --> StabMon
+
+StabMon --> FPSCtrl : "Control output"
+StabMon --> QualCtrl : "Quality adjust"
+QueueMon --> PrioCtrl : "Direct priority"
+
+FPSCtrl --> CamPlant
+QualCtrl --> CamPlant
+CamPlant --> USBPlant
+USBPlant --> SysPlant
+
+' Fallback path
+StabMon --> Fallback : "3 failures"
+Fallback --> FPSCtrl : "Emergency mode"
+
+' Feedback paths (dashed)
+SysPlant -.-> TxTime : "Tx measurement\n(100ms stats)"
+USBPlant -.-> QueueMon : "Queue feedback\n(real-time)"
+CamPlant -.-> FrameSize : "Frame size\n(per frame)"
+CamPlant -.-> ComplexAnal : "Complexity calc\n(10-frame window)"
+SysPlant -.-> Predictor : "History update\n(5-frame buffer)"
+
+note right of Norm
+  **入力正規化仕様**
+  • Queue Depth: [0-10] → [0,1]
+  • Frame Size: [1-128KB] → [0,1]
+  • Transmission: [0-200ms] → [0,1]
+  • Complexity: [0.0-2.0] → [0,1]
+  • Predictor: 履歴ベース正規化
+end note
+
+note right of Sum
+  **多変数統合制御**
+  • 重み付け総和: u_total = Σ(wi × ui)
+  • Queue重み: 0.6 (60% - 最重要)
+  • Size重み: 0.2 (20% - 中重要)
+  • Transmission重み: 0.1 (10%)
+  • Prediction重み: 0.1 (10%)
+  • 重み総和: Σwi = 1.0 (正規化)
+end note
+
+note right of PID
+  **適応PID制御**
+  • ベースゲイン: Kp=0.15, Ki=0.02, Kd=0.0
+  • 適応機構: K_adaptive = K_base × (1 ± 0.8×complexity)
+  • 複雑度閾値: 0.5 (適応発動条件)
+  • 最大適応率: ±20% (安全性保証)
+  • 安定性監視: 分散<0.5, 5サンプル窓
+end note
+
+note right of FPSCtrl
+  **制御出力仕様**
+  • FPS範囲: [5-30] fps (ハード制限)
+  • ベースFPS: 7 fps (PID出力加算)
+  • Quality範囲: [50-95%] (JPEG品質)
+  • Priority範囲: [100-105] (USB スレッド)
+  • 応答時間: 100ms制御周期
+end note
+
+note bottom of SysPlant
+  **実測性能結果**
+  • FPS改善: +36% (6.74→9.2 fps)
+  • レイテンシ削減: -29% (134→95ms)
+  • 制御周期: 100ms (10Hz)
+  • 予測窓: 5フレーム
+  • フォールバック: 3連続失敗
+  • システム時定数: τ = 14.05s
+end note
+
+@enduml
+```
+
 ## セキュリティ・プライバシー設計
 
 ### セキュリティアーキテクチャ
@@ -1132,3 +1273,559 @@ Phase 9.2 TCP健全性監視を中核とする統合システムアーキテク�
 - **統合運用監視** ✅ リアルタイム可視化
 
 **Phase 9.2 TCP健全性監視統合による次世代システムアーキテクチャの完全仕様** ✅
+
+## Phase 10-11 制御工学アーキテクチャ
+
+### 物理システム構成 - 階層型制御ビュー
+
+```plantuml
+@startuml physical_control_system_hierarchical
+!theme plain
+
+skinparam rectangle {
+    BackgroundColor lightblue
+    BorderColor blue
+    FontSize 11
+    RoundCorner 10
+}
+
+skinparam package {
+    BackgroundColor lightyellow
+    BorderColor orange
+    FontSize 12
+}
+
+title Phase 10-11 Hierarchical Control System - Physical Configuration
+
+package "Spresense エッジデバイス" #LightBlue {
+
+    package "ハードウェア層" #LightCyan {
+        rectangle "ISX012 Camera\nISX012 カメラセンサー\n解像度: VGA (640x480)\nフォーマット: JPEG\nFPS制御: V4L2 VIDIOC_S_PARM\n制御範囲: 5-30 fps" as Camera #lightcyan
+
+        rectangle "JPEG Encoder\nハードウェアJPEGエンコーダ\n品質: 可変 (60-80%)\nレイテンシ: 0.05-265ms\n出力: 1KB-128KB/frame" as Encoder #lightcyan
+
+        rectangle "WiFi Module GS2200M\nGS2200M WiFi制御\n帯域幅: 1-12Mbps\n遅延: τ₂ = 134ms\nゲイン: K₂ = 0.85" as WiFi #lightcyan
+    }
+
+    package "ソフトウェア層 - スレッドアーキテクチャ" #LightYellow {
+
+        rectangle "Camera Thread Priority: 110\nカメラスレッド (最高優先度)\n優先度: 110 (固定)\n実行周期: 7-30fps駆動\n機能: フレーム取得・JPEG化\n出力: Action Queue填充" as CamThread #lightyellow
+
+        rectangle "Frame Queue Action/Empty\nフレームキューシステム\nAction Queue: 0-7 frames\nEmpty Queue: バッファ再利用\n容量: 動的調整 (5-9 frames)\n時定数: τ₁ = 33ms" as Queue #lightyellow
+
+        rectangle "USB Thread Priority: 100→105\nUSBスレッド (可変優先度)\n基本優先度: 100\nブースト優先度: 105\nトリガー: Queue深度 >= 6\nリセット: Queue深度 <= 2\n機能: TCP/USB送信" as USBThread #lightyellow
+    }
+
+    package "Phase 10-11 制御層" #LightGreen {
+
+        rectangle "Control Thread Priority: 95\n制御スレッド (最低優先度)\n優先度: 95 (固定)\n制御周期: 100ms (10Hz)\n安定性監視: 10サンプル\nフォールバック: 3回失敗で発動" as CtrlThread #lightgreen
+
+        package "Phase 10 基本制御" #PaleGreen {
+            rectangle "PID Controller\nPID制御器\nKp: 0.15 (比例)\nKi: 0.02 (積分)\nKd: 0.0 (微分無効)\n目標値: 3.5 frames\n制限: [5, 30] fps\nアンチワインドアップ: ±5.0" as PID #palegreen
+        }
+
+        package "Phase 11 拡張制御" #DarkSeaGreen {
+            rectangle "Frame Statistics\nフレーム統計解析\n窓サイズ: 10 frames\n複雑度指数: 0.0-2.0\n分散解析: 正規化\n平滑化係数: 0.8" as Stats #darkseagreen
+
+            rectangle "Multi-Variable Controller\n多変数制御器\n入力数: 6変数\n重み: Queue(0.6), Size(0.2)\nTrans(0.1), Pred(0.1)\n適応制御: 複雑度ベース\n予測: 10ステップホライゾン" as MultiVar #darkseagreen
+
+            rectangle "Adaptive PID\n適応PID\nベースゲイン: Phase 10継承\n適応係数: 0.8\n最大適応率: ±0.2\n複雑度閾値: 0.5" as AdaptPID #darkseagreen
+        }
+    }
+}
+
+package "PC ホストシステム" #LightBlue {
+    rectangle "TCP Receiver\nTCP受信システム\n受信バッファ: 8KB\n処理時間: τ₃ = 174ms\nスループット: 可変" as Receiver #lightblue
+
+    rectangle "Display Pipeline\n表示パイプライン\n目標FPS: 60fps GUI\nデコード時間: τ₄ = 2.07ms\n表示遅延: ~16.7ms" as Display #lightblue
+}
+
+' データフロー（主要パス）
+Camera --> Encoder : "Raw frames"
+Encoder --> CamThread : "JPEG data"
+CamThread --> Queue : "Frame buffers\n33ms τ₁"
+Queue --> USBThread : "Transmission queue"
+USBThread --> WiFi : "TCP packets\n134ms τ₂"
+WiFi --> Receiver : "Network stream"
+Receiver --> Display : "Decoded frames"
+
+' 制御信号フロー
+Queue --> CtrlThread : "Queue depth\nmeasurement"
+CtrlThread --> PID : "Error signal\n(3.5 - depth)"
+PID --> Camera : "FPS setpoint\n[5-30] fps"
+
+' Phase 11 拡張制御
+Stats --> MultiVar : "Statistics\ndata"
+Queue --> Stats : "Frame sizes"
+MultiVar --> AdaptPID : "Weighted\ncontrol input"
+AdaptPID --> Camera : "Adaptive FPS\ncommand"
+
+' 優先度制御ループ
+Queue --> USBThread : "Priority boost\nsignal (≥6 frames)"
+
+' フォールバック制御
+CtrlThread -.-> PID : "Fallback to\nPhase 10"
+
+note right of PID
+  **Phase 10 基本制御**
+  • Queue深度 → FPS制御
+  • 100ms制御周期
+  • 安定性保証
+end note
+
+note right of AdaptPID
+  **Phase 11 拡張制御**
+  • 6変数統合制御
+  • 適応ゲイン調整
+  • 予測制御統合
+  • Phase 10フォールバック
+end note
+
+note bottom of Queue
+  **実測システム動特性**
+  • G₁(s) = 1/(33ms·s + 1)
+  • G₂(s) = 0.85/(134ms·s + 1)
+  • 全体時定数: τ = 14.05s
+end note
+
+@enduml
+```
+
+### 制御理論モデル - Phase 10→11 階層アーキテクチャ
+
+制御工学の観点から、数学的制御関係とPhase 10からPhase 11への階層的制御構造を示します。
+
+```plantuml
+@startuml phase10_11_control_theory
+!theme plain
+
+skinparam rectangle {
+    BackgroundColor lightblue
+    BorderColor blue
+    FontSize 11
+    RoundCorner 10
+}
+
+skinparam package {
+    BackgroundColor lightyellow
+    BorderColor orange
+    FontSize 12
+}
+
+skinparam note {
+    BackgroundColor lightyellow
+    BorderColor orange
+    FontSize 10
+}
+
+title Phase 10→11 階層制御理論モデル - 制御工学アプローチ
+
+' Phase 10 基本制御層
+package "Phase 10 基本制御層 (Foundation Layer)" #lightblue {
+
+    rectangle "r(t)\n基準入力\n3.5 frames" as RefInput #lightgreen
+    rectangle "Σ\n比較器\n(-)" as Comparator #lightyellow
+    rectangle "PID Controller\nKp=0.15\nKi=0.02\nKd=0.0" as PIDController #lightcyan
+    rectangle "Saturation\n[5-30 fps]" as Saturator #orange
+    rectangle "Plant\nG(s)=1/(14.05s+1)\nQueue System" as Plant #lightblue
+    rectangle "y(t)\nQueue Depth\nOutput" as Output #lightgreen
+
+    RefInput --> Comparator : r(t)
+    Comparator --> PIDController : e(t)
+    PIDController --> Saturator : u(t)
+    Saturator --> Plant : FPS指令
+    Plant --> Output : queue_depth
+    Output --> Comparator : フィードバック
+}
+
+' Phase 11 拡張制御層
+package "Phase 11 拡張制御層 (Enhancement Layer)" #lightgreen {
+
+    ' 多変数入力（6変数）
+    rectangle "Queue深度\nInput" as QueueInput #lightcyan
+    rectangle "Frame Size\nInput" as SizeInput #lightcyan
+    rectangle "分散指標\nInput" as VarianceInput #lightcyan
+    rectangle "伝送時間\nInput" as TransInput #lightcyan
+    rectangle "予測負荷\nInput" as PredInput #lightcyan
+    rectangle "複雑度指標\nInput" as ComplexInput #lightcyan
+
+    ' 制御ブロック
+    rectangle "Weighted Sum\nΣ(wi×ui)\n正規化統合" as WeightedSum #lightyellow
+    rectangle "Complexity\nAdaptive\nK_adaptive" as Adaptive #orange
+    rectangle "Predictive\nController\n10 frame window" as Predictive #lightblue
+    rectangle "Adaptive PID\nController\nPhase 11" as AdaptivePID #lightcyan
+    rectangle "Stability\nMonitor" as Stability #lightpink
+    rectangle "Fallback\nLogic" as Fallback #red
+
+    ' 制御フロー
+    QueueInput --> WeightedSum : w1=0.6
+    SizeInput --> WeightedSum : w2=0.2
+    VarianceInput --> WeightedSum : w3=0.1
+    TransInput --> WeightedSum : w4=0.1
+    PredInput --> WeightedSum : w5=0.1
+    ComplexInput --> WeightedSum : w6=0.0
+
+    WeightedSum --> AdaptivePID : u_total(t)
+    ComplexInput --> Adaptive : complexity[0.0-2.0]
+    Adaptive --> AdaptivePID : adaptive_gain
+    PredInput --> Predictive : history_data
+    Predictive --> AdaptivePID : prediction
+    AdaptivePID --> Stability : control_output
+    Stability --> Fallback : stability_check
+
+    ' フォールバック
+    Fallback -.-> PIDController : "3回連続失敗で\nPhase 10復帰"
+}
+
+' システムプラント詳細
+package "システムプラント (実測モデル)" #lightyellow {
+    rectangle "Action Queue\nG1(s) = 1/(33ms*s+1)" as ActionQueue #lightblue
+    rectangle "USB System\nG2(s) = 0.85/(134ms*s+1)" as USBSystem #lightblue
+    rectangle "Overall System\nG_system(s) = 1/(14.05s*s+1)" as OverallSystem #lightblue
+
+    ActionQueue --> USBSystem : frame_buffer
+    USBSystem --> OverallSystem : tcp_stream
+}
+
+' 制御信号フロー（Phase 11有効時）
+AdaptivePID --> ActionQueue : adaptive_fps
+OverallSystem --> QueueInput : queue_feedback
+OverallSystem --> SizeInput : size_feedback
+OverallSystem --> TransInput : transmission_feedback
+
+' 直接制御パス（Phase 10フォールバック）
+Saturator -.-> ActionQueue : basic_fps
+
+' 数学的注釈
+note right of PIDController
+  **Phase 10 数学モデル**
+  • PID制御: u(t) = Kp·e(t) + Ki·∫e(τ)dτ + Kd·de/dt
+  • ゲイン: Kp=0.15, Ki=0.02, Kd=0.0
+  • 制御周期: T = 100ms = 0.1s
+  • 設定値: r(t) = 3.5 frames
+  • プラント: G(s) = 1/(14.05s + 1)
+end note
+
+note right of AdaptivePID
+  **Phase 11 数学モデル**
+  • 統合制御入力: u_total = Σ(wi × ui_normalized)
+  • 適応ゲイン: K_adaptive = K_base × (1 ± α × complexity)
+  • 予測制御: u_pred = K_pred × Σ(predicted_trend)
+  • 最終制御: u_final = K_adaptive × (u_total + u_pred)
+  • 安定性条件: |avg_error| < 0.5, variance < 0.5
+  • フォールバック: 3回連続失敗 → Phase 10復帰
+end note
+
+note bottom of OverallSystem
+  **実測システム同定結果**
+  • アクションキュー: τ₁ = 33ms (Camera→Queue)
+  • USB伝送: τ₂ = 134ms, ゲイン = 0.85
+  • 総合時定数: τ_system = 14.05s
+  • 非線形性: FPS飽和 [5-30], 優先度ブースト
+  • Phase 11性能: FPS向上36%, 遅延削減29%
+end note
+
+@enduml
+```
+
+### メトリクス制御通信システム - 双方向制御アーキテクチャ
+
+実装計画されているメトリクス制御通信とフィードバック制御ループを含む、Phase 10-11の制御工学設計を示します。
+
+```plantuml
+@startuml metrics_control_communication_system
+!theme plain
+
+skinparam rectangle {
+    BackgroundColor lightblue
+    BorderColor blue
+    FontSize 11
+    RoundCorner 10
+}
+
+skinparam package {
+    BackgroundColor lightyellow
+    BorderColor orange
+    FontSize 12
+}
+
+skinparam note {
+    BackgroundColor lightyellow
+    BorderColor orange
+    FontSize 10
+}
+
+title メトリクス制御通信システム - 双方向制御アーキテクチャ\nPhase 10-11 実装計画
+
+' Spresense側システム
+package "Spresense エッジデバイス" #lightblue {
+
+    ' カメラ・エンコーダシステム
+    package "映像処理システム" #lightcyan {
+        rectangle "ISX012 Camera\nフレーム取得\n30fps" as Camera #lightcyan
+        rectangle "H.264 Encoder\nハードウェアエンコード\nビットレート制御" as Encoder #lightcyan
+        rectangle "Frame Queue\nキュー深度監視\n動的サイズ調整" as FrameQueue #lightcyan
+    }
+
+    ' メトリクス収集システム
+    package "メトリクス収集システム" #lightgreen {
+        rectangle "Frame Statistics\nフレーム統計\nFPS計算\nエンコード時間" as FrameStats #lightgreen
+        rectangle "Queue Monitor\nキュー深度計測\nバッファ使用率\n待ち時間計測" as QueueMonitor #lightgreen
+        rectangle "Performance Logger\nCPU使用率\nメモリ使用量\nエラー率" as PerfLogger #lightgreen
+    }
+
+    ' 制御システム
+    package "制御システム" #lightyellow {
+        rectangle "FPS Controller\n動的FPS制御\n目標値設定\n実績値監視" as FPSController #lightyellow
+        rectangle "Quality Controller\nビットレート制御\n品質調整\n適応制御" as QualityController #lightyellow
+        rectangle "Command Handler\n制御指令受信\nパラメータ変更\n状態更新" as CmdHandler #lightyellow
+    }
+
+    ' 通信システム
+    package "通信システム" #lightpink {
+        rectangle "Protocol Handler\nメッセージ振り分け\n映像 vs 制御\nパケット化" as ProtocolHandler #lightpink
+        rectangle "Metrics Sender\n定期メトリクス送信\n0x30-0x32パケット\n2秒周期" as MetricsSender #lightpink
+        rectangle "USB Transport\nCDC-ACM\n12Mbps\n優先度制御" as USBTransport #lightpink
+    }
+}
+
+' PC側システム
+package "PC ホストシステム" #lightblue {
+
+    ' 受信・分析システム
+    package "受信・分析システム" #lightcyan {
+        rectangle "Stream Receiver\n映像データ受信\nMJPEG/H.264\nデコード" as StreamReceiver #lightcyan
+        rectangle "Metrics Receiver\nメトリクス受信\n統計情報解析\nトレンド分析" as MetricsReceiver #lightcyan
+        rectangle "Performance Analyzer\nパフォーマンス分析\n最適化判定\nアラート生成" as PerfAnalyzer #lightcyan
+    }
+
+    ' 制御システム
+    package "制御システム" #lightyellow {
+        rectangle "Control Decision\n制御判定エンジン\nFPS最適化\n品質調整" as ControlDecision #lightyellow
+        rectangle "Command Sender\n制御指令送信\n0x40-0x43パケット\nリアルタイム制御" as CmdSender #lightyellow
+    }
+
+    ' ユーザーインターフェース
+    package "ユーザーインターフェース" #lightgreen {
+        rectangle "Control Panel\nGUI制御パネル\n手動調整\nリアルタイム監視" as ControlPanel #lightgreen
+        rectangle "Metrics Dashboard\nメトリクス表示\nグラフ・統計\nアラート表示" as Dashboard #lightgreen
+    }
+}
+
+' データフロー（映像チャネル）
+Camera --> Encoder : "RAWフレーム"
+Encoder --> FrameQueue : "H.264 NAL"
+FrameQueue --> ProtocolHandler : "映像データ"
+ProtocolHandler --> USBTransport : "0x10-0x13\n映像パケット"
+USBTransport --> StreamReceiver : "USB CDC\n映像ストリーム"
+StreamReceiver --> Dashboard : "映像表示"
+
+' メトリクス収集フロー
+Camera --> FrameStats : "フレーム情報"
+Encoder --> FrameStats : "エンコード統計"
+FrameQueue --> QueueMonitor : "キュー状態"
+FrameStats --> MetricsSender : "統計データ"
+QueueMonitor --> MetricsSender : "キュー深度"
+PerfLogger --> MetricsSender : "システム統計"
+
+' メトリクス送信・受信
+MetricsSender --> ProtocolHandler : "メトリクス情報"
+ProtocolHandler --> USBTransport : "0x30-0x32\nメトリクスパケット"
+USBTransport --> MetricsReceiver : "USB CDC\nメトリクス"
+MetricsReceiver --> PerfAnalyzer : "統計解析"
+PerfAnalyzer --> Dashboard : "可視化"
+
+' フィードバック制御フロー
+PerfAnalyzer --> ControlDecision : "分析結果"
+ControlPanel --> ControlDecision : "手動指令"
+ControlDecision --> CmdSender : "制御判定"
+CmdSender --> USBTransport : "0x40-0x43\n制御パケット"
+USBTransport --> ProtocolHandler : "USB CDC\n制御指令"
+ProtocolHandler --> CmdHandler : "制御指令"
+CmdHandler --> FPSController : "FPS変更"
+CmdHandler --> QualityController : "品質変更"
+
+' 制御適用フロー
+FPSController --> Camera : "FPS設定"
+QualityController --> Encoder : "ビットレート設定"
+
+' 注釈
+note right of MetricsSender
+  **メトリクス送信仕様**
+  • 送信周期: 2秒
+  • パケットサイズ: <64バイト
+  • 優先度: 低（映像より下位）
+  • 内容: FPS, キュー深度, エラー率
+end note
+
+note right of CmdSender
+  **制御指令仕様**
+  • イベント駆動送信
+  • 応答時間: <500ms
+  • パケットサイズ: 1-8バイト
+  • 制御項目: FPS, ビットレート, 品質
+end note
+
+note bottom of USBTransport
+  **通信チャネル分離**
+  • 映像データ: 高優先度, 連続送信
+  • メトリクス: 低優先度, 定期送信
+  • 制御指令: 中優先度, 即座送信
+  • 帯域幅配分: 映像90%, 制御10%
+end note
+
+@enduml
+```
+
+### 制御工学フィードバックループ - 適応制御システム
+
+メトリクス制御通信によるフィードバック制御ループの詳細な制御工学設計を示します。
+
+```plantuml
+@startuml feedback_control_loop_system
+!theme plain
+
+skinparam rectangle {
+    BackgroundColor lightblue
+    BorderColor blue
+    FontSize 11
+    RoundCorner 10
+}
+
+skinparam package {
+    BackgroundColor lightyellow
+    BorderColor orange
+    FontSize 12
+}
+
+skinparam note {
+    BackgroundColor lightyellow
+    BorderColor orange
+    FontSize 10
+}
+
+title 制御工学フィードバックループ - Spresense自律制御システム\n実装済みPI制御アーキテクチャ
+
+' 制御入力（Spresense内部設定）
+rectangle "制御パラメータ\nControl Parameters\nSetpoint: 3.5 (queue)\nKp: 0.15, Ki: 0.02\n制御周期: 100ms" as TargetSettings #lightgreen
+
+' 制御システム（Spresense側）
+package "自律制御システム (Spresense側)" #lightyellow {
+    rectangle "誤差計算器\nError Calculator\ne(t) = 3.5 - queue_depth" as ErrorCalc #lightyellow
+    rectangle "PIDコントローラ\nPI Controller\nKp=0.15, Ki=0.02, Kd=0.0" as PIDController #lightyellow
+    rectangle "出力制限\nOutput Limiter\nFPS[5-30]制限\nクランプ機能" as OutputLimiter #lightyellow
+    rectangle "制御実行\nControl Execution\ncamera_set_fps_runtime()" as ControlExec #lightyellow
+}
+
+' 通信チャネル
+package "通信チャネル" #lightpink {
+    rectangle "USB CDC\nData Channel\n12Mbps\n映像+メトリクス" as DataChannel #lightpink
+}
+
+' プラント（Spresense側）
+package "プラント (Spresense側)" #lightblue {
+    rectangle "制御指令処理\nCommand Processing\nFPS/品質パラメータ変更" as CmdProcessing #lightblue
+    package "通信制御部分" {
+    rectangle "カメラシステム\nCamera System\nISX012 + H.264\nフレーム生成" as CameraSystem #lightblue
+    rectangle "メトリクス収集\nMetrics Collection\n並行スレッド処理\nCPU/メモリ影響" as MetricsCollection #lightblue
+    rectangle "統合処理ハンドラ\nProtocol Handler\nパケット振り分け\n通信チャネル管理" as IntegratedHandler #lightblue
+    }
+}
+
+' PC側監視システム
+package "PC側監視・可視化システム" #lightgreen {
+    rectangle "メトリクス受信\nMetrics Receiver\nTCP/USB受信\nデータ解析" as MetricsReceiver #lightgreen
+    rectangle "ダッシュボード\nDashboard\nBode線図\nNyquist線図\nステップ応答" as Dashboard #lightgreen
+    rectangle "制御解析\nControl Analysis\nシミュレーション\n性能評価" as ControlAnalysis #lightgreen
+}
+
+' 制御フロー
+TargetSettings --> ErrorCalc : "目標値"
+ErrorCalc --> PIDController : "誤差信号\ne(t)"
+PIDController --> ControlLogic : "制御信号\nu(t)"
+ControlLogic --> CmdGen : "制御判定"
+CmdGen --> ControlChannel : "制御指令"
+
+ControlChannel --> CmdProcessing : "FPS/Quality\nCommands"
+CmdProcessing --> CameraSystem : "パラメータ設定"
+CmdProcessing --> MetricsCollection : "監視設定"
+
+' Spresense内部制御ループ（100ms周期）
+TargetSettings --> ErrorCalc : "固定設定値"
+ErrorCalc --> PIDController : "誤差信号\ne(t)"
+PIDController --> OutputLimiter : "制御信号\nu(t)"
+OutputLimiter --> ControlExec : "FPS指令"
+ControlExec --> CameraSystem : "FPS設定"
+
+' フィードバックループ（Spresense内部）
+CameraSystem --> IntegratedHandler : "フレームデータ"
+MetricsCollection --> ErrorCalc : "キュー深度測定\nフィードバック"
+MetricsCollection --> IntegratedHandler : "統計情報"
+
+' PC側への一方向通信
+IntegratedHandler --> DataChannel : "映像+メトリクス\n一括送信"
+DataChannel --> MetricsReceiver : "USB CDC\nデータストリーム"
+MetricsReceiver --> Dashboard : "可視化・表示"
+Dashboard --> ControlAnalysis : "制御解析\n（シミュレーション）"
+
+' 擾乱入力
+rectangle "外部擾乱\nDisturbances\nネットワーク負荷\nシステム負荷\n環境変化" as Disturbances #orange
+rectangle "内部擾乱\nInternal Load\nメトリクス処理負荷\n統計計算CPU使用\n並行スレッド競合" as InternalLoad #orange
+
+Disturbances --> CameraSystem : "性能影響"
+Disturbances --> MetricsCollection : "処理能力影響"
+InternalLoad --> CameraSystem : "リソース競合"
+InternalLoad --> IntegratedHandler : "処理負荷"
+
+' 制御仕様の詳細注釈
+note right of PIDController
+  **PI制御パラメータ（実装済み）**
+  • Kp = 0.15 (比例ゲイン)
+  • Ki = 0.02 (積分ゲイン)
+  • Kd = 0.0 (微分無効)
+  • 制御周期: 100ms (10Hz)
+  • 設定値: 3.5 (キュー深度)
+  • 飽和制限: FPS[5-30]
+  • 実装: fps_controller.c
+end note
+
+note right of MetricsCollection
+  **メトリクス収集の制御影響**
+  • 並行スレッド: カメラ処理と独立実行
+  • リソース競合: CPU/メモリ使用率への影響
+  • レスポンス影響: 統計処理によるレイテンシ
+  • 制御対象: 収集頻度、データサイズ
+  • 優先度制御: カメラ < メトリクス収集
+end note
+
+note right of IntegratedHandler
+  **統合処理ハンドラ (Protocol Handler)**
+  • パケット振り分け: 映像 vs メトリクス
+  • 通信チャネル管理: 優先度制御
+  • バッファ管理: キュー深度監視
+  • 制御応答性: 指令処理の即座実行
+  • 実装ファイル: protocol_handler.c/h
+end note
+
+note right of Dashboard
+  **PC側ダッシュボード機能**
+  • Bode線図: 周波数応答解析
+  • Nyquist線図: 安定性判定
+  • ステップ応答: 過渡特性表示
+  • メトリクス表示: リアルタイム監視
+  • 制御解析: シミュレーション機能
+  • ※制御指令送信機能なし
+end note
+
+note bottom of ControlAnalysis
+  **制御解析・シミュレーション**
+  • パラメータ感度解析
+  • システム同定結果表示
+  • 制御性能評価指標
+  • 安定性マージン計算
+  • リアルタイム特性監視
+  • ※Spresenseへの制御指令なし
+end note
+
+@enduml
+```

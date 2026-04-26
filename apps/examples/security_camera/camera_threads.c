@@ -55,6 +55,12 @@
 #include "fps_controller.h"
 #include "config.h"
 
+/* Phase 11: Enhanced adaptive control */
+#ifdef CONFIG_PHASE11_ENABLE
+#include "frame_statistics.h"
+#include "enhanced_control.h"
+#endif
+
 /* Phase 7: WiFi/TCP transport support */
 
 #ifdef CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI
@@ -121,6 +127,13 @@ static struct timespec g_last_metrics_time;
 /* Phase 10: PID Controller */
 
 static fps_controller_t g_fps_controller;
+
+/* Phase 11: Frame Statistics */
+
+#ifdef CONFIG_PHASE11_ENABLE
+static frame_statistics_t g_frame_statistics;
+static bool g_frame_statistics_initialized = false;
+#endif
 
 /* Phase 7.3.3c: Unified frame drop logic with OR condition
  *
@@ -455,6 +468,19 @@ void *camera_thread_func(void *arg)
       buffer->used = packet_size;
       total_jpeg_bytes += frame.size;  /* Accumulate JPEG size */
 
+      /* Phase 11: Update frame statistics */
+#ifdef CONFIG_PHASE11_ENABLE
+      if (!g_frame_statistics_initialized)
+        {
+          frame_statistics_init(&g_frame_statistics);
+          g_frame_statistics_initialized = true;
+          LOG_INFO("Phase 11: Frame statistics initialized");
+        }
+
+      /* Update frame statistics with current frame size */
+      frame_statistics_update(&g_frame_statistics, frame.size, 0);
+#endif
+
       /* Phase 4.1: Track total frames for metrics */
 
       g_total_camera_frames++;
@@ -481,6 +507,21 @@ void *camera_thread_func(void *arg)
                    (unsigned long)avg_jpeg_kb,
                    (unsigned long)jpeg_validation_error_count, jpeg_error_rate,
                    (unsigned long)g_dropped_frames, (unsigned long)g_drop_events);
+
+#ifdef CONFIG_PHASE11_ENABLE
+          /* Phase 11: Frame statistics logging */
+          if (g_frame_statistics_initialized)
+            {
+              LOG_INFO("Phase 11 frame stats: avg=%.1fKB, range=%u-%uKB, "
+                       "variance=%.2f, complexity=%.3f (smoothed=%.3f)",
+                       frame_statistics_get_avg_size_kb(&g_frame_statistics),
+                       g_frame_statistics.min_size_bytes / 1024,
+                       g_frame_statistics.max_size_bytes / 1024,
+                       frame_statistics_get_normalized_variance(&g_frame_statistics),
+                       g_frame_statistics.complexity_index,
+                       g_frame_statistics.smoothed_complexity);
+            }
+#endif
         }
 
       pthread_mutex_unlock(&g_queue_mutex);
@@ -1659,3 +1700,43 @@ void camera_threads_cleanup(void)
 
   LOG_INFO("Threading system cleaned up successfully");
 }
+
+#ifdef CONFIG_PHASE11_ENABLE
+/****************************************************************************
+ * Name: get_frame_statistics
+ *
+ * Description:
+ *   Get current frame statistics for enhanced control system
+ *
+ ****************************************************************************/
+
+const frame_statistics_t* get_frame_statistics(void)
+{
+  if (!g_frame_statistics_initialized)
+    {
+      return NULL;
+    }
+
+  return &g_frame_statistics;
+}
+
+/****************************************************************************
+ * Name: reset_frame_statistics
+ *
+ * Description:
+ *   Reset frame statistics (for testing or on control failure)
+ *
+ ****************************************************************************/
+
+int reset_frame_statistics(void)
+{
+  if (!g_frame_statistics_initialized)
+    {
+      return -1;
+    }
+
+  frame_statistics_reset(&g_frame_statistics);
+  LOG_INFO("Phase 11: Frame statistics reset");
+  return 0;
+}
+#endif

@@ -1,0 +1,25 @@
+@startuml font_awesome_local_example
+!include ./tupadr3-common.puml
+!include ./font-awesome-server.puml
+
+title Local Font Awesome Example - Security Camera Network
+
+' Font Awesome server icon usage
+ENTITY(node, "#FF6633", "server", "Camera Server 1", server1, "hardware")
+ENTITY(node, "#FF6633", "server", "Camera Server 2", server2, "hardware")
+ENTITY(node, "#FF6633", "server", "Camera Server 3", server3, "hardware")
+ENTITY(node, "#FF6633", "server", "Camera Server 4", server4, "hardware")
+
+rectangle "Network Switch" as switch
+rectangle "PC Host Application" as pc_host
+
+server1 --> switch : "TCP Stream"
+server2 --> switch : "TCP Stream"
+server3 --> switch : "TCP Stream"
+server4 --> switch : "TCP Stream"
+switch --> pc_host : "Aggregated Data"
+
+note right of server1 : Spresense with ISX012
+note right of pc_host : Multi-camera receiver
+
+@enduml

@@ -54,6 +54,10 @@ CSRCS += frame_queue.c
 CSRCS += camera_threads.c
 CSRCS += fps_controller.c
 
+# Phase 11: Enhanced adaptive control
+# Note: Always compile frame_statistics.c when Phase 11 is enabled via config.h
+CSRCS += frame_statistics.c
+
 # Phase 7: WiFi/TCP transport
 ifeq ($(CONFIG_EXAMPLES_SECURITY_CAMERA_WIFI),y)
 CSRCS += wifi_manager.c

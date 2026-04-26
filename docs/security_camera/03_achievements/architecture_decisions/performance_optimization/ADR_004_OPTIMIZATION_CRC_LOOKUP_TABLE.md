@@ -1,10 +1,35 @@
 # ADR 004: CRC Lookup Table Optimization for High-Performance Packet Processing
 
 **作成日**: 2026-02-10
-**バージョン**: 1.0
-**ステータス**: 受諾済み
+**バージョン**: 1.1 (2026-04-27 ステータス格下げ)
+**ステータス**: 🔴 **実装計画 (未統合)** ※ v1.0 では「受諾済み」と記載していたが、検証により実コード未統合と判明
 **対象システム**: Spresenseセキュリティカメラ Phase 1.5
 **技術影響度**: 高
+
+## ⚠️ 実装状態の重要訂正 (2026-04-27)
+
+本 ADR は当初 v1.0 で「実装完了・受諾済み」として文書化されたが、2026-04-27 の事実検証により以下が判明した:
+
+- **`apps/examples/security_camera/mjpeg_protocol.c:32-56`** の `mjpeg_crc16_ccitt()` は **bitwise (8 重ループ) 実装のまま**
+- **`crc16_table` 配列は実コード `.c` に存在しない** (`grep "crc16_table" apps/examples/security_camera/*.c` → 0 件)
+- `git log -S "crc16_table" --all` の結果、テーブル化コードは ADR-004.md および `CRC_VALIDATION_SPEC.md` 内のサンプルとしてのみコミット履歴に存在し、**実コード `.c` への統合は一度も発生していない**
+
+### 経緯の推測 (`bak/04_test_results/10_, 11_` の調査より)
+
+1. **2025-12-29 午前** (`10_CRC最適化による想定外の性能劣化調査.md`): NuttX 標準 CRC テーブルへの置換を試行 → **カメラレイテンシ 6ms→315ms に 50× 悪化**、CRC バリアント不一致発覚で bitwise に巻き戻し
+2. **2025-12-29 同日** (`11_CRC最適化性能分析.md`): カスタムテーブル方式で再試行、`9.8fps→11.0fps`・`23.3ms→8.7ms` の改善を測定したと記録 (本 ADR の元ネタ)
+3. **以降のコミット履歴**: テーブル化コード (`crc16_table` を含む `.c` 変更) のコミットは 1 件も無い
+
+→ テーブル化は別ブランチまたはローカル実験で動作確認のみされ、master/main には統合されなかった可能性が極めて高い。ADR-004 v1.0 は「**実装した結果**」ではなく「**実装した時点の測定値**」を文書化していたが、その後の master 統合が抜け落ちている。
+
+### 必要なアクション
+
+以下のいずれか:
+- **(a)** 実装をテーブル化し直し、ADR-004 を再「受諾済み」に戻す
+- **(b)** 本 ADR を「却下」または「保留」に変更し、bitwise のままを正式仕様とする
+- **(c)** 本 ADR を「実装計画」のまま残し、別タスク (新規 issue / Phase X.Y) として再着手する
+
+**現時点の方針** (2026-04-27 ユーザー判断): **(c) 実装計画として保持** → 以降の本文は「目標設計」として読まれるべき内容となる。
 
 ## 1. 決定概要
 
@@ -222,15 +247,27 @@ LOG_INFO("CRC calc: %llu us for %zu bytes (%.2f us/KB)",
 - `/02_specifications/interface/protocol/MJPEG_PROTOCOL_SPEC.md` - プロトコル詳細
 - `/02_specifications/performance/OPTIMIZATION_TARGETS.md` - 性能目標設定
 
-### 実装ファイル
-- `mjpeg_protocol.c` - CRC計算関数の最適化実装
+### 実装ファイル (※ 計画段階)
+- `mjpeg_protocol.c` - CRC計算関数の最適化実装 ← **未統合 (現状 bitwise)**
 - `mjpeg_protocol.h` - インターフェース（互換性維持）
+
+### 検証コマンド (実装済みかどうかの確認方法)
+```bash
+# テーブル配列が実コードに存在するか
+grep -n "crc16_table" apps/examples/security_camera/*.c
+# 0 件なら未統合、複数件なら統合済み
+
+# git history に統合コミットがあるか
+git log -S "crc16_table" -- 'apps/examples/security_camera/*.c'
+# 出力なしなら .c への追加履歴なし
+```
 
 ## 7. 改訂履歴
 
 | バージョン | 日付 | 変更内容 |
 |-----------|------|---------|
 | 1.0 | 2026-02-10 | 初版作成：Phase 1.5 CRC最適化実装成果をADR文書化 |
+| 1.1 | 2026-04-27 | ステータス「受諾済み」→「**実装計画 (未統合)**」に格下げ。事実検証により実コード `mjpeg_protocol.c` が bitwise のままで `crc16_table` 配列不在と判明。bak/04_test_results/10_, 11_ の経緯を追加 |
 
 ---
 

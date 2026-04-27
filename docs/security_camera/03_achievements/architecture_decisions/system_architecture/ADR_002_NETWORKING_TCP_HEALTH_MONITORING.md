@@ -128,6 +128,48 @@ bool should_trigger_preventive_reconnection(tcp_health_monitor_t *monitor)
 - メモリ使用量: +32B（移動平均バッファ）
 - CPU負荷: 測定不可能レベル
 
+## 3.5 Spresense 側 構造的制約 (v1.1 追加)
+
+予防的再接続によるダウンタイム削減目標が **本質的に達成困難である構造的根拠** を、`spresense/` サブモジュールから直接抽出した制約マップ (`02_specifications/architecture/SPRESENSE_TCP_CONSTRAINTS.md`) を参照して整理する。
+
+### 致命的事実: NuttX TCP スタックは無効
+
+```ini
+CONFIG_NET_TCP=y
+CONFIG_NET_TCP_NO_STACK=y    # ← NuttX スタックは「窓口だけ」
+CONFIG_NET_USRSOCK=y
+```
+
+→ 全 TCP/UDP は **usrsock 経由で GS2200M モジュール内蔵スタックに委譲**。NuttX 側の TCP_RECVWNDO / TCP_WRITE_BUFFERS 等は機能せず、性能・可用性は **GS2200M ハードウェア内部実装に完全依存** (ソフト側から制御不能)。
+
+### GS2200M ドライバ (`spresense/nuttx/drivers/wireless/gs2200m.c`) の核心制約
+
+| 定数 | 値 | 影響 |
+|---|---|---|
+| `MAX_PKT_LEN` | **1,500 B** | 1 パケット最大 |
+| `tx_buff` | **1 個のみ** | 送信は完全直列化 |
+| `MAX_NOTIF_Q` | **18** | 通知キュー深度 (16 sock + α) |
+| `BULK_THRESHOLD` | 8 KB | 8KB 超で bulk モード |
+| `SPI_MAXFREQ` | **4 MHz** | 理論 500 KB/s (実効 200-300 KB/s) |
+| `HAL_TIMEOUT` | 5 秒 | SPI 通信タイムアウト |
+
+### NuttX 側の余裕は極小
+
+- IOB プール合計: **1,568 B** (8 × 196 B)
+- usrsock 事前確保ソケット: 6
+- 全体 RAM: 1.5 MB
+
+### 予防的再接続が失敗する構造的理由
+
+GS2200M リソース枯渇 = モジュール**内部バッファ枯渇** であり、`disconnect → reconnect` 操作で解消する保証がない。実際 `bak/27_PHASE9_RECONNECT_FAILURE_ANALYSIS.md` では 4 回目以降の再接続で **RST 拒否 → ハードウェア再起動が必要** と記録されている。
+
+→ 本 ADR-002 のアーキテクチャ案は、構造的天井に対する**緩和策にすぎず根本解決ではない**。
+→ 根本対策は ADR-006 GATE-1 で示すハードウェア変更 (ESP32-S3 / RPi CM 等)。
+
+### 詳細
+
+完全な制約マップは [`02_specifications/architecture/SPRESENSE_TCP_CONSTRAINTS.md`](../../../02_specifications/architecture/SPRESENSE_TCP_CONSTRAINTS.md) を参照。
+
 ## 4. 検証結果 (v1.1 全面差し替え: 実測値ベース)
 
 ### v1.0 で記載していた数値 (※ 検証で裏付けが取れなかった主張)

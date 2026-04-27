@@ -1,0 +1,96 @@
+@startuml spresense_tcp_stack_layers
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title Spresense TCP/IP スタック レイヤ構造\n(NuttX + GS2200M, NET_TCP_NO_STACK=y 構成)
+
+package "Application Layer" #LightYellow {
+  [security_camera\nTCP Server\n(tcp_server.c)] as APP
+  [MJPEG Protocol\n(mjpeg_protocol.c)] as MJPEG
+  [Frame Queue\n(frame_queue.c)] as FQ
+  note right of APP
+    TCP_NODELAY 有効
+    SO_SNDBUF 262,144 B (256KB) 要求
+  end note
+}
+
+package "BSD Socket API" #LightCyan {
+  [socket() / send() / recv()\nlisten() / accept()] as BSDAPI
+}
+
+package "NuttX TCP Stack (機能無効)" #LightGray {
+  [NET_TCP_NO_STACK=y\nNET_UDP_NO_STACK=y\nNET_ICMP_NO_STACK=y] as NOSTACK
+  note right of NOSTACK
+    🔴 NuttX スタックは「窓口だけ」
+    TCP_RECVWNDO 等の設定は機能しない
+    全 TCP/UDP は usrsock へ委譲
+  end note
+}
+
+package "usrsock (RPC ブリッジ)" #LightGreen {
+  [usrsock_rpmsg] as USRSOCK
+  note right of USRSOCK
+    NET_USRSOCK_PREALLOC_CONNS=6
+    NET_USRSOCK_NPOLLWAITERS=1
+    IOB プール 8×196B = 1,568 B 経由
+  end note
+}
+
+package "GS2200M Driver\n(spresense/nuttx/drivers/wireless/gs2200m.c)" #LightBlue {
+  [Bulk Transfer Mgr] as BULK
+  [Packet Queue Mgr\n(pkt_q[16] + notif_q)] as PKTMGR
+  [TX Buffer\ntx_buff[1500]] as TXBUF
+  note right of BULK
+    BULK_THRESHOLD 8 KB
+    MAX_PKT_LEN 1,500 B
+    HAL_TIMEOUT 5 秒
+    WR_MAX_RETRY 100
+  end note
+}
+
+package "SPI Bus" #Khaki {
+  [SPI Interface\n4 MHz] as SPI
+  note right of SPI
+    🔴 理論 500 KB/s
+    実効 200-300 KB/s
+    送信完全直列化
+  end note
+}
+
+package "GS2200M Module (HW + ベンダー SW)" #LightCoral {
+  [Internal TCP/IP Stack\n(ベンダー実装)] as VSTACK
+  [Internal Buffers\n(容量不明)] as VBUF
+  note right of VSTACK
+    🔴 ソフト側から制御不能
+    リソース枯渇 → 切断発生
+    観測のみ可 (tcp_health_moving_avg_ms /
+    tcp_health_total_spikes)
+  end note
+}
+
+package "WiFi 802.11n PHY" #LightPink {
+  [Wireless Tx/Rx] as WIFI
+}
+
+APP --> BSDAPI : send(jpeg_batch ~122KB)
+MJPEG --> APP
+FQ --> MJPEG
+BSDAPI --> NOSTACK
+NOSTACK -[#gray,dashed]-> USRSOCK : (素通し)
+USRSOCK --> BULK
+BULK --> PKTMGR
+PKTMGR --> TXBUF
+TXBUF --> SPI : 1,500 B/pkt × 約 84 回
+SPI --> VSTACK
+VSTACK --> VBUF
+VBUF --> WIFI
+
+legend bottom
+  **核心事実**: NuttX 設定 NET_TCP_NO_STACK=y により、
+  TCP 制御はすべて GS2200M 内蔵スタックに委譲される。
+  NuttX 側で見える設定 (TCP_RECVWNDO 等) は機能せず、
+  Spresense ソフトから制御できる範囲は usrsock 入口まで。
+end legend
+
+@enduml

@@ -1,0 +1,101 @@
+@startuml spresense_tcp_buffer_queue
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title Spresense TCP 通信 バッファ/キュー関係図\n(全層のバッファサイズと所有者を一覧化)
+
+package "Application Layer (security_camera)" #LightYellow {
+  queue "action_queue\nMIN/DEFAULT/MAX = 5/7/9 frames" as AQ
+  note right of AQ
+    config.h:122-124
+    動的深度調整 (g_current_queue_depth)
+  end note
+
+  rectangle "MJPEG Batch Buffer\nMAX_BATCH_PACKET ≈ 122 KB\n(BATCH_SIZE=2)" as MJBUF #LightGreen
+  note right of MJBUF
+    mjpeg_protocol.h:43,47
+    Phase 7.2a で BATCH_SIZE 3→2 に削減
+    (TCP <100KB に抑制)
+  end note
+
+  rectangle "TCP SO_SNDBUF\n要求 262,144 B (256 KB)" as SNDBUF #LightCyan
+  note right of SNDBUF
+    tcp_server.c:170
+    実際の確保はドライバ依存
+  end note
+}
+
+package "NuttX usrsock 層" #LightGreen {
+  rectangle "usrsock 事前確保\nPREALLOC_CONNS = 6 sockets" as USRCONN
+  note bottom of USRCONN: nuttx/.config
+
+  queue "IOB プール\n8 × 196 B = 1,568 B" as IOB #Salmon
+  note right of IOB
+    🔴 NuttX 全体で共有、極小
+    IOB_THROTTLE=0 (流量制御なし)
+  end note
+}
+
+package "GS2200M Driver\n(spresense/nuttx/drivers/wireless/gs2200m.c)" #LightBlue {
+  rectangle "tx_buff\n[1 個 × 1,500 B]" as TXBUF #Salmon
+  note right of TXBUF
+    🔴 ドライバ全体で 1 個のみ
+    送信完全直列化、並列不可
+    MAX_PKT_LEN 1,500 B
+  end note
+
+  queue "pkt_q[16]\n受信キュー × 16 ソケット\n(per-cid)" as PKTQ
+  note right of PKTQ
+    pkt_q_cnt[16] で監視
+    SOCKET_COUNT = 16 と整合
+  end note
+
+  queue "notif_q\nMAX_NOTIF_Q = 18 通知" as NOTIFQ #Salmon
+  note right of NOTIFQ
+    🔴 16 sockets + disasso + dummy
+    溢れると新規通知不可
+  end note
+
+  rectangle "Response Msg Queue\nNRESPMSG = 18" as RESPQ
+}
+
+package "SPI Bus" #Khaki {
+  rectangle "SPI 4 MHz\nHAL_TIMEOUT 5 秒\nWR_MAX_RETRY 100" as SPI #Salmon
+  note right of SPI
+    🔴 理論 500 KB/s, 実効 200-300 KB/s
+    BULK_THRESHOLD 8 KB で bulk モード切替
+  end note
+}
+
+package "GS2200M Module (ブラックボックス)" #LightCoral {
+  queue "Internal Buffers\n容量不明 (ベンダー仕様)" as VBUF #Salmon
+  note right of VBUF
+    🔴 ソフト側から制御不能
+    枯渇時にリソース不足で切断
+    観測手段: tcp_health_moving_avg_ms
+              tcp_health_total_spikes
+  end note
+}
+
+' データフロー
+AQ --> MJBUF : 7 frames pop
+MJBUF --> SNDBUF : send(jpeg_batch)
+SNDBUF --> USRCONN : socket() 経由
+USRCONN --> IOB : RPC メッセージ分割
+IOB --> TXBUF : 1,500 B/転送
+TXBUF --> SPI : DMA via SPI
+SPI --> VBUF
+VBUF .right.> NOTIFQ : 切断通知 (RST 等)
+PKTQ -[#blue,dashed]- VBUF : 受信側 (per-cid)
+
+' RAM 全体予算注記
+note as RAM #LightYellow
+  **🧠 全体メモリ予算**
+  CONFIG_RAM_SIZE = 1,572,864 B = **1.5 MB**
+  この中に NuttX カーネル + 全ドライバ + 全アプリバッファ
+  (上記すべて) を収める必要がある。
+  GS2200M ドライバスタック自体は 2,048 B、優先度 50。
+end note
+
+@enduml

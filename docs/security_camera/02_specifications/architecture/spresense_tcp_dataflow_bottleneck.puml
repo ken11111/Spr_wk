@@ -1,0 +1,108 @@
+@startuml spresense_tcp_dataflow_bottleneck
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+
+title 50 KB MJPEG フレーム送信時のデータフロー + ボトルネック\n(構造的天井 5 点を可視化)
+
+start
+
+:📷 ISX012 カメラから JPEG キャプチャ (約 50 KB);
+note right
+  Phase 1.5 VGA 実測平均
+  MAX_FRAME_SIZE_BYTES 上限 128 KB
+end note
+
+:🟢 frame_queue (action_queue) に投入\n動的深度 5-9 (default 7);
+note right: アプリ層、ボトルネックなし
+
+:🟢 MJPEG バッチ化 (BATCH_SIZE=2)\n→ 100-122 KB バッチパケット;
+note right
+  Phase 7.2a 設計: <100KB に抑制
+  3→2 に削減した経緯あり
+end note
+
+:🟢 TCP send(122 KB)\nSO_SNDBUF=256KB 要求;
+note right
+  TCP_NODELAY (Nagle 無効)
+  実際の SO_SNDBUF 値はドライバ応答次第
+end note
+
+:🟡 BSD socket API → NuttX (NO_STACK);
+note right
+  NET_TCP_NO_STACK=y のため素通し
+  処理は usrsock に渡されるのみ
+end note
+
+:🟡 usrsock (RPC ブリッジ)\nIOB プール 1,568 B 経由;
+note right #LightYellow
+  🟡 IOB が満杯になると待ち発生
+  PREALLOC_CONNS=6 で同時接続制限
+end note
+
+:🔴 GS2200M ドライバ\ntx_buff [1 個 × 1500 B] でシリアル送信;
+note right #Pink
+  🔴 ボトルネック ①
+  送信は完全直列化 (tx_buff 1 個)
+  122 KB ÷ 1,464 B/pkt ≈ **84 回** の SPI 転送
+end note
+
+:🔴 SPI 転送 (4 MHz);
+note right #Pink
+  🔴 ボトルネック ②
+  理論 500 KB/s, 実効 200-300 KB/s
+  122 KB 送信 ≈ 400-600 ms (理論最良)
+  実測 134 ms は内部バッファ未満時のみ
+end note
+
+if (GS2200M 内部バッファ余裕あり?) then (yes)
+  :🟢 WiFi 802.11n 送信成功;
+  stop
+else (no)
+  :🔴 GS2200M リソース枯渇;
+  note right #Pink
+    🔴 ボトルネック ③ (致命)
+    内部バッファ容量はベンダー仕様で不明
+    Spresense ソフトから制御不能
+  end note
+
+  :🔴 TCP 送信時間スパイク\n134ms → 350ms → 1000ms → 5,228ms;
+  note right
+    bak/22_, 26_ 実測
+    Phase 9 で平均 227 ms に悪化
+  end note
+
+  if (tcp_health_total_spikes 連続検出?) then (yes)
+    :🟡 予防的再接続 (ADR-002 設計);
+    note right: 緩和策、根本解決ではない
+
+    if (再接続成功?) then (yes)
+      :🟡 TCP 復旧;
+      stop
+    else (no)
+      :🔴 RST 拒否 (bak/27_ 実測);
+      :🔴 ハード再起動が必要;
+      note right #Pink
+        🔴 ボトルネック ④
+        4 回目以降の再接続失敗
+        要 GATE-1 判定 (ADR-006)
+      end note
+      stop
+    endif
+  else (no)
+    :🔴 切断 → TCP FIN;
+    note right
+      bak/21_PHASE8_TCP_DISCONNECT_ANALYSIS
+      ドロップ率 53.7-75.5% に悪化
+    end note
+    stop
+  endif
+endif
+
+footer
+  **🧮 25 秒停滞時の PC 側蓄積試算 (ADR-008 根拠)**
+  Spresense FPS 8.96 × 25 秒 ≈ 224 packets × 50 KB = **約 11 MB**
+  → PC 側で Unbounded だと OOM、bounded(3) なら 150 KB 上限で
+    TCP Reader 側に即時ドロップ判断が局所化される
+end footer
+
+@enduml

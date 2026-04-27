@@ -225,11 +225,61 @@ ADR-006 計画の Full HD 1920×1080 H.264 @ 30fps を仮定:
 
 ---
 
-## 13. 改訂履歴
+## 13. 構造図 (PlantUML)
+
+本章の制約マップを 3 つの観点から可視化した PlantUML 図を併設する。
+
+### 13.1 スタック / レイヤ構造図
+
+[`spresense_tcp_stack_layers.puml`](spresense_tcp_stack_layers.puml)
+
+アプリから WiFi PHY までの 7 レイヤを縦に配置し、各層が「機能している」「素通し」「ベンダー制御不能」を色分け表示。`NET_TCP_NO_STACK=y` で NuttX TCP スタックがバイパスされ、usrsock 経由で GS2200M に委譲される構造を一目で把握できる。
+
+主に以下の質問に答える図:
+- どの設定項目が「機能している」か?
+- ソフト側から制御できる範囲はどこまでか?
+- ベンダーブラックボックスはどこから始まるか?
+
+### 13.2 バッファ・キュー関係図
+
+[`spresense_tcp_buffer_queue.puml`](spresense_tcp_buffer_queue.puml)
+
+各層に存在するバッファ/キューを `package` 単位でグルーピングし、容量上限・所有者・データフロー方向を一覧化。🔴 マークで構造的天井 (`tx_buff`, `IOB`, `notif_q`, `SPI`, `Internal Buffers`) を強調表示。
+
+主に以下の質問に答える図:
+- どこにメモリが集中しているか?
+- どの容量制約がボトルネックか?
+- 受信 (per-cid pkt_q) と送信 (tx_buff) の非対称性は?
+
+### 13.3 データフロー + ボトルネック図
+
+[`spresense_tcp_dataflow_bottleneck.puml`](spresense_tcp_dataflow_bottleneck.puml)
+
+50 KB MJPEG フレームが送信される過程をアクティビティ図で追跡し、各ステージに 🟢/🟡/🔴 でボトルネック度を表示。GS2200M リソース枯渇時の分岐 (予防再接続成功 / RST 拒否 / 切断) も描画し、ADR-002 / ADR-008 の根拠数値 (約 11 MB 蓄積試算等) を footer に併記。
+
+主に以下の質問に答える図:
+- 1 フレーム送信時、どこで時間が掛かるか?
+- リソース枯渇時にどのフォールバックが起きるか?
+- ADR-002 の予防再接続が効果限定的な理由は?
+
+### 13.4 図のレンダリング方法
+
+```bash
+# PlantUML CLI (要 plantuml インストール)
+plantuml -tpng docs/security_camera/02_specifications/architecture/spresense_tcp_*.puml
+
+# VS Code: PlantUML 拡張機能を入れて Alt+D でプレビュー
+# オンライン: https://www.plantuml.com/plantuml にコードを貼り付け
+```
+
+---
+
+## 14. 改訂履歴
 
 | バージョン | 日付 | 変更内容 |
 |---|---|---|
 | 1.0 | 2026-04-27 | 初版作成: `spresense/nuttx/.config` および GS2200M ドライバ・アプリ各層の制約を一元抽出 |
+| 1.1 | 2026-04-27 | 構造図 3 枚追加 (`spresense_tcp_stack_layers.puml`, `spresense_tcp_buffer_queue.puml`, `spresense_tcp_dataflow_bottleneck.puml`) |
 
 ---
 

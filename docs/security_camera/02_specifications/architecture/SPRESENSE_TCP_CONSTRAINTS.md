@@ -346,47 +346,71 @@ ADR-002 の予防的再接続ロジックを **6 状態 + 遷移条件**で正�
 - 1-3 回目で復旧する経路と、4 回目で FAILED に固着する経路の違いは?
 - ADR-002 設計目標 (2.8 秒復旧) と実測 (PC FPS 6.74→2.77 悪化) のギャップはどこに?
 
-### 13.6 ソフトウェアコンポーネント・デプロイ図 (per ハードウェアノード)
+### 13.6 ソフトウェア アーキテクチャ ビュー (arc42 流, per ハードウェアノード)
 
-物理デプロイ (13.5) を補完し、各**ハードウェアノード内部のソフトウェア構造**を別ファイルで描画。アプリ層 + NuttX カーネル層 + バッファ/キュー (本ドキュメント §3-9) を一括表示し、データフローを portin/portout で追跡可能。
+物理デプロイ (13.5) を補完し、各ハードウェアノード内部を **arc42 流の階層化ビュー** + 4+1 View に分離して描画。**懸念ごとに別図**にして読みやすさ・正確性を確保。
 
-#### 13.6.1 🔧 Spresense メインボード ソフトウェアコンポーネント
+#### 13.6.1 🔧 Spresense メインボード — L1 Building Block View
 
-ソース: [`spresense_main_board_components.puml`](spresense_main_board_components.puml) / 画像: [`spresense_main_board_components.png`](spresense_main_board_components.png)
+ソース: [`spresense_main_board_l1_buildingblocks.puml`](spresense_main_board_l1_buildingblocks.puml) / 画像: [`spresense_main_board_l1_buildingblocks.png`](spresense_main_board_l1_buildingblocks.png)
 
-![Spresense Main Board Components](spresense_main_board_components.png)
+![Spresense Main Board L1](spresense_main_board_l1_buildingblocks.png)
 
-CXD5602 (Cortex-M4F×6 @156MHz, RAM 1.5MB) 上で稼働するソフトウェアスタック:
+メインボードを white-box 化し、内部 7 ブロックを黒箱として配置。各ブロックは **責務 + provides/requires インタフェース**で記述 (UML/arc42 流の正規表記)。
 
-**① Application Layer** (`apps/examples/security_camera/`):
-- `camera_app_main.c` (entry), `camera_manager.c` (V4L2 client), `encoder_manager.c` (JPEG encode)
-- `g_action_queue` (5/7/9 frames 動的, ~360KB peak)
-- `mjpeg_protocol.c` + MJPEG batch buffer (~122KB, BATCH_SIZE=2)
-- `tcp_server.c`, `usb_transport.c`, `wifi_manager.c`, `protocol_handler.c`, `camera_threads.c`
-- 制御系 (Phase 10/11): `fps_controller.c`, `frame_statistics.c`, `enhanced_control.h`, `perf_logger.c`
+| Building Block | 責務 | 実装 |
+|---|---|---|
+| 📷 Capture Pipeline | ISX012 → JPEG | `camera_manager.c` + `encoder_manager.c` |
+| 🗂️ Frame Buffer Manager | g_empty/g_action queue 管理 | `frame_queue.c` |
+| 📦 Streaming Engine | MJPEG batch + CRC-16 | `mjpeg_protocol.c` + `protocol_handler.c` |
+| 🚚 Transport Manager | TCP/USB 切替・再接続 | `tcp_server.c` + `usb_transport.c` + `wifi_manager.c` |
+| 🎛️ Adaptive Controller | PID + 多変数適応制御 | `fps_controller.c` + `frame_statistics.c` + `enhanced_control.h` |
+| 📊 Health Monitor | 計測収集 + 58B metrics | `perf_logger.c` |
+| 🧵 Lifecycle Orchestrator | 起動・thread spawn | `camera_app_main.c` + `camera_threads.c` |
 
-**② NuttX Kernel Layer**:
-- V4L2 driver + RING buffer (3×64KB = 192KB, ADR-003)
-- BSD socket / usrsock RPC (NET_TCP_NO_STACK=y)
-- IOB プール (8×196B = 1,568B, 🔴 極小)
-- GS2200M Driver (`spresense/nuttx/drivers/wireless/gs2200m.c`):
-  - **🔴 ★ tx_buff [1×1500B] ★** (送信完全直列化)
-  - `pkt_q[16]` per-cid 受信
-  - `notif_q` (MAX_NOTIF_Q=18)
-- USB CDC-ACM driver + TX buffer (8KB)
+主要インタフェース: `frame_produced`, `frame_pool`, `batch_packet`, `transmit_done`, `queue_depth`, `queue_resize`, `metrics_pkt`
 
-**物理ポート** (メインボード境界): CSI in / SPI MOSI out / SPI MISO in / B2B 拡張コネクタ
+#### 13.6.2 🔧 Spresense メインボード — データビュー
 
-**主に答える質問**:
-- アプリのどのソースファイルがどのバッファに繋がっているか?
-- 1.5MB RAM の中で、どの領域が何 % を占めるか? (図中表で 60%+ アプリ系)
-- データフロー (CSI → V4L2 → action_queue → MJPEG → TCP/USB → SPI/B2B) を追跡可能か?
-- どのコンポーネントが PID 制御 (ADR-007) で `g_action_queue` 深度を調整するか?
+ソース: [`spresense_main_board_data_view.puml`](spresense_main_board_data_view.puml) / 画像: [`spresense_main_board_data_view.png`](spresense_main_board_data_view.png)
 
-**今後追加予定**:
-- 13.6.2 GS2200M モジュール (内部ソフトはベンダー BB のため最小)
-- 13.6.3 拡張ボード (USB CDC-ACM コントローラ + SD I/F)
-- 13.6.4 PC ソフトウェア (Rust_ws/security_camera_viewer)
+![Spresense Main Board Data View](spresense_main_board_data_view.png)
+
+バッファ・キュー (datastore) のみに焦点を当てた図。**メモリ予算表 (1.5MB の % 分配)** を併設。
+
+主に答える質問:
+- 1.5MB RAM の中で、どの領域が何 % を占めるか?
+- どこでデータが滞留するか?
+- 構造的天井 (tx_buff 1 個 / IOB 1568B) はどこに位置するか?
+- Full HD 移行で何が破綻するか?
+
+#### 13.6.3 🔧 Spresense メインボード — プロセスビュー
+
+ソース: [`spresense_main_board_process_view.puml`](spresense_main_board_process_view.puml) / 画像: [`spresense_main_board_process_view.png`](spresense_main_board_process_view.png)
+
+![Spresense Main Board Process View](spresense_main_board_process_view.png)
+
+NuttX タスク (4 つ) と共有資源・同期パターンに焦点を当てた図。
+
+主要タスク:
+- 🧵 main task (camera_app_main.c, prio=100, stack=8192)
+- 🎬 camera_thread_func (Producer: V4L2 → encode → action_queue)
+- 🚚 usb_thread_func (Consumer: action_queue → MJPEG batch → TCP/USB send)
+- 📡 gs2200m driver task (NuttX kernel, prio=50, stack=2048)
+
+主に答える質問:
+- Producer-Consumer の関係は?
+- gs2200m driver の優先度 (prio 50) はなぜ低いか?
+- 共有キューのロック競合は性能ジッタにどう影響するか?
+
+#### 今後追加予定
+
+- 13.6.4 メインボード L2.A 詳細: Capture Pipeline 内部
+- 13.6.5 メインボード L2.B 詳細: Streaming + Transport 内部
+- 13.6.6 メインボード L2.C 詳細: Adaptive Controller 内部 (Phase 10/11)
+- 13.6.7 拡張ボード (USB CDC-ACM コントローラ + SD I/F)
+- 13.6.8 GS2200M モジュール (ベンダー BB のため最小記述)
+- 13.6.9 PC ソフトウェア (Rust_ws/security_camera_viewer)
 
 ### 13.7 図のレンダリング方法
 
@@ -412,6 +436,7 @@ plantuml -tpng docs/security_camera/02_specifications/architecture/spresense_tcp
 | 1.5 | 2026-04-27 | デプロイ図を **候補ごとに別ファイル**に分割。13.5 を 5 サブセクションに再構成: 13.5.0 比較インデックス + 13.5.1 現状 + 13.5.2 候補A (ESP32-S3) + 13.5.3 候補B (RPi CM5) + 13.5.4 候補C (USB) |
 | 1.6 | 2026-04-27 | 現状トポロジ図 (13.5.1) のインタフェース表記を改善: 線重なり対策として WiFi/USB をノード近傍にローカル終端で分散配置 (同一名・別エイリアス + 媒体伝搬を破線で表現) |
 | 1.7 | 2026-04-27 | ソフトウェアコンポーネント・デプロイ図セクション 13.6 新設。13.6.1 Spresense メインボード追加 (App + NuttX Kernel + バッファ/キュー §3-9 統合)。今後 13.6.2-13.6.4 (GS2200M / 拡張ボード / PC) も追加予定 |
+| 1.8 | 2026-04-28 | レビュー指摘 (UML/C4/arc42 標準調査結果) を反映。13.6 メインボードを **arc42 流の 3 ビュー**に分離: 13.6.1 L1 Building Block View (provides/requires I/F), 13.6.2 データビュー (バッファ/メモリ予算), 13.6.3 プロセスビュー (スレッド/同期)。旧 `spresense_main_board_components.puml` (関心混在) を削除 |
 
 ---
 

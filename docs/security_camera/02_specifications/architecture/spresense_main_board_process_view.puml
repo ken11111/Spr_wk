@@ -1,0 +1,78 @@
+@startuml spresense_main_board_process_view
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title プロセスビュー: Spresense メインボード\nスレッド構成・優先度・同期 (4+1 View - Process View)
+
+' ==============================================================
+' Threads (NuttX Tasks)
+' ==============================================================
+package "NuttX Tasks (Spresense メインボード)" #LightYellow {
+
+  rectangle "🧵 **main task**\n(camera_app_main.c)\nprio=100, stack=8192\n責務: 起動・初期化・spawn" as T_MAIN #LightGreen
+
+  rectangle "🎬 **camera_thread_func**\n(camera_threads.c)\nprio=100 (assumed)\n責務: V4L2 dequeue → encode\n   → frame_queue_push(g_action_queue)" as T_CAM #LightCyan
+
+  rectangle "🚚 **usb_thread_func**\n(camera_threads.c)\nprio=100\n責務: frame_queue_pull(g_action_queue)\n   → MJPEG batch (BATCH_SIZE=2)\n   → tcp_server_send_with_reconnect()\n     または usb_transport_send()" as T_USB #LightCyan
+
+  rectangle "📡 **gs2200m driver task**\n(spresense/nuttx/drivers/wireless/gs2200m.c)\nprio=50, stack=2048\n責務: SPI 経由 GS2200M 通信\n   send/recv シリアライズ\n   notif_q への通知投入" as T_GS #LightBlue
+}
+
+' ==============================================================
+' 同期プリミティブ (アクセスされる共有リソース)
+' ==============================================================
+package "Shared Resources & Synchronization" #LightCoral {
+  database "g_empty_queue" as Q_EMPTY <<shared queue>>
+  database "g_action_queue" as Q_ACTION <<shared queue>>
+  rectangle "tcp_server (struct)\n(tcp_server.c)" as TCP_STRUCT
+  rectangle "metrics_packet\n+ tcp_health_*" as METRICS
+}
+
+' ==============================================================
+' データフロー & 同期
+' ==============================================================
+T_MAIN --> T_CAM : "pthread_create"
+T_MAIN --> T_USB : "pthread_create"
+
+T_CAM ..> Q_EMPTY  : "pull (空き取得)"
+T_CAM ..> Q_ACTION : "push (撮影完了)"
+
+T_USB ..> Q_ACTION : "pull (送信対象)"
+T_USB ..> Q_EMPTY  : "push (解放)"
+
+T_USB --> TCP_STRUCT : "send 経由"
+T_USB --> METRICS    : "metrics 送信"
+
+T_GS  ..> METRICS    : "tcp_health_*\n更新 (SPI 経由)"
+
+' ==============================================================
+' 注意・観察
+' ==============================================================
+note as PROC_NOTE #LightYellow
+  **🧵 プロセスビュー観察**:
+
+  • **2 つの主要アプリスレッド + 1 つのカーネルスレッド (gs2200m)**
+    - アプリは Producer-Consumer パターン
+      camera_thread (P) → g_action_queue → usb_thread (C)
+  • g_action_queue / g_empty_queue は **共有資源**
+    - frame_queue_push/pull のスレッドセーフ性を要確認
+  • gs2200m driver は **NuttX kernel 側で独立スレッド**
+    - prio=50 (アプリより低い、stack も極小 2KB)
+  • metrics は **複数スレッドが書き込み**
+    - TCP health (gs2200m) と perf metrics (camera/usb) が
+      同じ metrics_packet 構造体に書く可能性 → 排他制御要確認
+
+  **設計判断のポイント**:
+  • アプリ 2 スレッド構成は十分シンプル
+  • gs2200m driver の優先度が低い (prio 50) のは設計判断
+    高負荷時に GS2200M 通信が遅延 → 構造的天井 (SPRESENSE_TCP_CONSTRAINTS §10) と相互作用
+  • 共有キューのロック競合が PC FPS のジッタ要因の可能性
+end note
+
+note bottom
+  本図は **arc42 プロセスビュー / 4+1 View Process View** 相当。
+  L1/L2/データビューと併読することで、システムの動的挙動が立体把握できる。
+end note
+
+@enduml

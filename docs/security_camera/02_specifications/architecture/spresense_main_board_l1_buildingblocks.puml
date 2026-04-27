@@ -1,0 +1,99 @@
+@startuml spresense_main_board_l1_buildingblocks
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title L1: Spresense メインボード Building Block View (arc42)\n各コンポーネント = 黒箱: 責務 + provides/requires インタフェース
+
+' ==============================================================
+' Spresense メインボード = white-box
+' ==============================================================
+frame "🔧 Spresense メインボード (white-box)\nCXD5602 / Cortex-M4F×6 @156MHz, RAM 1.5 MB" as MAIN_BOARD #LightYellow {
+
+  component "📷 **Capture Pipeline**\n責務: ISX012 → JPEG\n実装: camera_manager.c +\n      encoder_manager.c" as C_CAPTURE
+  component "🗂️ **Frame Buffer Manager**\n責務: g_empty/g_action queue 管理\n実装: frame_queue.c" as C_FBM
+  component "📦 **Streaming Engine**\n責務: MJPEG batch + CRC-16\n実装: mjpeg_protocol.c +\n      protocol_handler.c" as C_STREAM
+  component "🚚 **Transport Manager**\n責務: TCP/USB 切替・再接続\n実装: tcp_server.c + usb_transport.c\n      + wifi_manager.c" as C_TRANSPORT
+  component "🎛️ **Adaptive Controller**\n責務: PID + 多変数適応制御\n実装: fps_controller.c +\n      frame_statistics.c +\n      enhanced_control.h" as C_CTRL
+  component "📊 **Health Monitor**\n責務: 計測収集 + 58B metrics\n実装: perf_logger.c" as C_MON
+  component "🧵 **Lifecycle Orchestrator**\n責務: 起動・thread spawn\n実装: camera_app_main.c +\n      camera_threads.c" as C_LIFE
+}
+
+' ==============================================================
+' Interfaces (provides/requires) — 主要なもののみ
+' ==============================================================
+
+' === 主データフロー ===
+() "frame_produced"  as I_FRAME_OUT
+() "frame_pool"      as I_FBM_API
+() "batch_packet"    as I_BATCH
+() "transmit_done"   as I_TX_DONE
+
+C_CAPTURE  -( I_FRAME_OUT
+I_FRAME_OUT )- C_FBM
+
+C_FBM      -( I_FBM_API
+I_FBM_API  )- C_STREAM   : "pop"
+I_FBM_API  )- C_CAPTURE  : "alloc"
+
+C_STREAM   -( I_BATCH
+I_BATCH    )- C_TRANSPORT
+
+C_TRANSPORT -( I_TX_DONE
+I_TX_DONE  )- C_FBM       : "buffer 解放"
+
+' === 制御ループ ===
+() "queue_depth"  as I_DEPTH
+() "queue_resize" as I_RESIZE
+
+C_FBM    -( I_DEPTH
+I_DEPTH  )- C_CTRL
+
+C_CTRL   -( I_RESIZE
+I_RESIZE )- C_FBM
+
+' === テレメトリ ===
+() "metrics_pkt\n(58B)" as I_METRICS
+
+C_MON       -( I_METRICS
+I_METRICS   )- C_TRANSPORT
+
+' === ライフサイクル ===
+C_LIFE ..> C_CAPTURE   : "spawn camera_thread"
+C_LIFE ..> C_TRANSPORT : "spawn usb/tcp_thread"
+
+' === Health Monitor は受動的: 計測を引く (note だけ) ===
+C_MON ..> C_CAPTURE   : "perf 計測読み取り"
+C_MON ..> C_TRANSPORT : "TCP health 読み取り"
+
+' ==============================================================
+' External (NuttX Kernel): L1 では参照のみ
+' ==============================================================
+package "External: NuttX Kernel\n(L1 の対象外)" as EXT_NUTTX #LightGray {
+  [V4L2 driver] as EXT_V4L2
+  [USB CDC-ACM driver] as EXT_USB
+  [GS2200M driver] as EXT_GS
+  [pthread / scheduler] as EXT_PTHREAD
+}
+
+C_CAPTURE   ..> EXT_V4L2     : "VIDIOC_DQBUF/QBUF"
+C_TRANSPORT ..> EXT_GS       : "SPI 経由 TCP send"
+C_TRANSPORT ..> EXT_USB      : "USB CDC-ACM bulk"
+C_LIFE      ..> EXT_PTHREAD
+
+note bottom
+  **arc42 階層位置**:
+  • L1 (本図): メインボード white-box, 内部 7 ブロックを黒箱配置
+  • L2 (別図): 各黒箱を white-box 化した詳細
+    - L2.A spresense_main_board_l2a_capture.puml (Capture Pipeline 詳細)
+    - L2.B spresense_main_board_l2b_transport.puml (Streaming + Transport 詳細)
+    - L2.C spresense_main_board_l2c_control.puml (Adaptive Controller 詳細)
+  • **データビュー** (別図): バッファ/キュー + メモリ予算
+    spresense_main_board_data_view.puml
+  • **プロセスビュー** (別図): スレッド・優先度・同期
+    spresense_main_board_process_view.puml
+
+  **C4 対応**: 本図は C4 Component diagram レベル
+end note
+
+@enduml

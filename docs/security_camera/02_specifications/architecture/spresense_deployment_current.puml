@@ -2,7 +2,7 @@
 skinparam defaultFontName "Noto Sans CJK JP"
 skinparam backgroundColor #FEFEFE
 
-title 🟢 現状トポロジ (Phase 1-11)\n3 領域構成: Spresense 物理アセンブリ / PC / WiFi AP
+title 🟢 現状トポロジ (Phase 1-11)\n3 領域構成: Spresense 物理アセンブリ / PC / WiFi AP\n(共有メディアはインタフェース表記で集約)
 
 ' ================================================================
 ' 領域 1: Spresense 物理アセンブリ
@@ -34,24 +34,19 @@ frame "🔧 Spresense 物理アセンブリ\n(1 つのハードウェアパッ�
   node "GS2200M モジュール\n(WiFi 802.11n)" as GS2200M_MOD #LightCoral {
     portin  "SPI MOSI in" as p_gs_spi_in
     portout "SPI MISO out" as p_gs_spi_out
-    portout "WiFi RF TX\n(アンテナ)" as p_gs_rf_tx
-    portin  "WiFi RF RX\n(アンテナ)" as p_gs_rf_rx
 
     component "ベンダー TCP/IP\n(ブラックボックス)" as VTCP
-    component "WiFi PHY" as PHY
+    component "WiFi PHY\n+ アンテナ" as PHY
 
     p_gs_spi_in --> VTCP
     VTCP --> p_gs_spi_out
     VTCP --> PHY
-    PHY --> p_gs_rf_tx
-    p_gs_rf_rx --> PHY
+    PHY --> VTCP
   }
 
   node "Spresense 拡張ボード" as SPR_EXT #PaleGreen {
     portin  "拡張コネクタ" as p_ext_main_in
     portout "拡張コネクタ" as p_ext_main_out
-    portout "USB CDC-ACM TX\n(12 Mbps)" as p_ext_usb_tx
-    portin  "USB CDC-ACM RX" as p_ext_usb_rx
     portout "SD I/F" as p_ext_sd
 
     component "USB CDC-ACM\nコントローラ" as USB_CTRL
@@ -59,16 +54,14 @@ frame "🔧 Spresense 物理アセンブリ\n(1 つのハードウェアパッ�
 
     p_ext_main_in --> USB_CTRL
     USB_CTRL --> p_ext_main_out
-    USB_CTRL --> p_ext_usb_tx
-    p_ext_usb_rx --> USB_CTRL
     USB_CTRL --> p_ext_sd
   }
 
-  ' === Spresense アセンブリ内部の物理接続 ===
+  ' === Spresense アセンブリ内部の物理接続 (基板上配線) ===
   p_cam_out          --> p_main_csi      : "CSI parallel\n(基板上配線)"
   p_main_exp_out     --> p_ext_main_in   : "拡張コネクタ B2B"
   p_ext_main_out     --> p_main_exp_in
-  p_main_spi_mosi    --> p_gs_spi_in     : "**SPI MOSI 4 MHz**\n(基板上配線)"
+  p_main_spi_mosi    --> p_gs_spi_in     : "**SPI MOSI 4 MHz**"
   p_gs_spi_out       --> p_main_spi_miso : "SPI MISO"
 }
 
@@ -78,55 +71,50 @@ frame "🔧 Spresense 物理アセンブリ\n(1 つのハードウェアパッ�
 frame "💻 PC (ホスト)\n(別筐体)" as PC_REGION #LightCyan {
 
   node "PC (Linux/WSL2)" as PC #White {
-    portin  "USB Host RX" as p_pc_usb_rx
-    portout "USB Host TX" as p_pc_usb_tx
-    portin  "WiFi NIC RX" as p_pc_wifi_rx
-    portout "WiFi NIC TX" as p_pc_wifi_tx
-
     component "Rust_ws/\nsecurity_camera_viewer\n(pipeline.rs, 3 thread)" as PCAPP
-
-    p_pc_usb_rx --> PCAPP
-    PCAPP --> p_pc_usb_tx
-    p_pc_wifi_rx --> PCAPP
-    PCAPP --> p_pc_wifi_tx
   }
 }
 
 ' ================================================================
 ' 領域 3: WiFi AP
 ' ================================================================
-frame "📡 WiFi AP\n(別筐体, 家庭/事務所等のルーター)" as AP_REGION #LightPink {
+frame "📡 WiFi AP\n(別筐体, 家庭/事務所ルーター)" as AP_REGION #LightPink {
 
   node "WiFi AP\n(802.11n)" as AP #White {
-    portin  "WiFi RF in" as p_ap_in
-    portout "WiFi RF out" as p_ap_out
+    component "AP\nWireless Bridge" as AP_BRIDGE
   }
 }
 
 ' ================================================================
-' 領域間の物理接続 (筐体間ケーブル / 電波)
+' 領域間の共有メディア (インタフェース表記でハブ化)
 ' ================================================================
-p_ext_usb_tx       --> p_pc_usb_rx     : "**USB CDC-ACM ケーブル**\n12 Mbps (= 1.5 MB/s)"
-p_pc_usb_tx        --> p_ext_usb_rx
-p_gs_rf_tx         --> p_ap_in         : "**WiFi 802.11n 電波**\n(無線)"
-p_ap_out           --> p_gs_rf_rx
-p_ap_out           --> p_pc_wifi_rx    : "WiFi 802.11n 電波\n(無線)"
-p_pc_wifi_tx       --> p_ap_in
+
+' --- WiFi 802.11n 電波 (3 ノード共有メディア) ---
+() "📶 **WiFi 802.11n**\n(無線電波, 共有メディア)" as IF_WIFI
+
+PHY        -- IF_WIFI : "アンテナ送受信"
+AP_BRIDGE  -- IF_WIFI : "AP 提供"
+PCAPP      -- IF_WIFI : "PC NIC"
+
+' --- USB CDC-ACM ケーブル (2 ノード間ケーブル) ---
+() "🔌 **USB CDC-ACM**\n(有線ケーブル, 12 Mbps = 1.5 MB/s)" as IF_USB
+
+USB_CTRL   -- IF_USB : "Spresense 側"
+PCAPP      -- IF_USB : "PC USB Host 側"
 
 note as PROFILE
-  **🟢 現状の領域構成**:
+  **🟢 現状の領域構成** (3 物理領域):
   ① Spresense 物理アセンブリ (1 つのハード筐体)
      ・ISX012 カメラ + メインボード + GS2200M + 拡張ボード
-     ・基板上配線で内部接続 (CSI / SPI / B2B コネクタ)
+     ・基板上配線で内部接続 (CSI / SPI 4MHz / B2B コネクタ)
   ② PC (別筐体): Linux/WSL2 ホスト
   ③ WiFi AP (別筐体): 家庭/事務所等のルーター
 
-  **領域間の物理接続**:
-  ・Spresense ↔ PC : USB CDC-ACM ケーブル (有線, 12 Mbps)
-  ・Spresense ↔ AP : WiFi 802.11n 電波 (無線, GS2200M アンテナ経由)
-  ・PC ↔ AP        : WiFi 802.11n 電波 (無線, PC NIC 経由)
+  **領域間の共有メディア** (インタフェース表記で集約):
+  📶 WiFi 802.11n: 3 ノード (Spresense / PC / AP) が共有する無線電波
+  🔌 USB CDC-ACM: Spresense 拡張ボード ↔ PC の有線ケーブル
 
-  **構造的天井**:
+  **構造的天井** (詳細: SPRESENSE_TCP_CONSTRAINTS.md §10):
   ・SPI 4MHz 律速 (Spresense アセンブリ内部の Spresense ↔ GS2200M 間)
   ・GS2200M 内部バッファはベンダー仕様 (制御不能)
   ・Phase 1.5 実測 11fps = 目標 30fps の 37%

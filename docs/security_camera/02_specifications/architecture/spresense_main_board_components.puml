@@ -1,0 +1,181 @@
+@startuml spresense_main_board_components
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title 🟢 Spresense メインボード ソフトウェアコンポーネント デプロイ図 (現状)\n(CXD5602 / Cortex-M4F×6 @156MHz, 1.5MB RAM)\nApp + NuttX Kernel + バッファ/キュー (キュー/コンポーネント毎ローカル IF)
+
+frame "🔧 Spresense メインボード\nCXD5602 / Cortex-M4F×6 @156MHz, RAM 1.5 MB" as MAIN_BOARD #LightYellow {
+
+  ' ==============================================================
+  ' 物理ポート (メインボード境界、1:1 のため IF 不要)
+  ' ==============================================================
+  portin  "CSI in\n(parallel 8/10 bit)"  as p_csi_in
+  portout "SPI MOSI\n(4 MHz, master)"     as p_spi_mosi_out
+  portin  "SPI MISO"                       as p_spi_miso_in
+  portout "拡張コネクタ B2B\n(out)"          as p_b2b_out
+  portin  "拡張コネクタ B2B\n(in)"           as p_b2b_in
+
+  ' ==============================================================
+  ' ① Application Layer
+  ' ==============================================================
+  package "① Application Layer\n(apps/examples/security_camera/)\n<<thread: app, prio 100, stack 8KB>>" as APP_LAYER #LightGreen {
+
+    component "camera_app_main.c\n(main entry)" as APP_MAIN
+    component "camera_manager.c\n(V4L2 client)" as CAM_MGR
+    component "encoder_manager.c\n(JPEG encode 制御)" as ENC_MGR
+
+    ' --- g_action_queue (fan-in 2: encoder + PID 制御) ---
+    queue "g_action_queue\n5/7/9 frames\n~360 KB peak" as Q_ACTION #LightCyan
+    () "frame_in" as IF_Q_ACTION_IN
+    () "depth_ctrl" as IF_Q_ACTION_CTRL
+    () "frame_out" as IF_Q_ACTION_OUT
+
+    component "mjpeg_protocol.c\n(0xCAFEBABF batch + CRC-16)" as MJPEG
+
+    ' --- MJPEG batch buffer (fan-out 2: TCP + USB) ---
+    rectangle "MJPEG batch buffer\n~122 KB (BATCH_SIZE=2)" as B_MJPEG #LightCyan
+    () "batch_in" as IF_B_MJPEG_IN
+    () "batch_to_tcp" as IF_B_MJPEG_TCP
+    () "batch_to_usb" as IF_B_MJPEG_USB
+
+    component "tcp_server.c" as TCP_SRV
+    component "usb_transport.c" as USB_TR
+    component "wifi_manager.c" as WIFI_MGR
+    component "protocol_handler.c" as PROTO_HDL
+    component "camera_threads.c\n<<thread: tx, prio 110>>" as CAM_THRD
+
+    component "fps_controller.c\n(Phase 10 PID)" as FPS_CTRL
+    component "frame_statistics.c\n(Phase 11)" as FSTATS
+    component "enhanced_control.h\n(Phase 11.1 多変数)" as ENH_CTRL
+    component "perf_logger.c\n(metrics CSV)" as PLOG
+
+    ' --- 制御ループ専用 IF (PLOG → TCP, ENH_CTRL → Q_ACTION 制御入力) ---
+    () "metrics_pkt\n(58B, 3 sec)" as IF_METRICS
+  }
+
+  ' ==============================================================
+  ' ② NuttX Kernel Layer
+  ' ==============================================================
+  package "② NuttX Kernel Layer\n<<kernel: nuttx>>" as NUTTX_LAYER #LightBlue {
+
+    component "V4L2 driver\n(ISX012 RING mode)" as V4L2_DRV
+    queue "V4L2 RING buffer\n3 × 64 KB = 192 KB\n(ADR-003)" as B_V4L2 #LightCyan
+
+    component "BSD socket /\nusrsock RPC\n(NET_TCP_NO_STACK=y)" as USRSOCK
+
+    ' --- IOB プール (fan-in/out: TCP + UDP + 制御) ---
+    queue "IOB プール\n8 × 196 B = 1,568 B" as B_IOB #Salmon
+    () "iob_alloc" as IF_IOB_IN
+    () "iob_free" as IF_IOB_OUT
+
+    component "GS2200M Driver\n(spresense/nuttx/drivers/wireless/gs2200m.c)\n<<thread: gs2200m, prio 50, stack 2KB>>" as GS_DRV
+    rectangle "🔴 ★ tx_buff [1×1500B] ★\n=送信完全直列化=" as B_TXBUFF #Red
+
+    ' --- pkt_q (fan-out per cid) + notif_q (fan-out to multiple consumers) ---
+    queue "pkt_q[16]\n(per-cid 16 socket)" as Q_PKT
+    () "rx_arrival" as IF_Q_PKT_IN
+    queue "notif_q\n(MAX_NOTIF_Q=18)" as Q_NOTIF #Salmon
+    () "notify_out\n(FIN/RST 等)" as IF_Q_NOTIF_OUT
+
+    component "USB CDC-ACM driver" as USB_DRV
+    rectangle "USB TX buffer 8 KB" as B_USB #LightCyan
+  }
+
+  ' ==============================================================
+  ' データフロー (各キュー/コンポーネントの IF 経由)
+  ' ==============================================================
+
+  ' --- カメラキャプチャ経路 (1:1 直結) ---
+  p_csi_in     --> V4L2_DRV
+  V4L2_DRV     --> B_V4L2
+  B_V4L2       --> CAM_MGR : "VIDIOC_DQBUF"
+  CAM_MGR      --> ENC_MGR
+
+  ' --- action_queue (fan-in/out IF 経由) ---
+  ENC_MGR             --> IF_Q_ACTION_IN
+  IF_Q_ACTION_IN      --> Q_ACTION : "frame 投入"
+  Q_ACTION            --> IF_Q_ACTION_OUT
+  IF_Q_ACTION_OUT     --> MJPEG : "frame pop ×2"
+  ENH_CTRL            --> IF_Q_ACTION_CTRL : "深度調整"
+  IF_Q_ACTION_CTRL    --> Q_ACTION
+
+  ' --- MJPEG batch buffer (fan-out 2: TCP/USB) ---
+  MJPEG               --> IF_B_MJPEG_IN
+  IF_B_MJPEG_IN       --> B_MJPEG : "batch 化"
+  B_MJPEG             --> IF_B_MJPEG_TCP
+  B_MJPEG             --> IF_B_MJPEG_USB
+  IF_B_MJPEG_TCP      --> TCP_SRV : "WiFi 経路"
+  IF_B_MJPEG_USB      --> USB_TR  : "USB 経路"
+
+  ' --- TCP → IOB (fan-in/out) → GS2200M Driver ---
+  TCP_SRV             --> USRSOCK : "send(122KB)\nSO_SNDBUF=256KB 要求"
+  USRSOCK             --> IF_IOB_IN
+  IF_IOB_IN           --> B_IOB
+  B_IOB               --> IF_IOB_OUT
+  IF_IOB_OUT          --> GS_DRV
+  GS_DRV              --> B_TXBUFF
+  B_TXBUFF            --> p_spi_mosi_out : "1500B × 約 84 回"
+
+  ' --- 受信経路 (pkt_q fan-in) → notif_q (fan-out) ---
+  p_spi_miso_in       --> IF_Q_PKT_IN
+  IF_Q_PKT_IN         --> Q_PKT : "RX (per-cid)"
+  Q_PKT               --> Q_NOTIF : "切断/エラー検知"
+  Q_NOTIF             --> IF_Q_NOTIF_OUT
+  IF_Q_NOTIF_OUT      --> TCP_SRV : "FIN/RST 通知"
+
+  ' --- USB 経路 (1:1 直結) ---
+  USB_TR              --> B_USB
+  B_USB               --> USB_DRV
+  USB_DRV             --> p_b2b_out : "USB CDC-ACM"
+  p_b2b_in            --> USB_DRV
+
+  ' --- 制御ループ (Phase 10/11) ---
+  FSTATS              --> FPS_CTRL : "frame stats"
+  FPS_CTRL            --> ENH_CTRL : "PID 出力"
+
+  ' --- メトリクス (perf_logger → TCP server, IF 経由) ---
+  PLOG                --> IF_METRICS
+  IF_METRICS          --> TCP_SRV : "metrics 58B"
+
+  ' --- 制御フロー (補助) ---
+  APP_MAIN            --> CAM_MGR
+  APP_MAIN            --> CAM_THRD : "spawn"
+  CAM_THRD            --> TCP_SRV
+  CAM_THRD            --> USB_TR
+  PROTO_HDL           --> MJPEG
+  WIFI_MGR            --> GS_DRV : "WiFi 設定"
+}
+
+note as MEM_NOTE #LightYellow
+  **🧠 メモリ予算 (1.5 MB 中)**:
+  | 領域 | 占有 |
+  |---|---|
+  | NuttX カーネル + IPL | ~150 KB (10%) |
+  | V4L2 RING buffer | 192 KB (13%) ADR-003 |
+  | g_action_queue (~7 frames × 50KB) | ~360 KB (24%) |
+  | MJPEG batch buffer | 122 KB (8%) |
+  | TCP SO_SNDBUF (要求値) | 256 KB (17%) |
+  | IOB プール 🔴 | 1.6 KB (0.1%) |
+  | tx_buff[1500] 🔴 | 1.5 KB (0.1%) ボトルネック |
+  | USB TX buffer | 8 KB (0.5%) |
+  | pkt_q[16], notif_q, RESPQ 等 | ~10 KB (0.7%) |
+  | アプリ + GS2200M スタック | ~15 KB (1%) |
+  | ヒープ余白 / その他 | ~400 KB (26%) |
+
+  → アプリ系で 60%+ 使用、ヒープ余裕 ~400KB
+end note
+
+note as IF_NOTE #LightCyan
+  **🟢 統一表記ルール (v4)**:
+  • portin/portout: ノード境界の I/O ポート
+  • () "name" as IF_xxx: **キュー/コンポーネント毎のローカル IF**
+    - fan-in / fan-out のあるキュー周辺に配置
+    - 1:1 接続は IF 省略 (直結)
+  • IF を経由した portout → portin で送受信が読める
+
+  **🔗 関連 ADR**:
+  ADR-002 / ADR-003 / ADR-004 / ADR-005 / ADR-006 / ADR-007 / ADR-008
+end note
+
+@enduml

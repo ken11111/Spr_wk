@@ -346,6 +346,48 @@ ADR-002 の予防的再接続ロジックを **6 状態 + 遷移条件**で正�
 - 1-3 回目で復旧する経路と、4 回目で FAILED に固着する経路の違いは?
 - ADR-002 設計目標 (2.8 秒復旧) と実測 (PC FPS 6.74→2.77 悪化) のギャップはどこに?
 
+### 13.6 ソフトウェアコンポーネント・デプロイ図 (per ハードウェアノード)
+
+物理デプロイ (13.5) を補完し、各**ハードウェアノード内部のソフトウェア構造**を別ファイルで描画。アプリ層 + NuttX カーネル層 + バッファ/キュー (本ドキュメント §3-9) を一括表示し、データフローを portin/portout で追跡可能。
+
+#### 13.6.1 🔧 Spresense メインボード ソフトウェアコンポーネント
+
+ソース: [`spresense_main_board_components.puml`](spresense_main_board_components.puml) / 画像: [`spresense_main_board_components.png`](spresense_main_board_components.png)
+
+![Spresense Main Board Components](spresense_main_board_components.png)
+
+CXD5602 (Cortex-M4F×6 @156MHz, RAM 1.5MB) 上で稼働するソフトウェアスタック:
+
+**① Application Layer** (`apps/examples/security_camera/`):
+- `camera_app_main.c` (entry), `camera_manager.c` (V4L2 client), `encoder_manager.c` (JPEG encode)
+- `g_action_queue` (5/7/9 frames 動的, ~360KB peak)
+- `mjpeg_protocol.c` + MJPEG batch buffer (~122KB, BATCH_SIZE=2)
+- `tcp_server.c`, `usb_transport.c`, `wifi_manager.c`, `protocol_handler.c`, `camera_threads.c`
+- 制御系 (Phase 10/11): `fps_controller.c`, `frame_statistics.c`, `enhanced_control.h`, `perf_logger.c`
+
+**② NuttX Kernel Layer**:
+- V4L2 driver + RING buffer (3×64KB = 192KB, ADR-003)
+- BSD socket / usrsock RPC (NET_TCP_NO_STACK=y)
+- IOB プール (8×196B = 1,568B, 🔴 極小)
+- GS2200M Driver (`spresense/nuttx/drivers/wireless/gs2200m.c`):
+  - **🔴 ★ tx_buff [1×1500B] ★** (送信完全直列化)
+  - `pkt_q[16]` per-cid 受信
+  - `notif_q` (MAX_NOTIF_Q=18)
+- USB CDC-ACM driver + TX buffer (8KB)
+
+**物理ポート** (メインボード境界): CSI in / SPI MOSI out / SPI MISO in / B2B 拡張コネクタ
+
+**主に答える質問**:
+- アプリのどのソースファイルがどのバッファに繋がっているか?
+- 1.5MB RAM の中で、どの領域が何 % を占めるか? (図中表で 60%+ アプリ系)
+- データフロー (CSI → V4L2 → action_queue → MJPEG → TCP/USB → SPI/B2B) を追跡可能か?
+- どのコンポーネントが PID 制御 (ADR-007) で `g_action_queue` 深度を調整するか?
+
+**今後追加予定**:
+- 13.6.2 GS2200M モジュール (内部ソフトはベンダー BB のため最小)
+- 13.6.3 拡張ボード (USB CDC-ACM コントローラ + SD I/F)
+- 13.6.4 PC ソフトウェア (Rust_ws/security_camera_viewer)
+
 ### 13.7 図のレンダリング方法
 
 ```bash
@@ -368,6 +410,8 @@ plantuml -tpng docs/security_camera/02_specifications/architecture/spresense_tcp
 | 1.3 | 2026-04-27 | アーキテクチャレビュー結果を反映。新図 3 枚追加 (シーケンス, デプロイ, 状態遷移)。既存図改善: 図 1 にセマンティックポート名 + `<<thread>>` ステレオタイプ, 図 2 に `tx_buff` 強調 + メモリ予算表 + `Internal Buffers` ⚠️ マーク, 図 3 に「単発フレーム視点」注記 |
 | 1.4 | 2026-04-27 | デプロイ図 (13.5) に物理 I/F ポート (CSI / SPI MOSI/MISO / USB TX/RX / WiFi RF TX/RX / Ethernet) を `portin`/`portout` で明示。ノード間結線が物理ケーブル/バスレベルで読み取れるよう改訂 |
 | 1.5 | 2026-04-27 | デプロイ図を **候補ごとに別ファイル**に分割。13.5 を 5 サブセクションに再構成: 13.5.0 比較インデックス + 13.5.1 現状 + 13.5.2 候補A (ESP32-S3) + 13.5.3 候補B (RPi CM5) + 13.5.4 候補C (USB) |
+| 1.6 | 2026-04-27 | 現状トポロジ図 (13.5.1) のインタフェース表記を改善: 線重なり対策として WiFi/USB をノード近傍にローカル終端で分散配置 (同一名・別エイリアス + 媒体伝搬を破線で表現) |
+| 1.7 | 2026-04-27 | ソフトウェアコンポーネント・デプロイ図セクション 13.6 新設。13.6.1 Spresense メインボード追加 (App + NuttX Kernel + バッファ/キュー §3-9 統合)。今後 13.6.2-13.6.4 (GS2200M / 拡張ボード / PC) も追加予定 |
 
 ---
 

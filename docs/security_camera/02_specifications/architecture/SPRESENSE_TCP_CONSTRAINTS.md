@@ -285,18 +285,53 @@ ADR-006 計画の Full HD 1920×1080 H.264 @ 30fps を仮定:
 
 ### 13.5 デプロイメント / 物理トポロジ図
 
+物理接続インタフェース (CSI / SPI MOSI/MISO / USB TX/RX / WiFi RF TX/RX / Ethernet TX/RX) を `portin`/`portout` で表現。**候補ごとに別ファイルで詳細描画**し、ノード間結線が物理ケーブル/バスレベルで読み取れるよう構成。
+
+#### 13.5.0 比較インデックス
+
 ソース: [`spresense_deployment_topology.puml`](spresense_deployment_topology.puml) / 画像: [`spresense_deployment_topology.png`](spresense_deployment_topology.png)
 
-![Deployment Topology](spresense_deployment_topology.png)
+![Deployment Index](spresense_deployment_topology.png)
 
-現状トポロジ (Spresense メインボード + 拡張ボード + GS2200M モジュール + PC + WiFi AP) と、ADR-006 GATE-1 で検討する 3 つの HW 移行候補 (ESP32-S3 / Raspberry Pi CM5 / USB 経由切替) を**1 枚で比較**。各候補のメリット・デメリット・移植コスト・帯域上限を併記。
+4 候補を俯瞰するインデックス図。各候補の詳細は 13.5.1〜13.5.4 を参照。
 
-各ノードの**物理インタフェース (CSI / SPI MOSI/MISO / USB TX/RX / WiFi RF TX/RX / Ethernet TX/RX)** を `portin`/`portout` で表現し、ポート同士を `-->` で結線して**実配線レベルでの物理接続**を読み取り可能。「どのケーブル/バスを引き直すか」がそのまま設計タスクに対応。
+#### 13.5.1 🟢 現状トポロジ (Phase 1-11)
 
-主に以下の質問に答える図:
+ソース: [`spresense_deployment_current.puml`](spresense_deployment_current.puml) / 画像: [`spresense_deployment_current.png`](spresense_deployment_current.png)
+
+![Current Topology](spresense_deployment_current.png)
+
+Spresense メインボード + 拡張ボード + GS2200M モジュール + PC + WiFi AP の構成。物理 I/F: CSI parallel + SPI 4MHz + USB CDC-ACM 12Mbps + WiFi 802.11n。Phase 1-11 検証済みベースライン。
+
+#### 13.5.2 🟡 候補 A: ESP32-S3 移行 (低コスト案)
+
+ソース: [`spresense_deployment_candidate_a_esp32s3.puml`](spresense_deployment_candidate_a_esp32s3.puml) / 画像: [`spresense_deployment_candidate_a_esp32s3.png`](spresense_deployment_candidate_a_esp32s3.png)
+
+![Candidate A: ESP32-S3](spresense_deployment_candidate_a_esp32s3.png)
+
+ESP32-S3 1 個に Spresense + 拡張ボード + GS2200M モジュールを統合。SPI 4MHz バスを内蔵 WiFi (150 Mbps) に置換。PCB 再設計 + NuttX 移植が必要。HW-1〜HW-4 (+14 週) 起動。
+
+#### 13.5.3 🟡 候補 B: Raspberry Pi CM5 移行 (高機能案)
+
+ソース: [`spresense_deployment_candidate_b_rpi_cm5.puml`](spresense_deployment_candidate_b_rpi_cm5.puml) / 画像: [`spresense_deployment_candidate_b_rpi_cm5.png`](spresense_deployment_candidate_b_rpi_cm5.png)
+
+![Candidate B: RPi CM5](spresense_deployment_candidate_b_rpi_cm5.png)
+
+Linux + V4L2 + HW JPEG/H.264 エンコーダで Phase 1B/2A (Full HD) 必須要件を満たす。Gigabit Ethernet (1 Gbps) で帯域余裕大、Spresense 資産はほぼ放棄。
+
+#### 13.5.4 🟢 候補 C: USB 経由切替 (現ハード継続案, ADR-001 系統)
+
+ソース: [`spresense_deployment_candidate_c_usb.puml`](spresense_deployment_candidate_c_usb.puml) / 画像: [`spresense_deployment_candidate_c_usb.png`](spresense_deployment_candidate_c_usb.png)
+
+![Candidate C: USB Direct](spresense_deployment_candidate_c_usb.png)
+
+ハード変更ゼロで GS2200M 経路を論理的に切断し、USB CDC-ACM 12 Mbps (=1.5 MB/s) を主経路に昇格。SPI 4MHz の **約 5 倍の帯域**で GS2200M リソース枯渇問題から完全解放。PC viewer 改修のみ (+2〜4 週)。
+
+#### 13.5 主に以下の質問に答える図セット
 - どの物理コンポーネントを交換すれば、どの制約が解消されるか?
 - Full HD H.264 (Phase 1B/2A) には最低限どのハードが必要か?
 - Spresense 資産 (NuttX/SDK) をどこまで維持しつつ移行できるか?
+- 各候補で「どのケーブル/バスを引き直すか」が設計タスクとして即可視化されるか?
 
 ### 13.6 GS2200M 健全性 状態遷移図
 
@@ -332,6 +367,7 @@ plantuml -tpng docs/security_camera/02_specifications/architecture/spresense_tcp
 | 1.2 | 2026-04-27 | 図 1 入れ子角括弧 `[16]` `[1500]` パーサ衝突を `component "..."` 形式で修正。図 1, 2 に PlantUML `portin`/`portout` でポート In/Out を明示、PNG レンダリング画像を md に埋め込み |
 | 1.3 | 2026-04-27 | アーキテクチャレビュー結果を反映。新図 3 枚追加 (シーケンス, デプロイ, 状態遷移)。既存図改善: 図 1 にセマンティックポート名 + `<<thread>>` ステレオタイプ, 図 2 に `tx_buff` 強調 + メモリ予算表 + `Internal Buffers` ⚠️ マーク, 図 3 に「単発フレーム視点」注記 |
 | 1.4 | 2026-04-27 | デプロイ図 (13.5) に物理 I/F ポート (CSI / SPI MOSI/MISO / USB TX/RX / WiFi RF TX/RX / Ethernet) を `portin`/`portout` で明示。ノード間結線が物理ケーブル/バスレベルで読み取れるよう改訂 |
+| 1.5 | 2026-04-27 | デプロイ図を **候補ごとに別ファイル**に分割。13.5 を 5 サブセクションに再構成: 13.5.0 比較インデックス + 13.5.1 現状 + 13.5.2 候補A (ESP32-S3) + 13.5.3 候補B (RPi CM5) + 13.5.4 候補C (USB) |
 
 ---
 

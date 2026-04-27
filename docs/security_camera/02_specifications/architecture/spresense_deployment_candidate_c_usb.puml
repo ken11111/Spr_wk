@@ -1,0 +1,88 @@
+@startuml spresense_deployment_candidate_c_usb
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+
+title 🟢 候補 C: USB 経由切替 (現ハード継続案, ADR-001 系統)\n物理 I/F: CSI parallel + USB CDC-ACM 12 Mbps のみ (GS2200M 廃止)
+
+node "ISX012 カメラ\n(継続使用)" as CAM #LightBlue {
+  portout "CSI out\n(parallel)" as p_cam_out
+}
+
+node "Spresense メインボード\n(継続使用、ハード変更なし)" as SPR_MAIN #LightYellow {
+  portin  "CSI in\n(parallel)" as p_main_csi
+  portout "拡張コネクタ\n(B2B)" as p_main_exp_out
+  portin  "拡張コネクタ" as p_main_exp_in
+
+  component "NuttX RTOS\n+ security_camera app\n(プロトコル切替)" as NUTTX
+  component "ISX012 カメラ I/F" as ISX_IF
+
+  p_main_csi --> ISX_IF
+  ISX_IF --> NUTTX
+  NUTTX --> p_main_exp_out
+  p_main_exp_in --> NUTTX
+}
+
+node "GS2200M モジュール\n(物理的には残るが**未使用**)" as GS2200M_MOD #LightGray {
+  portin  "SPI MOSI\n(★ 未使用)" as p_gs_spi_in
+  portout "SPI MISO\n(★ 未使用)" as p_gs_spi_out
+  portout "WiFi RF TX\n(★ 未使用)" as p_gs_rf_tx
+}
+
+node "Spresense 拡張ボード" as SPR_EXT #LightGreen {
+  portin  "拡張コネクタ" as p_ext_main_in
+  portout "拡張コネクタ" as p_ext_main_out
+  portout "USB CDC-ACM TX\n(12 Mbps)" as p_ext_usb_tx
+  portin  "USB CDC-ACM RX" as p_ext_usb_rx
+
+  component "USB CDC-ACM\nコントローラ\n(主経路に昇格)" as USB_CTRL
+
+  p_ext_main_in --> USB_CTRL
+  USB_CTRL --> p_ext_main_out
+  USB_CTRL --> p_ext_usb_tx
+  p_ext_usb_rx --> USB_CTRL
+}
+
+node "PC (Linux/WSL2)" as PC #LightCyan {
+  portin  "USB Host RX" as p_pc_usb_rx
+  portout "USB Host TX" as p_pc_usb_tx
+
+  component "Rust_ws/\nsecurity_camera_viewer\n(USB only モード)" as PCAPP
+
+  p_pc_usb_rx --> PCAPP
+  PCAPP --> p_pc_usb_tx
+}
+
+' === 物理接続 (USB 経路のみ実利用) ===
+p_cam_out          --> p_main_csi      : "CSI parallel"
+p_main_exp_out     --> p_ext_main_in   : "拡張コネクタ B2B"
+p_ext_main_out     --> p_main_exp_in
+p_ext_usb_tx       --> p_pc_usb_rx     : "**USB CDC-ACM 12 Mbps (= 1.5 MB/s)**\nADR-001 (TTY Raw Mode) で検証済み"
+p_pc_usb_tx        --> p_ext_usb_rx
+
+' GS2200M は灰色 (未使用)
+SPR_MAIN -[#gray,dashed]-> GS2200M_MOD : "(★ 結線残るが\n未使用)"
+
+note as C_PROFILE
+  **メリット**:
+  • **ハード変更ゼロ** (現状の物理ボード/ケーブルそのまま)
+  • USB CDC-ACM 12 Mbps = 1.5 MB/s (SPI 4MHz 実効の **約 5 倍**)
+  • ADR-001 (TTY Raw Mode) で検証済み、プロトコル既知
+  • GS2200M リソース枯渇問題から完全解放
+  • PCB 設計・部材調達不要 → 開発期間最短
+
+  **デメリット**:
+  • **USB ケーブル必須** = WiFi のメリット (有線距離) を失う
+  • セキュリティカメラとしての配置自由度が低下
+  • 物理距離: USB 規格上 ~5m (USB 3.x で更に延長可能)
+  • PC 側 viewer 改修必要 (TCP → USB プロトコル切替)
+
+  **物理接続変更**:
+  • ハード: 変更なし
+  • 結線: GS2200M 経路を**論理的に切断**、USB 経路を主経路に昇格
+  • プロトコル: TCP/IP → USB CDC-ACM バルクに変更
+
+  **ADR-006 GATE-1 影響**: HW-1〜HW-4 を**スキップ**、PC viewer 改修のみ
+  → +2〜4 週で Phase 1B (HD) 達成可能
+end note
+
+@enduml

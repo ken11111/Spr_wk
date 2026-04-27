@@ -1,0 +1,90 @@
+@startuml spresense_deployment_candidate_b_rpi_cm5
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+
+title 🟡 候補 B: Raspberry Pi CM5 移行 (高機能案)\n物理 I/F: CSI-2 (MIPI 4 lanes) + Gigabit Ethernet + 内蔵 WiFi + USB 3.0 Host
+
+node "カメラ\n(ISX012 or 別機種)" as CAM #LightBlue {
+  portout "CSI-2 out\n(MIPI 4 lanes)" as p_cam_out
+}
+
+node "Raspberry Pi CM5\nBCM2712 / Cortex-A76 4-core" as RPI #LightYellow {
+  portin  "CSI-2 in\n(MIPI 4 lanes)" as p_rpi_csi
+  portout "WiFi RF TX 内蔵" as p_rpi_rf_tx
+  portin  "WiFi RF RX 内蔵" as p_rpi_rf_rx
+  portout "Gigabit Ethernet TX\n(1 Gbps)" as p_rpi_eth_tx
+  portin  "Gigabit Ethernet RX" as p_rpi_eth_rx
+  portout "USB 3.0 Host" as p_rpi_usb3
+
+  component "Linux Kernel" as RPI_K
+  component "V4L2 + HW JPEG/H.264\nエンコーダ" as RPI_V4L2
+  component "内蔵 WiFi / GigE\nNetwork Stack" as RPI_NET
+
+  p_rpi_csi --> RPI_V4L2
+  RPI_V4L2 --> RPI_K
+  RPI_K --> RPI_NET
+  RPI_NET --> p_rpi_rf_tx
+  p_rpi_rf_rx --> RPI_NET
+  RPI_NET --> p_rpi_eth_tx
+  p_rpi_eth_rx --> RPI_NET
+  RPI_K --> p_rpi_usb3
+}
+
+node "Ethernet Switch\n(1 Gbps)" as SW #LightGreen {
+  portin  "Eth in (RJ45)" as p_sw_in
+  portout "Eth out (RJ45)" as p_sw_out
+}
+
+node "PC (Linux/WSL2)" as PC #LightCyan {
+  portin  "WiFi NIC RX" as p_pc_wifi_rx
+  portout "WiFi NIC TX" as p_pc_wifi_tx
+  portin  "Eth NIC RX" as p_pc_eth_rx
+  portout "Eth NIC TX" as p_pc_eth_tx
+
+  component "Rust_ws/\nsecurity_camera_viewer\n(本格改修)" as PCAPP
+
+  p_pc_wifi_rx --> PCAPP
+  PCAPP --> p_pc_wifi_tx
+  p_pc_eth_rx --> PCAPP
+  PCAPP --> p_pc_eth_tx
+}
+
+node "WiFi AP\n(802.11ac/ax 推奨)" as AP #LightPink {
+  portin  "WiFi RF in" as p_ap_in
+  portout "WiFi RF out" as p_ap_out
+}
+
+' === 物理接続 ===
+p_cam_out         --> p_rpi_csi      : "CSI-2 MIPI"
+p_rpi_eth_tx      --> p_sw_in        : "**Gigabit Ethernet (1 Gbps)**"
+p_sw_out          --> p_rpi_eth_rx
+p_sw_out          --> p_pc_eth_rx    : "Gigabit Ethernet"
+p_pc_eth_tx       --> p_sw_in
+p_rpi_rf_tx       --> p_ap_in        : "WiFi 802.11ac/ax"
+p_ap_out          --> p_rpi_rf_rx
+p_ap_out          --> p_pc_wifi_rx
+p_pc_wifi_tx      --> p_ap_in
+
+note as B_PROFILE
+  **メリット**:
+  • **H.264 HW エンコード対応** (Phase 1B/2A 必須要件)
+  • Linux + V4L2 で開発生産性が劇的向上
+  • **Gigabit Ethernet 経由なら帯域余裕大** (1 Gbps = 125 MB/s)
+  • V4L2 統一で他カメラへの移行も容易
+
+  **デメリット**:
+  • Spresense 資産 (NuttX/SDK/カスタム制御コード) **ほぼ放棄**
+  • 消費電力 +5W 程度 (Spresense 比 ~10x)
+  • 価格 $50-90 (Spresense $60 と同等だが構成複雑化)
+  • Linux RT 性能は NuttX より一般に劣る (PREEMPT_RT 使用要検討)
+
+  **物理接続変更**:
+  • Spresense + GS2200M → RPi CM5 + I/O Board に統合
+  • SPI 経路 → 完全廃止
+  • 通信経路: WiFi (現状互換) + **Ethernet (新規)**
+  • カメラ接続: parallel CSI → MIPI CSI-2 (4 lanes) に変更
+
+  **ADR-006 GATE-1 影響**: 全 Phase 計画を Linux ベースで再立案、開発工数最大
+end note
+
+@enduml

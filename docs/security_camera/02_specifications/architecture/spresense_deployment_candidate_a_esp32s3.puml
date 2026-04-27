@@ -1,0 +1,75 @@
+@startuml spresense_deployment_candidate_a_esp32s3
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+
+title 🟡 候補 A: ESP32-S3 移行 (低コスト案)\n物理 I/F: CSI parallel + 内蔵 WiFi 802.11ac (150 Mbps) + USB UART (debug)
+
+node "ISX012 カメラ\n(再利用)" as CAM #LightBlue {
+  portout "CSI out\n(parallel)" as p_cam_out
+}
+
+node "ESP32-S3\n(Cortex-M4F dual-core, WiFi 内蔵)" as ESP #LightYellow {
+  portin  "CSI in\n(要 PCB 設計)" as p_esp_csi
+  portout "WiFi RF TX\n内蔵 (150 Mbps)" as p_esp_rf_tx
+  portin  "WiFi RF RX\n内蔵" as p_esp_rf_rx
+  portout "USB UART\n(debug)" as p_esp_dbg
+
+  component "FreeRTOS / NuttX 移植" as ESP_OS
+  component "ISX012 ドライバ\n(要再開発)" as ESP_CAM_DRV
+  component "TCP/IP スタック\n(LwIP / 内蔵)" as ESP_TCP
+
+  p_esp_csi --> ESP_CAM_DRV
+  ESP_CAM_DRV --> ESP_OS
+  ESP_OS --> ESP_TCP
+  ESP_TCP --> p_esp_rf_tx
+  p_esp_rf_rx --> ESP_TCP
+  ESP_OS --> p_esp_dbg
+}
+
+node "PC (Linux/WSL2)" as PC #LightCyan {
+  portin  "WiFi NIC RX" as p_pc_wifi_rx
+  portout "WiFi NIC TX" as p_pc_wifi_tx
+  portin  "USB Host RX\n(debug, optional)" as p_pc_usb_rx
+
+  component "Rust_ws/\nsecurity_camera_viewer\n(改修必要)" as PCAPP
+
+  p_pc_wifi_rx --> PCAPP
+  PCAPP --> p_pc_wifi_tx
+  p_pc_usb_rx -[#gray,dashed]-> PCAPP
+}
+
+node "WiFi AP\n(802.11ac 推奨)" as AP #LightPink {
+  portin  "WiFi RF in" as p_ap_in
+  portout "WiFi RF out" as p_ap_out
+}
+
+' === 物理接続 ===
+p_cam_out          --> p_esp_csi    : "CSI parallel"
+p_esp_rf_tx        --> p_ap_in      : "**WiFi 802.11ac (150 Mbps)**"
+p_ap_out           --> p_esp_rf_rx
+p_ap_out           --> p_pc_wifi_rx : "WiFi 802.11ac"
+p_pc_wifi_tx       --> p_ap_in
+p_esp_dbg          -[#gray,dashed]-> p_pc_usb_rx : "USB UART (デバッグログのみ)"
+
+note as A_PROFILE
+  **メリット**:
+  • SPI 4MHz 制約を**完全解消** (WiFi 内蔵)
+  • Cortex-M4F 互換、NuttX 移植コスト中程度
+  • 安価 ($5-10)
+
+  **デメリット**:
+  • PCB 再設計が必要 (カメラ I/F が parallel なら成立、CSI-2 だと厳しい)
+  • Spresense 6-core 並列性は失う (dual-core)
+  • LwIP は OSS だがチューニング工数あり
+  • ベンダー WiFi スタックが BB な可能性は ESP32 でも残存
+
+  **物理接続変更**:
+  • Spresense メインボード + 拡張ボード + GS2200M モジュール → ESP32-S3 1 個に統合
+  • SPI 4MHz バス → 内蔵 WiFi に置換
+  • USB CDC-ACM 経路は debug 用に縮退 (オプション)
+  • カメラ接続 PCB 再設計 (parallel 8/10 bit)
+
+  **ADR-006 GATE-1 影響**: HW-1〜HW-4 (合計 +14 週) クリティカルパス起動
+end note
+
+@enduml

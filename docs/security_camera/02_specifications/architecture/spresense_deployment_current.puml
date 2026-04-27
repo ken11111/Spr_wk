@@ -2,7 +2,7 @@
 skinparam defaultFontName "Noto Sans CJK JP"
 skinparam backgroundColor #FEFEFE
 
-title 🟢 現状トポロジ (Phase 1-11)\n3 領域構成: Spresense 物理アセンブリ / PC / WiFi AP\n(portin/portout 維持 + 共有メディアはインタフェース表記でハブ化)
+title 🟢 現状トポロジ (Phase 1-11)\n3 領域構成: Spresense 物理アセンブリ / PC / WiFi AP\n(portin/portout + ノード近傍インタフェース分散配置)
 
 ' ================================================================
 ' 領域 1: Spresense 物理アセンブリ
@@ -14,14 +14,14 @@ frame "🔧 Spresense 物理アセンブリ\n(1 つのハードウェアパッ�
   }
 
   node "Spresense メインボード\nCXD5602 / Cortex-M4F×6 @156MHz" as SPR_MAIN #LightGreen {
-    portin  "CSI in\n(parallel 8/10 bit)" as p_main_csi
+    portin  "CSI in" as p_main_csi
     portout "SPI MOSI\n(4 MHz, master)" as p_main_spi_mosi
     portin  "SPI MISO" as p_main_spi_miso
     portout "拡張コネクタ\n(B2B)" as p_main_exp_out
     portin  "拡張コネクタ" as p_main_exp_in
 
     component "NuttX RTOS\n+ security_camera app" as NUTTX
-    component "ISX012\nカメラ I/F" as ISX_IF
+    component "ISX012 カメラ I/F" as ISX_IF
 
     p_main_csi --> ISX_IF
     ISX_IF --> NUTTX
@@ -64,12 +64,22 @@ frame "🔧 Spresense 物理アセンブリ\n(1 つのハードウェアパッ�
     USB_CTRL --> p_ext_sd
   }
 
-  ' === Spresense アセンブリ内部の物理接続 (基板上配線、portin/portout 直結) ===
-  p_cam_out          --> p_main_csi      : "CSI parallel\n(基板上配線)"
+  ' === Spresense アセンブリ内部 (基板上配線, 1:1, port 直結) ===
+  p_cam_out          --> p_main_csi      : "CSI parallel"
   p_main_exp_out     --> p_ext_main_in   : "拡張コネクタ B2B"
   p_ext_main_out     --> p_main_exp_in
   p_main_spi_mosi    --> p_gs_spi_in     : "**SPI MOSI 4 MHz**"
   p_gs_spi_out       --> p_main_spi_miso : "SPI MISO"
+
+  ' === ノード近傍インタフェース: GS2200M 側 WiFi 終端 ===
+  () "📶 WiFi 802.11n" as IF_WIFI_GS
+  p_gs_rf_tx --> IF_WIFI_GS
+  IF_WIFI_GS --> p_gs_rf_rx
+
+  ' === ノード近傍インタフェース: Spresense 拡張ボード側 USB 終端 ===
+  () "🔌 USB CDC-ACM" as IF_USB_SPR
+  p_ext_usb_tx --> IF_USB_SPR
+  IF_USB_SPR --> p_ext_usb_rx
 }
 
 ' ================================================================
@@ -90,6 +100,16 @@ frame "💻 PC (ホスト)\n(別筐体)" as PC_REGION #LightCyan {
     p_pc_wifi_rx --> PCAPP
     PCAPP --> p_pc_wifi_tx
   }
+
+  ' === ノード近傍インタフェース: PC 側 WiFi 終端 ===
+  () "📶 WiFi 802.11n" as IF_WIFI_PC
+  p_pc_wifi_tx --> IF_WIFI_PC
+  IF_WIFI_PC --> p_pc_wifi_rx
+
+  ' === ノード近傍インタフェース: PC 側 USB 終端 ===
+  () "🔌 USB CDC-ACM" as IF_USB_PC
+  p_pc_usb_tx --> IF_USB_PC
+  IF_USB_PC --> p_pc_usb_rx
 }
 
 ' ================================================================
@@ -101,56 +121,45 @@ frame "📡 WiFi AP\n(別筐体, 家庭/事務所ルーター)" as AP_REGION #Li
     portin  "WiFi RF in" as p_ap_in
     portout "WiFi RF out" as p_ap_out
 
-    component "AP\nWireless Bridge" as AP_BRIDGE
+    component "AP Wireless Bridge" as AP_BRIDGE
 
     p_ap_in --> AP_BRIDGE
     AP_BRIDGE --> p_ap_out
   }
+
+  ' === ノード近傍インタフェース: AP 側 WiFi 終端 ===
+  () "📶 WiFi 802.11n" as IF_WIFI_AP
+  p_ap_out --> IF_WIFI_AP
+  IF_WIFI_AP --> p_ap_in
 }
 
 ' ================================================================
-' 領域間の共有メディア (インタフェース表記でハブ化、portin/portout を維持)
+' 媒体間接続: 同一メディアの伝搬を短い破線で表現
 ' ================================================================
 
-' --- 📶 WiFi 802.11n: 3 ノード共有メディア (無線電波) ---
-() "📶 **WiFi 802.11n**\n(無線電波, 共有メディア)" as IF_WIFI
+' --- 📶 WiFi 802.11n: 同一メディアを各ノード近傍で表現 (破線で繋ぐ) ---
+IF_WIFI_GS .. IF_WIFI_AP : "電波伝搬\n(無線)"
+IF_WIFI_AP .. IF_WIFI_PC : "電波伝搬\n(無線)"
 
-p_gs_rf_tx     --> IF_WIFI : "送信"
-IF_WIFI        --> p_gs_rf_rx : "受信"
-p_ap_out       --> IF_WIFI : "AP 送信"
-IF_WIFI        --> p_ap_in : "AP 受信"
-p_pc_wifi_tx   --> IF_WIFI : "PC 送信"
-IF_WIFI        --> p_pc_wifi_rx : "PC 受信"
-
-' --- 🔌 USB CDC-ACM: P2P ケーブル (2 ノード) ---
-() "🔌 **USB CDC-ACM**\n(有線ケーブル, 12 Mbps = 1.5 MB/s)" as IF_USB
-
-p_ext_usb_tx --> IF_USB : "Spresense → PC"
-IF_USB       --> p_ext_usb_rx : "Spresense ← PC"
-p_pc_usb_tx  --> IF_USB : "PC → Spresense"
-IF_USB       --> p_pc_usb_rx : "PC ← Spresense"
+' --- 🔌 USB CDC-ACM: 1 本のケーブル (両端を破線で繋ぐ) ---
+IF_USB_SPR .. IF_USB_PC : "ケーブル\n(有線, 12 Mbps)"
 
 note as PROFILE
-  **🟢 統一表記ルール**:
+  **🟢 統一表記ルール (v3)**:
   ・**portin/portout**: 各ノードの I/O ポート (送信/受信を方向で区別)
-  ・**() "Interface"**: 物理メディア (電波 or ケーブル) のハブ
-  ・portout → Interface → portin の流れで送受信が読める
+  ・**() "Interface"**: ノード近傍に配置 (1 ノード = 1 ローカル終端)
+  ・**Interface .. Interface**: 同一メディアの伝搬 (破線)
+  ・portout → 近傍 IF → (破線で他ノードの IF へ) → portin
 
-  **🟢 現状の領域構成** (3 物理領域):
-  ① Spresense 物理アセンブリ (1 つのハード筐体)
-     ・ISX012 カメラ + メインボード + GS2200M + 拡張ボード
-     ・基板上配線で内部接続 (portin/portout 直結, 1:1 配線)
-  ② PC (別筐体): Linux/WSL2 ホスト
-  ③ WiFi AP (別筐体): 家庭/事務所等のルーター
+  **線の重なり対策**:
+  ・各ポートの線は近傍 IF までの短距離のみ (重なり最小)
+  ・媒体伝搬は IF 間の破線 1 本/ペア (整理されたトポロジ)
+  ・WiFi AP がハブとなり 3 ノード接続でも線が放射状に整う
 
-  **領域間の共有メディア** (インタフェース表記):
-  📶 WiFi 802.11n: 3 ノード (Spresense / PC / AP) が共有する無線電波
-  🔌 USB CDC-ACM: Spresense 拡張ボード ↔ PC の有線ケーブル
-
-  **構造的天井** (詳細: SPRESENSE_TCP_CONSTRAINTS.md §10):
-  ・SPI 4MHz 律速 (Spresense アセンブリ内部の Spresense ↔ GS2200M 間)
-  ・GS2200M 内部バッファはベンダー仕様 (制御不能)
-  ・Phase 1.5 実測 11fps = 目標 30fps の 37%
+  **🟢 領域構成**:
+  ① Spresense 物理アセンブリ (内部配線 + GS2200M/USB のローカル IF)
+  ② PC (WiFi NIC ローカル IF + USB Host ローカル IF)
+  ③ WiFi AP (WiFi RF ローカル IF)
 end note
 
 @enduml

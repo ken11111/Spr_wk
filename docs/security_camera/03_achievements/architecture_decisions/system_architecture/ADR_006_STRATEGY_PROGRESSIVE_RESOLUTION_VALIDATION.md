@@ -113,6 +113,54 @@ Phase 2A (Full HD):
 判定: Phase 1B移行可能（制約は文書化）
 ```
 
+### 🔴 GATE-1 (P1.5 → P1B 移行判定) の判断材料
+
+`02_specifications/architecture/SPRESENSE_TCP_CONSTRAINTS.md` (2026-04-27 作成)
+で抽出した Spresense + GS2200M の構造的天井に基づき、本ゲートで以下を判定する:
+
+#### 判定 A: ソフト最適化のみで Phase 1B/2A 達成可能か?
+
+**HD (1280×720) H.264 30fps の帯域要件**:
+- H.264 約 2-5 Mbps = **250-625 KB/s**
+- I-frame は 50-200 KB/frame の可能性
+
+**GS2200M 帯域天井 (制約マップより)**:
+- SPI 4 MHz 理論 500 KB/s, **実効 200-300 KB/s**
+- → HD H.264 の帯域要件は天井を **大幅超過**
+- → Spresense 単体で Phase 1B 達成は **物理的に困難**
+
+**Full HD (1920×1080) H.264 30fps**:
+- 約 5 Mbps = **625 KB/s** (実効 200-300 KB/s に対し **2-3 倍超過**)
+- I-frame は 200 KB+ → MJPEG_BATCH_SIZE=1 でも `MAX_BATCH_PACKET = 122 KB` を超過、新たな分割戦略が必須
+
+#### 判定 B: ハードウェア変更で何が必要か?
+
+| 候補 | 帯域改善 | 移植コスト | 既存資産損失 |
+|---|---|---|---|
+| **SPI 周波数引き上げ** (`WL_GS2200M_SPI_FREQUENCY` 増加) | 2-4× の可能性 | 小 | なし |
+| **USB 経由切替** (ADR-001 系統) | USB 12 Mbps = 1.5 MB/s | 中 (TCP→USB プロトコル変更) | TCP 系統廃止 |
+| **ESP32-S3 移行** | 内蔵 WiFi、Cortex-M4F、SPI 制約解消 | 大 (ADR-006 HW-1〜HW-4) | NuttX/SDK 一部破棄 |
+| **Raspberry Pi CM4/CM5** | Linux + H.264 HW エンコード | 最大 | Spresense 資産ほぼ放棄 |
+
+#### 判定 C: 各 ADR への波及
+
+ハード変更時、以下 ADR の有効性を再評価必要:
+- **ADR-001 (TTY Raw Mode)**: USB 経由切替なら有効、ハード変更なら別系統
+- **ADR-002 (TCP Health Monitoring)**: GS2200M 廃止なら本 ADR は不要 (新ハードでは別の監視戦略が必要)
+- **ADR-003 (V4L2 RING Buffer)**: ISX012/019 を使い続けるなら有効、新ハードで Linux V4L2 系に統一可能
+- **ADR-005 (3-Thread Pipeline)** および **ADR-008 (Channel Bounded)**: PC 側設計なので影響小、ただし帯域改善で容量再検討 (ADR-008 §5)
+- **ADR-004 (CRC Lookup)**: プロトコル変更時は再評価
+
+#### GATE-1 判定の出力
+
+| 判定 | 進路 |
+|---|---|
+| ✅ Spresense 継続可能 (理想) | HW-1〜HW-4 をスキップ、P1B 直行 (現状の制約マップから可能性低) |
+| ⚠️ SPI 周波数引き上げで P1B のみ達成 | HW-1 評価、HW-2〜HW-4 は条件次第 |
+| ❌ HW 移行必須 | HW-1〜HW-4 + GATE-2 を経由 (+15 週) |
+
+→ GATE-1 の出力により、後続 Phase の見積もり精度を確保する。
+
 ## 4. 検証結果
 
 ### 実装成果

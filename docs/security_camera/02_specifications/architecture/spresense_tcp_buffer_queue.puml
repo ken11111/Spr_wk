@@ -3,20 +3,20 @@ skinparam defaultFontName "Noto Sans CJK JP"
 skinparam backgroundColor #FEFEFE
 skinparam componentStyle rectangle
 
-title Spresense TCP 通信 バッファ/キュー関係図 (ポート In/Out 明示)\n(全層のバッファサイズと所有者を一覧化)
+title Spresense TCP 通信 バッファ/キュー関係図 (ポート In/Out + メモリ予算可視化)\n(全層のバッファサイズと所有者を一覧化)
 
 component "Application Layer\n(security_camera)" as APP #LightYellow {
-  portin  in_app
-  portout out_app
+  portin  "rst_in"   as p_app_in
+  portout "send_out" as p_app_out
 
-  queue "action_queue\n5/7/9 frames" as AQ
+  queue "action_queue\n5/7/9 frames\n(動的, ADR-007 PID で調整)" as AQ
   rectangle "MJPEG Batch Buffer\nMAX_BATCH_PACKET ≈ 122 KB\n(BATCH_SIZE=2)" as MJBUF #LightGreen
   rectangle "TCP SO_SNDBUF\n要求 262,144 B (256 KB)" as SNDBUF #LightCyan
 
   AQ --> MJBUF : "7 frames pop"
   MJBUF --> SNDBUF : "send(jpeg_batch)"
-  SNDBUF --> out_app
-  in_app --> SNDBUF : "RST/FIN"
+  SNDBUF --> p_app_out
+  p_app_in --> SNDBUF : "RST/FIN"
 }
 note right of APP
   config.h:122-124 (action_queue)
@@ -25,91 +25,96 @@ note right of APP
 end note
 
 component "NuttX usrsock 層" as USRSOCK #LightGreen {
-  portin  in_usr
-  portout out_usr
+  portin  "rpc_in"  as p_usr_in
+  portout "rpc_out" as p_usr_out
 
   rectangle "usrsock 事前確保\nPREALLOC_CONNS = 6 sockets" as USRCONN
   queue "IOB プール\n8 × 196 B = 1,568 B" as IOB #Salmon
 
-  in_usr --> USRCONN : "socket() 経由"
+  p_usr_in --> USRCONN : "socket() 経由"
   USRCONN --> IOB : "RPC メッセージ分割"
-  IOB --> out_usr
-  in_usr <-- IOB : "受信側"
+  IOB --> p_usr_out
+  p_usr_in <-- IOB : "受信側"
 }
 note right of USRSOCK
-  IOB はNuttX 全体で共有、極小
+  IOB は NuttX 全体で共有、極小
   IOB_THROTTLE=0 (流量制御なし)
 end note
 
 component "GS2200M Driver\n(gs2200m.c)" as GS_DRV #LightBlue {
-  portin  in_drv
-  portout out_drv
-  portin  rx_drv
-  portout notify_drv
+  portin  "tx_in"     as p_drv_tx_in
+  portout "spi_out"   as p_drv_spi_out
+  portin  "rx_in"     as p_drv_rx_in
+  portout "notify_out" as p_drv_notify_out
 
-  rectangle "tx_buff\n[1 個 × 1,500 B]" as TXBUF #Salmon
+  rectangle "🔴 ★ tx_buff ★\n[1 個 × 1,500 B]\n=== 送信完全直列化 ===" as TXBUF #Red
   queue "pkt_q[16]\n受信キュー × 16 ソケット\n(per-cid)" as PKTQ
   queue "notif_q\nMAX_NOTIF_Q = 18 通知" as NOTIFQ #Salmon
   rectangle "Response Msg Queue\nNRESPMSG = 18" as RESPQ
 
-  in_drv --> TXBUF : "1,500 B/転送"
-  TXBUF --> out_drv : "DMA via SPI"
+  p_drv_tx_in --> TXBUF : "1,500 B/転送"
+  TXBUF --> p_drv_spi_out : "DMA via SPI"
 
-  rx_drv --> PKTQ
+  p_drv_rx_in --> PKTQ
   PKTQ --> NOTIFQ : "(切断/エラー検知)"
-  NOTIFQ --> notify_drv : "切断通知 → 上位"
+  NOTIFQ --> p_drv_notify_out : "切断通知 → 上位"
   RESPQ -[hidden]-> NOTIFQ
 }
 note right of GS_DRV
-  tx_buff 1 個 = 完全直列化
+  ★ tx_buff 1 個 = 完全直列化
+  (受信 pkt_q[16] と非対称)
   MAX_PKT_LEN 1,500 B
   pkt_q_cnt[16] で per-cid 監視
 end note
 
 component "SPI Bus" as SPI #Khaki {
-  portin  in_spi
-  portout out_spi
+  portin  "dma_in"  as p_spi_in
+  portout "dma_out" as p_spi_out
 
   rectangle "SPI 4 MHz\nHAL_TIMEOUT 5 秒\nWR_MAX_RETRY 100" as SPI_IF #Salmon
 
-  in_spi --> SPI_IF
-  SPI_IF --> out_spi
+  p_spi_in --> SPI_IF
+  SPI_IF --> p_spi_out
 }
-note right of SPI
-  理論 500 KB/s, 実効 200-300 KB/s
-  BULK_THRESHOLD 8 KB で bulk モード切替
-end note
 
 component "GS2200M Module\n(ブラックボックス)" as GSMOD #LightCoral {
-  portin  in_gsmod
-  portout out_gsmod
+  portin  "spi_in"   as p_mod_in
+  portout "wifi_out" as p_mod_out
 
-  queue "Internal Buffers\n容量不明 (ベンダー仕様)" as VBUF #Salmon
+  rectangle "⚠️ Internal Buffers\n容量不明 (ベンダー仕様)\n枯渇時に切断" as VBUF #Pink
 
-  in_gsmod --> VBUF : "送信"
-  VBUF --> out_gsmod : "WiFi へ"
+  p_mod_in --> VBUF : "送信"
+  VBUF --> p_mod_out : "WiFi へ"
 }
-note right of GSMOD
-  ソフト側から制御不能
-  枯渇時に切断 (RST)
-  観測手段: tcp_health_moving_avg_ms
-            tcp_health_total_spikes
-end note
 
-' レイヤ間接続 (ポート同士)
-out_app      --> in_usr      : "send(~122 KB)"
-out_usr      --> in_drv      : "TX path"
-out_drv      --> in_spi      : "1500B × N 回"
-out_spi      --> in_gsmod
-out_gsmod    -[#blue,dashed]-> rx_drv : "RX path (受信)"
-notify_drv   --> in_app      : "切断通知 (RST/FIN)"
+' === レイヤ間接続 ===
+p_app_out      --> p_usr_in    : "send(~122 KB)"
+p_usr_out      --> p_drv_tx_in : "TX path"
+p_drv_spi_out  --> p_spi_in    : "1500B × N 回"
+p_spi_out      --> p_mod_in
+p_mod_out      -[#blue,dashed]-> p_drv_rx_in : "RX path (受信)"
+p_drv_notify_out --> p_app_in  : "切断通知"
 
-note as RAM #LightYellow
-  **🧠 全体メモリ予算**
-  CONFIG_RAM_SIZE = 1,572,864 B = **1.5 MB**
-  この中に NuttX カーネル + 全ドライバ + 全アプリバッファ
-  (上記すべて) を収める必要がある。
-  GS2200M ドライバスタック自体は 2,048 B、優先度 50。
+' === メモリ予算チャート ===
+note as MEM #LightYellow
+  **🧠 全体メモリ予算 (CONFIG_RAM_SIZE = 1,572,864 B = 1.5 MB)**
+
+  | 領域 | 予想サイズ | 占有率 | 備考 |
+  |---|---|---|---|
+  | NuttX カーネル + IPL | ~150 KB | 10% | スタック含む |
+  | GS2200M ドライバスタック | 2 KB | 0.1% | (固定) |
+  | IOB プール | 1.6 KB | 0.1% | 8×196B |
+  | tx_buff[1500] | 1.5 KB | 0.1% | 🔴 単一ボトルネック |
+  | pkt_q[16] (per-cid) | 可変 | ~5% | 接続数依存 |
+  | アプリスタック (security_camera) | 8 KB | 0.5% | priority 100 |
+  | action_queue (frame×7) | ~360 KB | 24% | (60KB×7, 動的5-9) |
+  | MJPEG batch buffer | ~122 KB | 8% | (60KB×2 frames) |
+  | TCP SO_SNDBUF (要求値) | 256 KB | 17% | 実確保はドライバ依存 |
+  | カメラフレームバッファ (V4L2) | ~192 KB | 13% | (ADR-003 64KB×3) |
+  | ヒープ余白 / その他 | ~400 KB | 26% | アプリ動的アロケート用 |
+
+  → アプリ系で 60% 以上使用、ヒープ余裕 ~400KB
+  → Full HD 移行で 200KB+/frame になると 動的調整も限界
 end note
 
 @enduml

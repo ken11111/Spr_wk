@@ -1,0 +1,119 @@
+@startuml spresense_deployment_topology
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+
+title Spresense デプロイメント / 物理トポロジ\n(現状 + ADR-006 GATE-1 ハード移行候補比較)
+
+' ==================== 現状トポロジ ====================
+package "🟢 現状 (Phase 1-11)" #LightGreen {
+
+  node "Spresense メインボード\n(CXD5602 / Cortex-M4F×6 @156MHz)" as SPR_MAIN {
+    component "NuttX RTOS\n+ security_camera app" as NUTTX
+    component "ISX012 カメラ I/F" as ISX
+  }
+
+  node "Spresense 拡張ボード" as SPR_EXT {
+    component "USB CDC-ACM コントローラ" as USB
+    component "SD カード I/F" as SD
+  }
+
+  node "GS2200M モジュール\n(Telit / Renesas 系 WiFi)" as GS2200M_MOD {
+    component "ベンダー TCP/IP スタック\n(ブラックボックス)" as VTCP
+    component "WiFi 802.11n PHY" as PHY
+  }
+
+  node "PC (Linux/WSL2)" as PC {
+    component "Rust_ws/security_camera_viewer\n(pipeline.rs, 3 thread)" as PCAPP
+  }
+
+  node "WiFi AP\n(ご家庭等 802.11n)" as AP
+
+  SPR_MAIN ..> SPR_EXT : "拡張ボード コネクタ"
+  SPR_MAIN -right-> GS2200M_MOD : "**SPI 4 MHz**\n(理論 500 KB/s, 実効 200-300 KB/s)"
+  SPR_EXT --> PC : "**USB CDC-ACM**\n(12 Mbps = 1.5 MB/s)"
+  GS2200M_MOD --> AP : "WiFi 802.11n"
+  AP --> PC : "WiFi 802.11n"
+}
+
+' ==================== 候補 A: ESP32-S3 ====================
+package "🟡 候補 A: ESP32-S3 移行 (低コスト)" #LightYellow {
+
+  node "ESP32-S3" as ESP {
+    component "FreeRTOS / NuttX\n(SDK 一部移植)" as ESP_OS
+    component "**内蔵 WiFi 802.11ac**\n(150 Mbps)" as ESP_WIFI
+    component "ISX012 接続\n(要 PCB 設計)" as ESP_CAM
+  }
+
+  ESP --> AP : "WiFi (内蔵)"
+
+  note right of ESP
+    **メリット**:
+    • SPI 4MHz 制約解消 (内蔵 WiFi)
+    • Cortex-M4F 互換、移植コスト中
+    • 安価 ($5-10)
+
+    **デメリット**:
+    • PCB 再設計、カメラ接続要検討
+    • Spresense 6-core 並列性は失う
+    • ベンダー WiFi スタックは依然ブラックボックス可能性
+  end note
+}
+
+' ==================== 候補 B: Raspberry Pi CM4/CM5 ====================
+package "🟡 候補 B: Raspberry Pi CM4/CM5 (高機能)" #LightYellow {
+
+  node "Raspberry Pi CM5\n(BCM2712, ARM Cortex-A76 4-core)" as RPI {
+    component "Linux Kernel" as RPI_K
+    component "V4L2 + HW JPEG/H.264" as RPI_V4L2
+    component "内蔵 WiFi/Ethernet" as RPI_NET
+  }
+
+  RPI --> AP : "WiFi or **Gigabit Ethernet**"
+
+  note right of RPI
+    **メリット**:
+    • H.264 HW エンコード対応 (Phase 1B/2A 必須)
+    • Linux なので開発生産性高
+    • Ethernet 経由なら帯域余裕大
+    • V4L2 統一でドライバ層共通化
+
+    **デメリット**:
+    • Spresense 資産 (NuttX/SDK) ほぼ放棄
+    • 消費電力 +5W 程度
+    • 価格 $50-90 (Spresense $60 と同等)
+  end note
+}
+
+' ==================== 候補 C: USB 経由切替 (現状ハード継続) ====================
+package "🟢 候補 C: USB 経由切替 (現ハード継続、ADR-001 系統)" #LightGreen {
+
+  node "Spresense (現状)" as SPR_USB
+  node "PC USB Host" as PC_USB
+
+  SPR_USB --> PC_USB : "**USB CDC-ACM 12 Mbps**\n(GS2200M 廃止、TCP 経由しない)"
+
+  note right of SPR_USB
+    **メリット**:
+    • ハード変更なし
+    • USB 12 Mbps 安定
+    • ADR-001 (TTY Raw Mode) 既に検証済み
+
+    **デメリット**:
+    • ケーブル接続必須 (WiFi のメリット消失)
+    • PC 側 viewer 改修必要
+    • セキュリティカメラとしての要件 (有線距離) を満たすか要確認
+  end note
+}
+
+' ==================== 比較表 ====================
+note as COMPARE
+  **🎯 ADR-006 GATE-1 判定基準**:
+  | 候補 | 帯域 | 移植コスト | Spresense 資産 | 適用シナリオ |
+  |---|---|---|---|---|
+  | A: ESP32-S3 | 150 Mbps | 中 (HW-1〜HW-4 = +15週) | 一部維持 | コスト優先 |
+  | B: RPi CM5  | 1 Gbps | 大 (全面再設計) | ほぼ放棄 | Full HD H.264 必須 |
+  | C: USB 経由 | 12 Mbps | 小 (PC viewer 改修のみ) | 完全維持 | 有線許容 |
+  | 現状継続    | 200-300 KB/s | 0 | 完全維持 | VGA MJPEG ま で |
+end note
+
+@enduml

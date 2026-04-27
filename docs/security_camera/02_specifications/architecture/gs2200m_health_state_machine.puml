@@ -1,0 +1,96 @@
+@startuml gs2200m_health_state_machine
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+
+title GS2200M 健全性 状態遷移図\n(ADR-002 予防的再接続ロジックの正規形 + bak 実測との対応)
+
+[*] --> HEALTHY : 起動
+
+state HEALTHY #LightGreen {
+  HEALTHY : tcp_health_moving_avg_ms < 200ms
+  HEALTHY : spike_count = 0
+  HEALTHY : 通常運用 (Phase 8 134ms 平均)
+}
+
+state CAUTION #LightYellow {
+  CAUTION : 200ms <= moving_avg < 350ms
+  CAUTION : spike_count = 1
+  CAUTION : ログのみ、運用継続
+}
+
+state WARNING #Orange {
+  WARNING : 350ms <= moving_avg < 1000ms
+  WARNING : spike_count = 2
+  WARNING : 予防的再接続準備
+}
+
+state CRITICAL #LightCoral {
+  CRITICAL : moving_avg >= 1000ms
+  CRITICAL : OR spike_count >= 2
+  CRITICAL : 予防的再接続トリガー
+}
+
+state RECONNECTING #Gold {
+  RECONNECTING : close() + connect()
+  RECONNECTING : 3 秒以内に完了目標
+}
+
+state FAILED #Pink {
+  FAILED : error -107 (ENOTCONN)
+  FAILED : RST 拒否、要ハード再起動
+}
+
+HEALTHY    --> CAUTION       : RTT > 200ms\n(8 サンプル移動平均更新)
+CAUTION    --> HEALTHY       : RTT < 200ms\n(自然回復)
+CAUTION    --> WARNING       : RTT > 350ms\nOR スパイク継続
+WARNING    --> CAUTION       : RTT 改善
+WARNING    --> CRITICAL      : spike_count = 2\nOR RTT > 1000ms
+CRITICAL   --> RECONNECTING  : 予防的再接続\n実行 (ADR-002)
+RECONNECTING --> HEALTHY     : ✅ 接続成功\n(1-3 回目, bak/26_ 実測)
+RECONNECTING --> FAILED      : ❌ 接続失敗\n(4 回目以降, bak/27_ 実測)
+FAILED     --> [*]           : ハード再起動
+
+note right of HEALTHY
+  **観測手段** (Spresense 側実装済):
+  • tcp_health_moving_avg_ms (8 サンプル移動平均)
+  • tcp_health_total_spikes (累積スパイク)
+  • 3 秒間隔メトリクス送信 (58B パケット)
+  • mjpeg_protocol.h:88-89 にフィールド存在
+
+  **PC 側 (Rust_ws master)**:
+  ❌ 移動平均/スパイク検出ロジック未実装
+end note
+
+note right of CRITICAL
+  **判定ロジック (ADR-002)**:
+  ```c
+  if (current_rtt_ms > avg_ms * 3) {
+    spike_count++;
+    if (spike_count >= 2 ||
+        current_rtt_ms > 1000) {
+      trigger_preventive_reconnect();
+    }
+  }
+  ```
+end note
+
+note bottom of FAILED
+  **構造的限界 (SPRESENSE_TCP_CONSTRAINTS.md より)**:
+  GS2200M 内部リソース枯渇は
+  ソフト側 (close/connect) からは解消不能
+  → ADR-006 GATE-1 で HW 変更検討必須
+
+  **bak/27_ 実測パターン**:
+  3 回目までは成功、4 回目から RST 拒否、
+  GS2200M 内部状態が「使用不能」に固着
+end note
+
+note bottom of RECONNECTING
+  **目標 vs 実測 ギャップ**:
+  • ADR-002 設計目標: 平均 2.8 秒で復旧 (90% ダウンタイム削減)
+  • bak/26_ 実測: 71.8 分テストで PC FPS 6.74 → 2.77 に悪化
+  • → 自動再接続自体が悪化要因の可能性
+    (再接続中はストリーム停止、累積でドロップ率↑)
+end note
+
+@enduml

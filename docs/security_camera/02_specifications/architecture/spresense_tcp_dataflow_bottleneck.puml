@@ -2,7 +2,12 @@
 skinparam defaultFontName "Noto Sans CJK JP"
 skinparam backgroundColor #FEFEFE
 
-title 50 KB MJPEG フレーム送信時のデータフロー + ボトルネック\n(構造的天井 5 点を可視化)
+title 50 KB MJPEG フレーム送信時のデータフロー + ボトルネック (単発フレーム視点)\n(構造的天井 5 点を可視化、累積劣化は spresense_tcp_sequence.puml 参照)
+
+' 注: 本図は 1 フレーム単発の追跡。
+' 累積負荷下の漸進劣化 (134→350→1000ms の遷移、状態変化) は
+'   spresense_tcp_sequence.puml (シーケンス図) と
+'   gs2200m_health_state_machine.puml (状態遷移図) を参照。
 
 start
 

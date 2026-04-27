@@ -1,0 +1,102 @@
+@startuml spresense_tcp_sequence
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+title Spresense TCP 送信シーケンス: 正常 → 段階的劣化 → RST 拒否\n(構造的制約が時間軸でどう顕在化するか)
+
+participant "アプリ\n(security_camera)" as APP
+participant "BSD socket\n+ usrsock" as USR
+participant "GS2200M Driver\n(tx_buff[1])" as DRV
+participant "SPI 4MHz" as SPI
+participant "GS2200M Module\n(内部バッファ)" as MOD
+participant "PC 受信側" as PC
+
+== 🟢 正常運用 (Phase 8 ベースライン: 134ms 平均) ==
+
+APP -> USR : send(jpeg_batch 122KB)
+note right of APP : TCP_NODELAY 有効\nSO_SNDBUF 256KB 要求
+USR -> DRV : ioctl/RPC 経由\n(IOB プール 1568B 経由で分割)
+
+loop 約 84 回 (= 122KB ÷ 1464B)
+  DRV -> SPI : 1500B/pkt
+  SPI -> MOD : SPI 転送
+  MOD -> PC : WiFi 802.11n 送信
+  MOD --> DRV : ACK (内部バッファ余裕あり)
+end
+
+DRV --> USR : 完了
+USR --> APP : send() 戻り (134ms)
+
+== 🟡 段階的劣化開始 (内部バッファ充填) ==
+
+APP -> USR : send(122KB)
+USR -> DRV : (再帰)
+note right of DRV
+  健全性監視:
+  tcp_health_moving_avg_ms = 350
+  spike_count = 1
+end note
+
+DRV -> SPI : 1500B × 84
+SPI -> MOD : 転送
+note right of MOD #LightYellow
+  内部バッファ充填中
+  応答遅延発生
+end note
+MOD --> DRV : 遅延 ACK
+DRV --> APP : send() 戻り (**350ms に劣化**)
+
+== 🔴 クリティカル (1000ms 超え) ==
+
+APP -> USR : send(122KB)
+USR -> DRV : (再帰)
+note right of DRV
+  tcp_health_moving_avg_ms = 1000
+  spike_count = 2
+  → **予防的再接続トリガー条件成立**
+end note
+
+DRV -> SPI : 1500B × 84
+SPI -> MOD : 転送
+note right of MOD #LightCoral
+  🔴 内部バッファ枯渇開始
+  TCP 送信時間 > 5,228ms (bak/26_ 実測最大)
+end note
+
+== ⚡ 予防的再接続試行 1-3 回目 (bak/26_ 実測: 1-3 回目は成功) ==
+
+APP -> USR : close() + connect()
+USR -> DRV : 再接続要求
+DRV -> MOD : SPI 経由再接続
+MOD --> DRV : 接続成功 (3 秒以内)
+DRV --> APP : **復旧** (134ms 平均に戻る)
+
+note over APP, PC : 設計目標 (ADR-002): ダウンタイム 30s → 2.8s 削減\n(数値裏付けは bak でも未確認、計算上の効果値)
+
+== 🚨 4 回目以降: RST 拒否 (bak/27_PHASE9_RECONNECT_FAILURE) ==
+
+APP -> USR : close() + connect()
+USR -> DRV : 再接続要求
+DRV -> MOD : SPI 経由再接続
+
+note right of MOD #LightCoral
+  🔴 GS2200M 内部リソース完全枯渇
+  ベンダー SW が RST で接続拒否
+end note
+
+MOD --> DRV : **error -107 (ENOTCONN)**
+DRV --> USR : 接続失敗
+USR --> APP : 接続失敗
+APP -> APP : error_state\n→ **要ハード再起動**
+
+note over APP, PC #LightYellow
+  **構造的天井による失敗パターン (時間軸)**:
+  • 正常 → 劣化 → 切断は **連続的**、二項分岐ではない
+  • 予防的再接続は 1-3 回目では効果あり、4 回目以降は **無力化**
+  • 根本原因は GS2200M 内部バッファ枯渇 (ベンダー仕様、観測のみ可)
+  • ソフト側で残された手段は: 早期検知 + 早期再接続 (緩和策)
+  • 根本対策は **HW リセット または ハード変更 (ADR-006 GATE-1)**
+end note
+
+@enduml

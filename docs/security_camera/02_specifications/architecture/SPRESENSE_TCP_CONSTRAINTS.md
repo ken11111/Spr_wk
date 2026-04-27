@@ -270,7 +270,46 @@ ADR-006 計画の Full HD 1920×1080 H.264 @ 30fps を仮定:
 - リソース枯渇時にどのフォールバックが起きるか?
 - ADR-002 の予防再接続が効果限定的な理由は?
 
-### 13.4 図のレンダリング方法
+### 13.4 シーケンス図 (TX 正常 → 段階的劣化 → RST 拒否)
+
+ソース: [`spresense_tcp_sequence.puml`](spresense_tcp_sequence.puml) / 画像: [`spresense_tcp_sequence.png`](spresense_tcp_sequence.png)
+
+![TCP Sequence](spresense_tcp_sequence.png)
+
+図 3 (アクティビティ図) では表せない**時間軸での累積劣化** (134ms → 350ms → 1000ms → 5,228ms) を追跡。`tcp_health_moving_avg_ms` と `spike_count` の遷移、予防的再接続の 1-3 回目成功 → 4 回目 RST 拒否 (`bak/27_PHASE9_RECONNECT_FAILURE`) までを 1 タイムラインで描画。
+
+主に以下の質問に答える図:
+- 単発成功と累積失敗のどちらが深刻か?
+- 予防的再接続はどの段階で発火し、いつ無力化するか?
+- 構造的天井 (GS2200M 内部バッファ) はどこで顕在化するか?
+
+### 13.5 デプロイメント / 物理トポロジ図
+
+ソース: [`spresense_deployment_topology.puml`](spresense_deployment_topology.puml) / 画像: [`spresense_deployment_topology.png`](spresense_deployment_topology.png)
+
+![Deployment Topology](spresense_deployment_topology.png)
+
+現状トポロジ (Spresense メインボード + 拡張ボード + GS2200M モジュール + PC + WiFi AP) と、ADR-006 GATE-1 で検討する 3 つの HW 移行候補 (ESP32-S3 / Raspberry Pi CM5 / USB 経由切替) を**1 枚で比較**。各候補のメリット・デメリット・移植コスト・帯域上限を併記。
+
+主に以下の質問に答える図:
+- どの物理コンポーネントを交換すれば、どの制約が解消されるか?
+- Full HD H.264 (Phase 1B/2A) には最低限どのハードが必要か?
+- Spresense 資産 (NuttX/SDK) をどこまで維持しつつ移行できるか?
+
+### 13.6 GS2200M 健全性 状態遷移図
+
+ソース: [`gs2200m_health_state_machine.puml`](gs2200m_health_state_machine.puml) / 画像: [`gs2200m_health_state_machine.png`](gs2200m_health_state_machine.png)
+
+![GS2200M Health State Machine](gs2200m_health_state_machine.png)
+
+ADR-002 の予防的再接続ロジックを **6 状態 + 遷移条件**で正規形に整理。`HEALTHY → CAUTION → WARNING → CRITICAL → RECONNECTING → HEALTHY/FAILED` の状態遷移を、`tcp_health_moving_avg_ms` と `spike_count` の閾値で表現。`bak/26_, 27_` の実測パターンとの対応も注記。
+
+主に以下の質問に答える図:
+- 閾値判定のロジックを実装する際の正規仕様は?
+- 1-3 回目で復旧する経路と、4 回目で FAILED に固着する経路の違いは?
+- ADR-002 設計目標 (2.8 秒復旧) と実測 (PC FPS 6.74→2.77 悪化) のギャップはどこに?
+
+### 13.7 図のレンダリング方法
 
 ```bash
 # PlantUML CLI (要 plantuml インストール)
@@ -289,6 +328,7 @@ plantuml -tpng docs/security_camera/02_specifications/architecture/spresense_tcp
 | 1.0 | 2026-04-27 | 初版作成: `spresense/nuttx/.config` および GS2200M ドライバ・アプリ各層の制約を一元抽出 |
 | 1.1 | 2026-04-27 | 構造図 3 枚追加 (`spresense_tcp_stack_layers.puml`, `spresense_tcp_buffer_queue.puml`, `spresense_tcp_dataflow_bottleneck.puml`) |
 | 1.2 | 2026-04-27 | 図 1 入れ子角括弧 `[16]` `[1500]` パーサ衝突を `component "..."` 形式で修正。図 1, 2 に PlantUML `portin`/`portout` でポート In/Out を明示、PNG レンダリング画像を md に埋め込み |
+| 1.3 | 2026-04-27 | アーキテクチャレビュー結果を反映。新図 3 枚追加 (シーケンス, デプロイ, 状態遷移)。既存図改善: 図 1 にセマンティックポート名 + `<<thread>>` ステレオタイプ, 図 2 に `tx_buff` 強調 + メモリ予算表 + `Internal Buffers` ⚠️ マーク, 図 3 に「単発フレーム視点」注記 |
 
 ---
 

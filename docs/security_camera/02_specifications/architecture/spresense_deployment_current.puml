@@ -2,106 +2,134 @@
 skinparam defaultFontName "Noto Sans CJK JP"
 skinparam backgroundColor #FEFEFE
 
-title 🟢 現状トポロジ (Phase 1-11)\n物理 I/F: CSI parallel + SPI 4MHz + USB CDC-ACM 12Mbps + WiFi 802.11n
+title 🟢 現状トポロジ (Phase 1-11)\n3 領域構成: Spresense 物理アセンブリ / PC / WiFi AP
 
-node "ISX012 カメラ\n(Sony 5MP CMOS)" as CAM #LightBlue {
-  portout "CSI out\n(parallel)" as p_cam_out
+' ================================================================
+' 領域 1: Spresense 物理アセンブリ
+' ================================================================
+frame "🔧 Spresense 物理アセンブリ\n(1 つのハードウェアパッケージ)" as SPR_ASSEMBLY #LightYellow {
+
+  node "ISX012 カメラ\n(Sony 5MP CMOS)" as CAM #LightBlue {
+    portout "CSI out\n(parallel)" as p_cam_out
+  }
+
+  node "Spresense メインボード\nCXD5602 / Cortex-M4F×6 @156MHz" as SPR_MAIN #LightGreen {
+    portin  "CSI in\n(parallel 8/10 bit)" as p_main_csi
+    portout "SPI MOSI\n(4 MHz, master)" as p_main_spi_mosi
+    portin  "SPI MISO" as p_main_spi_miso
+    portout "拡張コネクタ\n(B2B)" as p_main_exp_out
+    portin  "拡張コネクタ" as p_main_exp_in
+
+    component "NuttX RTOS\n+ security_camera app" as NUTTX
+    component "ISX012\nカメラ I/F" as ISX_IF
+
+    p_main_csi --> ISX_IF
+    ISX_IF --> NUTTX
+    NUTTX --> p_main_spi_mosi
+    p_main_spi_miso --> NUTTX
+    NUTTX --> p_main_exp_out
+    p_main_exp_in --> NUTTX
+  }
+
+  node "GS2200M モジュール\n(WiFi 802.11n)" as GS2200M_MOD #LightCoral {
+    portin  "SPI MOSI in" as p_gs_spi_in
+    portout "SPI MISO out" as p_gs_spi_out
+    portout "WiFi RF TX\n(アンテナ)" as p_gs_rf_tx
+    portin  "WiFi RF RX\n(アンテナ)" as p_gs_rf_rx
+
+    component "ベンダー TCP/IP\n(ブラックボックス)" as VTCP
+    component "WiFi PHY" as PHY
+
+    p_gs_spi_in --> VTCP
+    VTCP --> p_gs_spi_out
+    VTCP --> PHY
+    PHY --> p_gs_rf_tx
+    p_gs_rf_rx --> PHY
+  }
+
+  node "Spresense 拡張ボード" as SPR_EXT #PaleGreen {
+    portin  "拡張コネクタ" as p_ext_main_in
+    portout "拡張コネクタ" as p_ext_main_out
+    portout "USB CDC-ACM TX\n(12 Mbps)" as p_ext_usb_tx
+    portin  "USB CDC-ACM RX" as p_ext_usb_rx
+    portout "SD I/F" as p_ext_sd
+
+    component "USB CDC-ACM\nコントローラ" as USB_CTRL
+    component "SD カード I/F" as SD_IF
+
+    p_ext_main_in --> USB_CTRL
+    USB_CTRL --> p_ext_main_out
+    USB_CTRL --> p_ext_usb_tx
+    p_ext_usb_rx --> USB_CTRL
+    USB_CTRL --> p_ext_sd
+  }
+
+  ' === Spresense アセンブリ内部の物理接続 ===
+  p_cam_out          --> p_main_csi      : "CSI parallel\n(基板上配線)"
+  p_main_exp_out     --> p_ext_main_in   : "拡張コネクタ B2B"
+  p_ext_main_out     --> p_main_exp_in
+  p_main_spi_mosi    --> p_gs_spi_in     : "**SPI MOSI 4 MHz**\n(基板上配線)"
+  p_gs_spi_out       --> p_main_spi_miso : "SPI MISO"
 }
 
-node "Spresense メインボード\nCXD5602 / Cortex-M4F×6 @156MHz" as SPR_MAIN #LightYellow {
-  portin  "CSI in\n(parallel 8/10 bit)" as p_main_csi
-  portout "SPI MOSI\n(4 MHz, master)" as p_main_spi_mosi
-  portin  "SPI MISO" as p_main_spi_miso
-  portout "拡張コネクタ\n(B2B)" as p_main_exp_out
-  portin  "拡張コネクタ" as p_main_exp_in
+' ================================================================
+' 領域 2: PC (Linux/WSL2)
+' ================================================================
+frame "💻 PC (ホスト)\n(別筐体)" as PC_REGION #LightCyan {
 
-  component "NuttX RTOS\n+ security_camera app" as NUTTX
-  component "ISX012\nカメラ I/F" as ISX_IF
+  node "PC (Linux/WSL2)" as PC #White {
+    portin  "USB Host RX" as p_pc_usb_rx
+    portout "USB Host TX" as p_pc_usb_tx
+    portin  "WiFi NIC RX" as p_pc_wifi_rx
+    portout "WiFi NIC TX" as p_pc_wifi_tx
 
-  p_main_csi --> ISX_IF
-  ISX_IF --> NUTTX
-  NUTTX --> p_main_spi_mosi
-  p_main_spi_miso --> NUTTX
-  NUTTX --> p_main_exp_out
-  p_main_exp_in --> NUTTX
+    component "Rust_ws/\nsecurity_camera_viewer\n(pipeline.rs, 3 thread)" as PCAPP
+
+    p_pc_usb_rx --> PCAPP
+    PCAPP --> p_pc_usb_tx
+    p_pc_wifi_rx --> PCAPP
+    PCAPP --> p_pc_wifi_tx
+  }
 }
 
-node "GS2200M モジュール\n(WiFi 802.11n)" as GS2200M_MOD #LightCoral {
-  portin  "SPI MOSI in" as p_gs_spi_in
-  portout "SPI MISO out" as p_gs_spi_out
-  portout "WiFi RF TX" as p_gs_rf_tx
-  portin  "WiFi RF RX" as p_gs_rf_rx
+' ================================================================
+' 領域 3: WiFi AP
+' ================================================================
+frame "📡 WiFi AP\n(別筐体, 家庭/事務所等のルーター)" as AP_REGION #LightPink {
 
-  component "ベンダー TCP/IP\n(ブラックボックス)" as VTCP
-  component "WiFi PHY" as PHY
-
-  p_gs_spi_in --> VTCP
-  VTCP --> p_gs_spi_out
-  VTCP --> PHY
-  PHY --> p_gs_rf_tx
-  p_gs_rf_rx --> PHY
+  node "WiFi AP\n(802.11n)" as AP #White {
+    portin  "WiFi RF in" as p_ap_in
+    portout "WiFi RF out" as p_ap_out
+  }
 }
 
-node "Spresense 拡張ボード" as SPR_EXT #LightGreen {
-  portin  "拡張コネクタ" as p_ext_main_in
-  portout "拡張コネクタ" as p_ext_main_out
-  portout "USB CDC-ACM TX\n(12 Mbps)" as p_ext_usb_tx
-  portin  "USB CDC-ACM RX" as p_ext_usb_rx
-  portout "SD I/F" as p_ext_sd
-
-  component "USB CDC-ACM\nコントローラ" as USB_CTRL
-  component "SD カード I/F" as SD_IF
-
-  p_ext_main_in --> USB_CTRL
-  USB_CTRL --> p_ext_main_out
-  USB_CTRL --> p_ext_usb_tx
-  p_ext_usb_rx --> USB_CTRL
-  USB_CTRL --> p_ext_sd
-}
-
-node "PC (Linux/WSL2)" as PC #LightCyan {
-  portin  "USB Host RX" as p_pc_usb_rx
-  portout "USB Host TX" as p_pc_usb_tx
-  portin  "WiFi NIC RX" as p_pc_wifi_rx
-  portout "WiFi NIC TX" as p_pc_wifi_tx
-
-  component "Rust_ws/\nsecurity_camera_viewer\n(pipeline.rs, 3 thread)" as PCAPP
-
-  p_pc_usb_rx --> PCAPP
-  PCAPP --> p_pc_usb_tx
-  p_pc_wifi_rx --> PCAPP
-  PCAPP --> p_pc_wifi_tx
-}
-
-node "WiFi AP\n(802.11n)" as AP #LightPink {
-  portin  "WiFi RF in" as p_ap_in
-  portout "WiFi RF out" as p_ap_out
-}
-
-' === 物理接続 (port-to-port) ===
-p_cam_out          --> p_main_csi      : "CSI parallel"
-p_main_exp_out     --> p_ext_main_in   : "拡張コネクタ B2B"
-p_ext_main_out     --> p_main_exp_in
-p_main_spi_mosi    --> p_gs_spi_in     : "**SPI MOSI 4 MHz**\n(理論 500 KB/s)"
-p_gs_spi_out       --> p_main_spi_miso : "SPI MISO"
-p_ext_usb_tx       --> p_pc_usb_rx     : "**USB CDC-ACM 12 Mbps**\n(= 1.5 MB/s)"
+' ================================================================
+' 領域間の物理接続 (筐体間ケーブル / 電波)
+' ================================================================
+p_ext_usb_tx       --> p_pc_usb_rx     : "**USB CDC-ACM ケーブル**\n12 Mbps (= 1.5 MB/s)"
 p_pc_usb_tx        --> p_ext_usb_rx
-p_gs_rf_tx         --> p_ap_in         : "**WiFi 802.11n**"
+p_gs_rf_tx         --> p_ap_in         : "**WiFi 802.11n 電波**\n(無線)"
 p_ap_out           --> p_gs_rf_rx
-p_ap_out           --> p_pc_wifi_rx    : "WiFi 802.11n"
+p_ap_out           --> p_pc_wifi_rx    : "WiFi 802.11n 電波\n(無線)"
 p_pc_wifi_tx       --> p_ap_in
 
 note as PROFILE
-  **🟢 現状の特徴**:
-  • Spresense メインボード ↔ GS2200M = SPI 4MHz (実効 200-300 KB/s)
-  • 拡張ボード ↔ PC = USB CDC-ACM 12 Mbps (= 1.5 MB/s)
-  • GS2200M ↔ AP ↔ PC = WiFi 802.11n
-  • Phase 1-11 の検証は全てこの構成
+  **🟢 現状の領域構成**:
+  ① Spresense 物理アセンブリ (1 つのハード筐体)
+     ・ISX012 カメラ + メインボード + GS2200M + 拡張ボード
+     ・基板上配線で内部接続 (CSI / SPI / B2B コネクタ)
+  ② PC (別筐体): Linux/WSL2 ホスト
+  ③ WiFi AP (別筐体): 家庭/事務所等のルーター
 
-  **構造的天井 (SPRESENSE_TCP_CONSTRAINTS.md より)**:
-  • SPI 4MHz が WiFi 経路のスループット律速
-  • GS2200M 内部バッファ容量はベンダー仕様 (制御不能)
-  • Phase 1.5 実測 11fps = 目標 30fps の 37%
+  **領域間の物理接続**:
+  ・Spresense ↔ PC : USB CDC-ACM ケーブル (有線, 12 Mbps)
+  ・Spresense ↔ AP : WiFi 802.11n 電波 (無線, GS2200M アンテナ経由)
+  ・PC ↔ AP        : WiFi 802.11n 電波 (無線, PC NIC 経由)
+
+  **構造的天井**:
+  ・SPI 4MHz 律速 (Spresense アセンブリ内部の Spresense ↔ GS2200M 間)
+  ・GS2200M 内部バッファはベンダー仕様 (制御不能)
+  ・Phase 1.5 実測 11fps = 目標 30fps の 37%
 end note
 
 @enduml

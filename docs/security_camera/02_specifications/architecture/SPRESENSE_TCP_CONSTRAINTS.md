@@ -231,7 +231,9 @@ ADR-006 計画の Full HD 1920×1080 H.264 @ 30fps を仮定:
 
 ### 13.1 スタック / レイヤ構造図
 
-[`spresense_tcp_stack_layers.puml`](spresense_tcp_stack_layers.puml)
+ソース: [`spresense_tcp_stack_layers.puml`](spresense_tcp_stack_layers.puml) / 画像: [`spresense_tcp_stack_layers.png`](spresense_tcp_stack_layers.png)
+
+![Stack Layers](spresense_tcp_stack_layers.png)
 
 アプリから WiFi PHY までの 7 レイヤを縦に配置し、各層が「機能している」「素通し」「ベンダー制御不能」を色分け表示。`NET_TCP_NO_STACK=y` で NuttX TCP スタックがバイパスされ、usrsock 経由で GS2200M に委譲される構造を一目で把握できる。
 
@@ -242,9 +244,11 @@ ADR-006 計画の Full HD 1920×1080 H.264 @ 30fps を仮定:
 
 ### 13.2 バッファ・キュー関係図
 
-[`spresense_tcp_buffer_queue.puml`](spresense_tcp_buffer_queue.puml)
+ソース: [`spresense_tcp_buffer_queue.puml`](spresense_tcp_buffer_queue.puml) / 画像: [`spresense_tcp_buffer_queue.png`](spresense_tcp_buffer_queue.png)
 
-各層に存在するバッファ/キューを `package` 単位でグルーピングし、容量上限・所有者・データフロー方向を一覧化。🔴 マークで構造的天井 (`tx_buff`, `IOB`, `notif_q`, `SPI`, `Internal Buffers`) を強調表示。
+![Buffer Queue](spresense_tcp_buffer_queue.png)
+
+各層に存在するバッファ/キューを `component` 単位でグルーピングし、`portin`/`portout` で送受信方向を明示。容量上限・所有者・データフロー方向を一覧化し、🔴 マークで構造的天井 (`tx_buff`, `IOB`, `notif_q`, `SPI`, `Internal Buffers`) を強調表示。
 
 主に以下の質問に答える図:
 - どこにメモリが集中しているか?
@@ -253,9 +257,13 @@ ADR-006 計画の Full HD 1920×1080 H.264 @ 30fps を仮定:
 
 ### 13.3 データフロー + ボトルネック図
 
-[`spresense_tcp_dataflow_bottleneck.puml`](spresense_tcp_dataflow_bottleneck.puml)
+ソース: [`spresense_tcp_dataflow_bottleneck.puml`](spresense_tcp_dataflow_bottleneck.puml) / 画像: [`spresense_tcp_dataflow_bottleneck.png`](spresense_tcp_dataflow_bottleneck.png)
+
+![Dataflow Bottleneck](spresense_tcp_dataflow_bottleneck.png)
 
 50 KB MJPEG フレームが送信される過程をアクティビティ図で追跡し、各ステージに 🟢/🟡/🔴 でボトルネック度を表示。GS2200M リソース枯渇時の分岐 (予防再接続成功 / RST 拒否 / 切断) も描画し、ADR-002 / ADR-008 の根拠数値 (約 11 MB 蓄積試算等) を footer に併記。
+
+**注**: 本図はアクティビティ図 (フロー追跡) のため、ポート In/Out 表現の対象外 (図 13.1, 13.2 はコンポーネント図でポート表現を採用)。
 
 主に以下の質問に答える図:
 - 1 フレーム送信時、どこで時間が掛かるか?
@@ -280,6 +288,7 @@ plantuml -tpng docs/security_camera/02_specifications/architecture/spresense_tcp
 |---|---|---|
 | 1.0 | 2026-04-27 | 初版作成: `spresense/nuttx/.config` および GS2200M ドライバ・アプリ各層の制約を一元抽出 |
 | 1.1 | 2026-04-27 | 構造図 3 枚追加 (`spresense_tcp_stack_layers.puml`, `spresense_tcp_buffer_queue.puml`, `spresense_tcp_dataflow_bottleneck.puml`) |
+| 1.2 | 2026-04-27 | 図 1 入れ子角括弧 `[16]` `[1500]` パーサ衝突を `component "..."` 形式で修正。図 1, 2 に PlantUML `portin`/`portout` でポート In/Out を明示、PNG レンダリング画像を md に埋め込み |
 
 ---
 

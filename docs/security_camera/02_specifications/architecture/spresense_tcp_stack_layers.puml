@@ -3,94 +3,126 @@ skinparam defaultFontName "Noto Sans CJK JP"
 skinparam backgroundColor #FEFEFE
 skinparam componentStyle rectangle
 
-title Spresense TCP/IP スタック レイヤ構造\n(NuttX + GS2200M, NET_TCP_NO_STACK=y 構成)
+title Spresense TCP/IP スタック レイヤ構造 (ポート In/Out 明示)\n(NuttX + GS2200M, NET_TCP_NO_STACK=y 構成)
 
-package "Application Layer" #LightYellow {
-  [security_camera\nTCP Server\n(tcp_server.c)] as APP
-  [MJPEG Protocol\n(mjpeg_protocol.c)] as MJPEG
-  [Frame Queue\n(frame_queue.c)] as FQ
-  note right of APP
-    TCP_NODELAY 有効
-    SO_SNDBUF 262,144 B (256KB) 要求
-  end note
+component "Application Layer\n(security_camera)" as APP #LightYellow {
+  [Frame Queue\n(frame_queue.c)] as APP_FQ
+  [MJPEG Protocol\n(mjpeg_protocol.c)] as APP_MJ
+  [TCP Server\n(tcp_server.c)] as APP_TCP
+  portout out_app
+  portin  in_app
+
+  APP_FQ --> APP_MJ
+  APP_MJ --> APP_TCP
+  APP_TCP --> out_app
+  in_app --> APP_TCP
+}
+note right of APP
+  TCP_NODELAY 有効
+  SO_SNDBUF 262,144 B (256 KB) 要求
+end note
+
+component "BSD Socket API" as BSD #LightCyan {
+  portin  in_bsd
+  portout out_bsd
+  [socket() / send() / recv()\nlisten() / accept()] as BSD_API
+  in_bsd --> BSD_API
+  BSD_API --> out_bsd
 }
 
-package "BSD Socket API" #LightCyan {
-  [socket() / send() / recv()\nlisten() / accept()] as BSDAPI
+component "NuttX TCP Stack\n(機能無効: NO_STACK)" as NUTTX #LightGray {
+  portin  in_nuttx
+  portout out_nuttx
+  [NET_TCP_NO_STACK=y\nNET_UDP_NO_STACK=y\nNET_ICMP_NO_STACK=y] as NUTTX_NO
+  in_nuttx -[#gray,dashed]-> NUTTX_NO
+  NUTTX_NO -[#gray,dashed]-> out_nuttx
 }
+note right of NUTTX
+  NuttX スタックは「窓口だけ」
+  TCP_RECVWNDO 等の設定は機能しない
+  全 TCP/UDP は usrsock へ委譲
+end note
 
-package "NuttX TCP Stack (機能無効)" #LightGray {
-  [NET_TCP_NO_STACK=y\nNET_UDP_NO_STACK=y\nNET_ICMP_NO_STACK=y] as NOSTACK
-  note right of NOSTACK
-    🔴 NuttX スタックは「窓口だけ」
-    TCP_RECVWNDO 等の設定は機能しない
-    全 TCP/UDP は usrsock へ委譲
-  end note
+component "usrsock (RPC ブリッジ)" as USRSOCK #LightGreen {
+  portin  in_usr
+  portout out_usr
+  [usrsock_rpmsg] as USR_RPMSG
+  in_usr --> USR_RPMSG
+  USR_RPMSG --> out_usr
 }
+note right of USRSOCK
+  NET_USRSOCK_PREALLOC_CONNS=6
+  NET_USRSOCK_NPOLLWAITERS=1
+  IOB プール 8×196B = 1,568 B 経由
+end note
 
-package "usrsock (RPC ブリッジ)" #LightGreen {
-  [usrsock_rpmsg] as USRSOCK
-  note right of USRSOCK
-    NET_USRSOCK_PREALLOC_CONNS=6
-    NET_USRSOCK_NPOLLWAITERS=1
-    IOB プール 8×196B = 1,568 B 経由
-  end note
+component "GS2200M Driver\n(gs2200m.c)" as GS_DRV #LightBlue {
+  portin  in_drv
+  portout out_drv
+  [Bulk Transfer Mgr] as DRV_BULK
+  component "Packet Queue Mgr\n(pkt_q[16] + notif_q)" as DRV_PKT
+  component "TX Buffer\ntx_buff[1500]" as DRV_TX
+  in_drv --> DRV_BULK
+  DRV_BULK --> DRV_PKT
+  DRV_PKT --> DRV_TX
+  DRV_TX --> out_drv
 }
+note right of GS_DRV
+  BULK_THRESHOLD 8 KB
+  MAX_PKT_LEN 1,500 B
+  HAL_TIMEOUT 5 秒
+  WR_MAX_RETRY 100
+end note
 
-package "GS2200M Driver\n(spresense/nuttx/drivers/wireless/gs2200m.c)" #LightBlue {
-  [Bulk Transfer Mgr] as BULK
-  [Packet Queue Mgr\n(pkt_q[16] + notif_q)] as PKTMGR
-  [TX Buffer\ntx_buff[1500]] as TXBUF
-  note right of BULK
-    BULK_THRESHOLD 8 KB
-    MAX_PKT_LEN 1,500 B
-    HAL_TIMEOUT 5 秒
-    WR_MAX_RETRY 100
-  end note
+component "SPI Bus" as SPI #Khaki {
+  portin  in_spi
+  portout out_spi
+  [SPI Interface\n4 MHz] as SPI_IF
+  in_spi --> SPI_IF
+  SPI_IF --> out_spi
 }
+note right of SPI
+  理論 500 KB/s
+  実効 200-300 KB/s
+  送信完全直列化
+end note
 
-package "SPI Bus" #Khaki {
-  [SPI Interface\n4 MHz] as SPI
-  note right of SPI
-    🔴 理論 500 KB/s
-    実効 200-300 KB/s
-    送信完全直列化
-  end note
-}
-
-package "GS2200M Module (HW + ベンダー SW)" #LightCoral {
+component "GS2200M Module\n(HW + ベンダー SW)" as GSMOD #LightCoral {
+  portin  in_gsmod
+  portout out_gsmod
   [Internal TCP/IP Stack\n(ベンダー実装)] as VSTACK
   [Internal Buffers\n(容量不明)] as VBUF
-  note right of VSTACK
-    🔴 ソフト側から制御不能
-    リソース枯渇 → 切断発生
-    観測のみ可 (tcp_health_moving_avg_ms /
-    tcp_health_total_spikes)
-  end note
+  in_gsmod --> VSTACK
+  VSTACK --> VBUF
+  VBUF --> out_gsmod
+}
+note right of GSMOD
+  ソフト側から制御不能
+  リソース枯渇 → 切断発生
+  観測のみ可:
+    tcp_health_moving_avg_ms
+    tcp_health_total_spikes
+end note
+
+component "WiFi 802.11n PHY" as WIFI #LightPink {
+  portin in_wifi
+  [Wireless Tx/Rx] as WIFI_TX
+  in_wifi --> WIFI_TX
 }
 
-package "WiFi 802.11n PHY" #LightPink {
-  [Wireless Tx/Rx] as WIFI
-}
-
-APP --> BSDAPI : send(jpeg_batch ~122KB)
-MJPEG --> APP
-FQ --> MJPEG
-BSDAPI --> NOSTACK
-NOSTACK -[#gray,dashed]-> USRSOCK : (素通し)
-USRSOCK --> BULK
-BULK --> PKTMGR
-PKTMGR --> TXBUF
-TXBUF --> SPI : 1,500 B/pkt × 約 84 回
-SPI --> VSTACK
-VSTACK --> VBUF
-VBUF --> WIFI
+' レイヤ間接続 (ポート同士)
+out_app    --> in_bsd     : "send(~122KB)"
+out_bsd    --> in_nuttx
+out_nuttx  -[#gray,dashed]-> in_usr   : "(素通し)"
+out_usr    --> in_drv
+out_drv    --> in_spi     : "1500B/pkt × 約 84 回"
+out_spi    --> in_gsmod
+out_gsmod  --> in_wifi
 
 legend bottom
-  **核心事実**: NuttX 設定 NET_TCP_NO_STACK=y により、
-  TCP 制御はすべて GS2200M 内蔵スタックに委譲される。
-  NuttX 側で見える設定 (TCP_RECVWNDO 等) は機能せず、
-  Spresense ソフトから制御できる範囲は usrsock 入口まで。
+  **核心事実**: NuttX 設定 NET_TCP_NO_STACK=y により TCP 制御は\n
+  すべて GS2200M 内蔵スタックに委譲。NuttX 側で見える設定 (TCP_RECVWNDO 等)\n
+  は機能せず、Spresense ソフトから制御できる範囲は usrsock 入口まで。
 end legend
 
 @enduml

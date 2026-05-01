@@ -2,7 +2,7 @@
 
 **作成日**: 2026-04-27
 **最終更新**: 2026-05-01
-**バージョン**: 1.9
+**バージョン**: 1.10
 **ステータス**: 事実検証ベース (`spresense/` サブモジュール `.config` および ドライバソース直接抽出)
 **目的**: Spresense + GS2200M WiFi スタックにおける TCP 送受信の構造的制約を一元化し、ADR-002, ADR-005, ADR-006, ADR-008 等の根拠資料として参照可能にする
 
@@ -507,9 +507,30 @@ plantuml -tpng docs/security_camera/02_specifications/architecture/spresense_tcp
 | 1.7 | 2026-04-27 | ソフトウェアコンポーネント・デプロイ図セクション 13.6 新設。13.6.1 Spresense メインボード追加 (App + NuttX Kernel + バッファ/キュー §3-9 統合)。今後 13.6.2-13.6.4 (GS2200M / 拡張ボード / PC) も追加予定 |
 | 1.8 | 2026-04-28 | レビュー指摘 (UML/C4/arc42 標準調査結果) を反映。13.6 メインボードを **arc42 流の 3 ビュー**に分離: 13.6.1 L1 Building Block View (provides/requires I/F), 13.6.2 データビュー (バッファ/メモリ予算), 13.6.3 プロセスビュー (スレッド/同期)。旧 `spresense_main_board_components.puml` (関心混在) を削除 |
 | 1.9 | 2026-05-01 | 13.6.4-13.6.9 を追加。メインボード L2 詳細 (L2.A Capture / L2.B Streaming+Transport / L2.C Adaptive Controller) と他ノード (拡張ボード / GS2200M モジュール / PC ソフトウェア) を arc42 流に図式化。各図とも責務+provides/requires インタフェース+内部 datastore+構造的天井注記を統一表記で記載 |
+| 1.10 | 2026-05-01 | §15 関連 NFR・品質要求文書への cross-link 追加。本文書の構造的天井 #1〜#5 と各品質属性の関係は `../quality/QUALITY_REQUIREMENTS.md` で集約、シナリオは `QUALITY_ATTRIBUTE_SCENARIOS.md` で記述 |
+
+---
+
+## 15. 関連 NFR / 品質要求文書
+
+本文書 (`SPRESENSE_TCP_CONSTRAINTS.md`) は**ハードウェア・通信スタックの構造的制約**にフォーカスしている。これらの制約が要求する **品質属性別の集約** は別文書で扱う:
+
+- **品質要求 (NFR 集約)**: [`../quality/QUALITY_REQUIREMENTS.md`](../quality/QUALITY_REQUIREMENTS.md)
+  - ISO/IEC 25010 8 属性で本文書の制約を品質属性に紐付け
+  - 例: 構造的天井 #1 → 性能効率性 + 信頼性に主に影響
+- **品質シナリオ (QAS)**: [`../quality/QUALITY_ATTRIBUTE_SCENARIOS.md`](../quality/QUALITY_ATTRIBUTE_SCENARIOS.md)
+  - QAS-1 (再接続逆効果), QAS-2 (MJPEG 送信), QAS-6 (Tier 移行) 等で本文書の制約をシナリオ化
+- **用語集**: [`../quality/GLOSSARY.md`](../quality/GLOSSARY.md)
+  - 構造的天井 #1〜#5 の正規定義 + Phase 用語の統一定義
+- **設計-実装乖離 (セキュリティ)**: [`../quality/SECURITY_GAP_ANALYSIS.md`](../quality/SECURITY_GAP_ANALYSIS.md)
+  - 構造的天井 #4 (RAM 1.5 MB) によって TLS 等の搭載が困難な事実を踏まえた判断材料
+- **要求書**: [`../../01_requirements/FUNCTIONAL_REQUIREMENTS.md`](../../01_requirements/FUNCTIONAL_REQUIREMENTS.md) v1.0
+  - §3.3 「ハードウェア制約による達成限界」で本文書の構造的天井と要求 NFR の関係を明示
+
+**読み方の推奨順**: 本文書 (制約) → `QUALITY_REQUIREMENTS.md` (集約) → `QUALITY_ATTRIBUTE_SCENARIOS.md` (個別シナリオ) → 必要に応じて ADR-002 / ADR-006 で根拠掘り下げ。
 
 ---
 
 **作成者**: Claude Code Architecture Analyst (事実検証ベース)
-**関連ドキュメント**: ADR-002, ADR-005, ADR-006, ADR-008
+**関連ドキュメント**: ADR-002, ADR-005, ADR-006, ADR-008, FUNCTIONAL_REQUIREMENTS v1.0, QUALITY_REQUIREMENTS, QAS, GLOSSARY, SECURITY_GAP_ANALYSIS
 **技術分類**: Hardware Constraints / Network Stack / Memory Budget / Bottleneck Analysis

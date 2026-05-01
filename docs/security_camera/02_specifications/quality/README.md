@@ -16,6 +16,7 @@ ISO/IEC 25010 品質属性体系で散在 NFR を整理し、文書間の用語�
 | [`QUALITY_REQUIREMENTS.md`](QUALITY_REQUIREMENTS.md) | ISO/IEC 25010 8 品質属性別 NFR 集約 | §10 |
 | [`QUALITY_ATTRIBUTE_SCENARIOS.md`](QUALITY_ATTRIBUTE_SCENARIOS.md) | arc42 標準形式の QAS 10 件 | §10 |
 | [`SECURITY_GAP_ANALYSIS.md`](SECURITY_GAP_ANALYSIS.md) | `SECURITY_ARCHITECTURE.md` (設計) と実装の乖離開示 | §10/§11 |
+| [`CPU_BANDWIDTH_BUDGET.md`](CPU_BANDWIDTH_BUDGET.md) | CPU 予算 (単一コア共有) + 帯域予算 (SPI/WiFi/USB) + レイテンシ分解 | §10 |
 | [`PENDING_NFR_WORK.md`](PENDING_NFR_WORK.md) | 未着手 NFR タスク台帳 (P1 / P2 / 計画外, 全 12 件) | — |
 
 ---

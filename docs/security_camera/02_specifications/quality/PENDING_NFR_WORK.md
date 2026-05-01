@@ -45,7 +45,21 @@
 
 ---
 
-### P1-B. Cross-cutting Concerns 集約文書 (arc42 §8)
+### ✅ P1-B. Cross-cutting Concerns 集約文書 (arc42 §8) — **完了 (2026-05-01)**
+
+**成果物**: [`CROSS_CUTTING_CONCERNS.md`](CROSS_CUTTING_CONCERNS.md) 新設
+**実施内容の要点**:
+- ロギング: `LOG_*` (アプリ層) / `_err` 系 (NuttX 慣例) / `syslog()` 直接の **3 系統混在**を識別、CONFIG_LOG_LEVEL は実装と乖離 (gate 機能なし)
+- エラー処理: ERR_* コード (config.h:185-202 で 16 個定義) と `-errno` 直接返却の混在、半数以上の ERR_* が未使用
+- 設定管理: 3 ファイル分散 (config.h ~50 / wifi_config.h ~10 / mjpeg_protocol.h ~15)
+- 🔴 **重大発見**: WiFi 認証情報 (`WIFI_SSID="DESKTOP-GPU979R"` + `WIFI_PASSWORD="B54p3530"`) が **`wifi_config.h` にハードコードされ git track 対象**。リポジトリ公開時にセキュリティリスク
+- 緊急度別の改善案 (高/中/低) を §6 で整理
+
+**派生タスク**: WiFi 認証情報のリポジトリ分離 (.gitignore + .example 化) → 緊急度高として X-7 を追加
+
+---
+
+### P1-B (旧 — 完了済み記述, 履歴用)
 
 **目的**: ロギング / エラー処理 / 設定管理の横断方針が散在している (config.h / wifi_config.h / mjpeg_protocol.h に分散, syslog 利用方針がアプリ全体で統一されていない)。
 
@@ -187,6 +201,22 @@
 | X-5f | 屋外 / 温度範囲 / 24h 連続稼働ストレステスト | Q25 | 大 |
 
 **関連**: TECHNICAL_DEBT_REGISTER.md と一部重複の可能性 → 統合管理候補
+
+---
+
+### X-7. WiFi 認証情報のリポジトリ分離 (緊急度: 高)
+
+**理由**: P1-B 調査で判明 — `apps/examples/security_camera/wifi_config.h` に **WiFi SSID / Password がハードコード** され、git track されている。リポジトリが公開されるとセキュリティリスク。
+
+**作業内容**:
+- `wifi_config.h` を `wifi_config.h.example` にリネーム (テンプレート化)
+- 実体 `wifi_config.h` を `.gitignore` 追加
+- 既にコミット済の git history から認証情報を除去 (`git filter-repo` 等, 慎重に判断)
+- README に setup 手順追記 (`cp wifi_config.h.example wifi_config.h` + 編集)
+
+**規模**: 小〜中 (history サニタイズの判断が伴う)
+
+**関連**: SECURITY_GAP_ANALYSIS.md (本件は実装乖離ではなく「設定管理の問題」), CROSS_CUTTING_CONCERNS.md §3
 
 ---
 

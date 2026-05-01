@@ -1,0 +1,83 @@
+@startuml spresense_extension_board_components
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title 拡張ボード コンポーネント図 (arc42 building block)\nSpresense Extension Board (CXD5247)\n責務: USB CDC-ACM + SD I/F + Audio (本プロジェクトでは未使用)
+
+' ==============================================================
+' 拡張ボード = 物理パッケージ
+' ==============================================================
+frame "🔧 Spresense 拡張ボード\n(CXD5247 / Audio + USB + SD bridge)" as EXT_BOARD #LightYellow {
+
+  ' --- I/O ports ---
+  portin  "拡張コネクタ\n(B2B from main)" as p_main_in
+  portout "拡張コネクタ\n(B2B to main)" as p_main_out
+  portout "USB CDC-ACM TX\n(12 Mbps, full-speed)" as p_usb_tx
+  portin  "USB CDC-ACM RX" as p_usb_rx
+  portout "SD 電気 I/F" as p_sd #LightGray
+  portout "Audio I/O" as p_audio #LightGray
+
+  ' --- Hardware components ---
+  component "**B2B コネクタ ブリッジ**\n責務: メインボード GPIO/USB バス\n   の物理経路化" as C_B2B
+
+  component "**USB CDC-ACM Controller**\n責務: USB Full-Speed (12 Mbps)\n   bulk endpoint × 2\n   /dev/ttyACM0 を main 側に提供\n実装: NuttX cdcacm driver" as C_CDCACM
+
+  component "**SD カード I/F**\n(本プロジェクト未使用)" as C_SD #LightGray
+
+  component "**Audio Codec**\n(本プロジェクト未使用)" as C_AUDIO #LightGray
+
+  p_main_in --> C_B2B
+  C_B2B --> p_main_out
+
+  C_B2B --> C_CDCACM : "USB Bus\n(D+/D−)"
+  C_CDCACM --> p_usb_tx
+  p_usb_rx --> C_CDCACM
+
+  C_B2B ..> C_SD     : "SDIO"
+  C_SD ..> p_sd
+  C_B2B ..> C_AUDIO  : "I2S"
+  C_AUDIO ..> p_audio
+}
+
+' ==============================================================
+' 接続先 (main board 上のソフト)
+' ==============================================================
+package "Main board software\n(本図の対象外)" as MAIN_SW #LightCyan {
+  [usb_transport.c\n(USB_TX_BUFFER_SIZE=8KB ×4)] as USB_APP
+}
+USB_APP ..> p_main_out : "open(\"/dev/ttyACM0\")\nwrite() bulk"
+
+' ==============================================================
+' 観察ノート
+' ==============================================================
+note as NOTE_EXT #LightYellow
+  **🔍 拡張ボード arc42 観察**:
+
+  • **責務**: メインボードの USB / SD / Audio 物理化
+    - CXD5247 はオーディオ DSP 機能も含む (本プロジェクト未使用)
+    - 本プロジェクトで実際に使うのは **USB CDC-ACM のみ**
+
+  • **USB CDC-ACM 性能**:
+    - Full-Speed 12 Mbps (理論値)
+    - 実測 PC 側 USB 路: TCP 路より安定 (Phase 7 系列)
+    - main 側は usb_transport.c で 8 KB×4 リング送信
+
+  • **B2B コネクタ**:
+    - メインボード側 portout (拡張コネクタ) と物理 1:1 対応
+    - SPI/I2C/GPIO/USB を多重化して通している
+
+  • **本図の白箱化粒度**:
+    - 物理ブロック (USB / SD / Audio) のみ
+    - NuttX driver コードは本プロジェクトで改変していないため
+      最小記述に留める (ベンダー BB に近い扱い)
+end note
+
+note bottom
+  **arc42 階層位置**:
+  • L1 の Spresense メインボードと並ぶ独立ノード
+  • デプロイ図 (spresense_deployment_current.puml) の Spresense 物理アセンブリ内
+  • USB CDC-ACM 路は本プロジェクトの **Tier 2 候補** (USB-only モード)
+end note
+
+@enduml

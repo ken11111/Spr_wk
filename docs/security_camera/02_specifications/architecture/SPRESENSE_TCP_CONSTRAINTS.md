@@ -1,7 +1,8 @@
 # Spresense TCP 通信 構造的制約マップ
 
 **作成日**: 2026-04-27
-**バージョン**: 1.0
+**最終更新**: 2026-05-01
+**バージョン**: 1.9
 **ステータス**: 事実検証ベース (`spresense/` サブモジュール `.config` および ドライバソース直接抽出)
 **目的**: Spresense + GS2200M WiFi スタックにおける TCP 送受信の構造的制約を一元化し、ADR-002, ADR-005, ADR-006, ADR-008 等の根拠資料として参照可能にする
 
@@ -403,14 +404,82 @@ NuttX タスク (4 つ) と共有資源・同期パターンに焦点を当て�
 - gs2200m driver の優先度 (prio 50) はなぜ低いか?
 - 共有キューのロック競合は性能ジッタにどう影響するか?
 
-#### 今後追加予定
+#### 13.6.4 🔧 Spresense メインボード — L2.A Capture Pipeline 詳細
 
-- 13.6.4 メインボード L2.A 詳細: Capture Pipeline 内部
-- 13.6.5 メインボード L2.B 詳細: Streaming + Transport 内部
-- 13.6.6 メインボード L2.C 詳細: Adaptive Controller 内部 (Phase 10/11)
-- 13.6.7 拡張ボード (USB CDC-ACM コントローラ + SD I/F)
-- 13.6.8 GS2200M モジュール (ベンダー BB のため最小記述)
-- 13.6.9 PC ソフトウェア (Rust_ws/security_camera_viewer)
+ソース: [`spresense_main_board_l2a_capture.puml`](spresense_main_board_l2a_capture.puml) / 画像: [`spresense_main_board_l2a_capture.png`](spresense_main_board_l2a_capture.png)
+
+![Spresense Main Board L2.A](spresense_main_board_l2a_capture.png)
+
+L1 黒箱 「📷 Capture Pipeline」 を white-box 化。**Camera Wrapper / RING Buffer Driver / Frame Builder** の 3 機能ブロックに分割。`encoder_manager.c` (H.264 path) は **現行 MJPEG 路では未使用**であることを明示 (灰色表示)。ISX012 が JPEG 直接出力 (`V4L2_PIX_FMT_JPEG`) のためソフト H.264 エンコーダは経路上に存在しない。
+
+主に答える質問:
+- 「Capture Pipeline」内で実際に動いているのはどのコードか?
+- V4L2 RING (3×64KB) は誰が確保し、誰が消費するか?
+- Phase 10 で追加された FPS 動的変更は、ハードウェアのどこに作用するか?
+
+#### 13.6.5 🔧 Spresense メインボード — L2.B Streaming + Transport 詳細
+
+ソース: [`spresense_main_board_l2b_transport.puml`](spresense_main_board_l2b_transport.puml) / 画像: [`spresense_main_board_l2b_transport.png`](spresense_main_board_l2b_transport.png)
+
+![Spresense Main Board L2.B](spresense_main_board_l2b_transport.png)
+
+L1 の 📦 Streaming Engine + 🚚 Transport Manager を**合体展開**。Streaming は Frame Packer / Batch Aggregator / CRC Calculator / Metrics Packer / (未使用) Legacy Protocol Handler。Transport は Wi-Fi Lifecycle / TCP Server / Auto-Reconnect FSM / TCP Health Monitor / USB Transport。`MJPEG_BATCHING_ENABLED=0` の事実、Phase 9.2 の TCP Health Monitor 構造、`NET_TCP_NO_STACK=y` の意味も note にまとめた。
+
+主に答える質問:
+- 122KB の MJPEG batch packet は、どのコンポーネント間でどの順番で受け渡されるか?
+- 自動再接続 FSM はどのコンポーネントに分離されているか? なぜ 5 回でやめるのか?
+- TCP Health Monitor は誰が読み、誰が書くか? (← 旧プロセスビューの「複数スレッド書込み懸念」を本図で正確化)
+
+#### 13.6.6 🔧 Spresense メインボード — L2.C Adaptive Controller 詳細 (Phase 10/11)
+
+ソース: [`spresense_main_board_l2c_control.puml`](spresense_main_board_l2c_control.puml) / 画像: [`spresense_main_board_l2c_control.png`](spresense_main_board_l2c_control.png)
+
+![Spresense Main Board L2.C](spresense_main_board_l2c_control.png)
+
+L1 「🎛️ Adaptive Controller」 を white-box 化。Phase 10 (PID Core) と Phase 11 (Frame Statistics / Multi-Variable Input / Adaptive PID / Predictive Controller / Buffer Manager / Stability+Fallback) を**並置**。Phase 11 → Phase 10 の自動フォールバック経路を矢印で明示。重み配分 `0.6/0.2/0.1/0.1` の根拠と「適応制御は構造的天井の手前で踏み止まるためのもの」という設計哲学も記載。
+
+主に答える質問:
+- Phase 11 の多変数制御は、Phase 10 の PID とどう共存するか?
+- 不安定化したら何が起きるか? (→ Phase 10 fallback)
+- 制御は最終的に何 (FPS / queue size) を動かすか?
+
+#### 13.6.7 🔧 Spresense 拡張ボード — コンポーネント図
+
+ソース: [`spresense_extension_board_components.puml`](spresense_extension_board_components.puml) / 画像: [`spresense_extension_board_components.png`](spresense_extension_board_components.png)
+
+![Extension Board Components](spresense_extension_board_components.png)
+
+CXD5247 拡張ボードを最小記述。本プロジェクトで実際に使うのは **USB CDC-ACM のみ** (SD/Audio は灰色 = 未使用)。`portin/portout` でメインボード B2B 接続と USB 12 Mbps を可視化。NuttX cdcacm driver はベンダー実装のため改変なし。
+
+主に答える質問:
+- USB-only 候補 (Tier 2) で頼ることになる物理経路は?
+- B2B コネクタはどの信号を多重化しているか?
+
+#### 13.6.8 📡 GS2200M モジュール — コンポーネント図 (ベンダー BB)
+
+ソース: [`spresense_gs2200m_module_components.puml`](spresense_gs2200m_module_components.puml) / 画像: [`spresense_gs2200m_module_components.png`](spresense_gs2200m_module_components.png)
+
+![GS2200M Module Components](spresense_gs2200m_module_components.png)
+
+GS2200M モジュール本体は**非公開・改変不能** (灰色)。観測可能な driver 側 (`spresense/nuttx/drivers/wireless/gs2200m.c`) の構造のみを正確に図示: **`tx_buff[1] × 1500B` (構造的天井 #1)**, `notif_q (MAX_NOTIF_Q=18)`, `pkt_q[16]`, `BULK_THRESHOLD=8KB`。
+
+主に答える質問:
+- なぜ送信が完全直列化されるのか? (→ tx_buff が **1 個のみ**)
+- BULK モードはいつ発動するか? (→ `total_bulk > 8KB`)
+- どの層で性能チューニング可能か? (→ driver/上位のみ — モジュール本体は不可)
+
+#### 13.6.9 💻 PC ソフトウェア — コンポーネント図 (Rust viewer)
+
+ソース: [`spresense_pc_software_components.puml`](spresense_pc_software_components.puml) / 画像: [`spresense_pc_software_components.png`](spresense_pc_software_components.png)
+
+![PC Software Components](spresense_pc_software_components.png)
+
+`Rust_ws/security_camera_viewer` を arc42 流に役割分割。**Connection (TCP/Serial) → Pipeline (3 thread, bounded channel) → ドメインロジック (Protocol/Metrics/Ring/Motion/MP4)**。`mpsc::sync_channel(3)` (= 約 150KB peak) は ADR-008 で記録した意図的選択。
+
+主に答える質問:
+- PC viewer は内部でどのスレッド構成か?
+- 入力経路 (TCP/USB) はどこで合流するか?
+- Spresense 側 metrics と PC 側 FPS はどこで突き合わされるか?
 
 ### 13.7 図のレンダリング方法
 
@@ -437,6 +506,7 @@ plantuml -tpng docs/security_camera/02_specifications/architecture/spresense_tcp
 | 1.6 | 2026-04-27 | 現状トポロジ図 (13.5.1) のインタフェース表記を改善: 線重なり対策として WiFi/USB をノード近傍にローカル終端で分散配置 (同一名・別エイリアス + 媒体伝搬を破線で表現) |
 | 1.7 | 2026-04-27 | ソフトウェアコンポーネント・デプロイ図セクション 13.6 新設。13.6.1 Spresense メインボード追加 (App + NuttX Kernel + バッファ/キュー §3-9 統合)。今後 13.6.2-13.6.4 (GS2200M / 拡張ボード / PC) も追加予定 |
 | 1.8 | 2026-04-28 | レビュー指摘 (UML/C4/arc42 標準調査結果) を反映。13.6 メインボードを **arc42 流の 3 ビュー**に分離: 13.6.1 L1 Building Block View (provides/requires I/F), 13.6.2 データビュー (バッファ/メモリ予算), 13.6.3 プロセスビュー (スレッド/同期)。旧 `spresense_main_board_components.puml` (関心混在) を削除 |
+| 1.9 | 2026-05-01 | 13.6.4-13.6.9 を追加。メインボード L2 詳細 (L2.A Capture / L2.B Streaming+Transport / L2.C Adaptive Controller) と他ノード (拡張ボード / GS2200M モジュール / PC ソフトウェア) を arc42 流に図式化。各図とも責務+provides/requires インタフェース+内部 datastore+構造的天井注記を統一表記で記載 |
 
 ---
 

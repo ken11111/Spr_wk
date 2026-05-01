@@ -1,0 +1,99 @@
+@startuml spresense_main_board_l2a_capture
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title L2.A: Capture Pipeline 詳細 (white-box)\nL1 「📷 Capture Pipeline」 黒箱 → 内部構造を可視化
+
+' ==============================================================
+' Capture Pipeline white-box
+' ==============================================================
+frame "📷 **Capture Pipeline** (white-box)\nL1 黒箱の内部展開" as CAP_BOX #LightYellow {
+
+  component "**Camera Wrapper**\n責務: V4L2 抽象化\n   ISX012 設定 (S_FMT, S_PARM)\n   FPS 動的変更\n実装: camera_manager.c" as C_CAM_WRAP
+
+  component "**RING Buffer Driver**\n責務: V4L2_BUF_MODE_RING\n   3 × 64 KB triple buffer\n   DQBUF/QBUF 循環\n実装: camera_manager.c\n      (NuttX V4L2 driver と協調)" as C_RING
+
+  component "**Frame Builder**\n責務: camera_frame_t 組立\n   timestamp_us 付与\n   frame_count インクリメント\n実装: camera_manager.c\n      camera_get_frame()" as C_BUILDER
+
+  ' --- 未使用パスは灰色 (実装はあるが現行 MJPEG 路では未使用) ---
+  component "**H.264 Encoder Adapter**\n責務: YUV → H.264 NAL\n   /dev/video1 経由\n実装: encoder_manager.c\n⚠ 現行 MJPEG 路では未使用" as C_H264 #LightGray
+}
+
+' ==============================================================
+' Provides / Requires インタフェース
+' ==============================================================
+() "v4l2_dev\n(/dev/video)" as I_V4L2_DEV
+() "frame_produced\n(camera_frame_t)" as I_FRAME_OUT
+() "fps_runtime\n(set/get)" as I_FPS_API
+
+' Required (V4L2 driver)
+C_CAM_WRAP   ..> I_V4L2_DEV : "VIDIOC_S_FMT/PARM"
+C_RING       ..> I_V4L2_DEV : "VIDIOC_DQBUF/QBUF/\n   STREAMON"
+
+' Provided
+C_BUILDER    -( I_FRAME_OUT
+C_CAM_WRAP   -( I_FPS_API
+
+' 内部関係
+C_CAM_WRAP --> C_RING    : "REQBUFS\n   (mode=RING,\n    count=3)"
+C_RING     --> C_BUILDER : "DQBUF 完了\n   (生 V4L2 buffer)"
+
+' ==============================================================
+' データフロー (バッファ)
+' ==============================================================
+package "Internal Buffers" #LightCoral {
+  database "V4L2 RING (3×64KB)\nUSERPTR mode" as D_RING <<datastore>>
+  database "camera_frame_t\n(buf, size, ts_us, num)" as D_FRAME <<datastore>>
+}
+
+C_RING     --> D_RING    : "userptr 登録"
+D_RING     --> C_BUILDER : "JPEG bytes\n(ISX012 直接出力)"
+C_BUILDER  --> D_FRAME
+
+' ==============================================================
+' 外部 (NuttX kernel) との接点
+' ==============================================================
+package "External (NuttX driver layer)" as EXT #LightGray {
+  [V4L2 ISX012 driver] as EXT_DRV
+  [/dev/video] as EXT_NODE
+}
+I_V4L2_DEV )-- EXT_NODE
+EXT_NODE -- EXT_DRV
+EXT_DRV ..> D_RING : "JPEG 書き込み\n(ISX012 → CSI)"
+
+' ==============================================================
+' 観察ノート
+' ==============================================================
+note as NOTE_CAP #LightYellow
+  **🔍 L2.A 観察事項**:
+
+  • **ISX012 は JPEG 直接出力**
+    - V4L2_PIX_FMT_JPEG (camera_manager.c:190)
+    - encoder_manager.c (H.264 path) は **現行未使用**
+    - MJPEG ストリーミングなのでハードエンコードは不要
+
+  • **3 × 64 KB triple buffer (ADR-003)**
+    - V4L2_BUF_MODE_RING (USERPTR) で連続キャプチャ
+    - 64 KB は QVGA/VGA 想定の経験値 (camera_manager.c:194)
+
+  • **fps 動的変更は Phase 10 で追加**
+    - camera_set_fps_runtime() / camera_get_current_fps()
+    - V4L2_PARM 再設定で実現 (Adaptive Controller から呼ばれる)
+
+  • **camera_get_frame は blocking I/O**
+    - DQBUF が空ならスケジューラ待機
+    - camera_thread_func の主要待機ポイント
+end note
+
+note bottom
+  **arc42 階層位置**:
+  • 親: spresense_main_board_l1_buildingblocks.puml の 📷 Capture Pipeline
+  • 同階層 L2: L2.B (Streaming + Transport), L2.C (Adaptive Controller)
+  • L1 で定義した provides/requires インタフェースを継承
+    - frame_produced (provided): C_BUILDER から外部 (Frame Buffer Manager) へ
+    - fps_runtime (provided): C_CAM_WRAP から Adaptive Controller へ
+    - v4l2_dev (required): NuttX V4L2 driver
+end note
+
+@enduml

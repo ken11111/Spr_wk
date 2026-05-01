@@ -1,0 +1,151 @@
+@startuml spresense_main_board_l2b_transport
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title L2.B: Streaming Engine + Transport Manager 詳細 (white-box)\nL1 「📦 Streaming Engine」 + 「🚚 Transport Manager」 黒箱の合体展開
+
+' ==============================================================
+' Streaming Engine (white-box)
+' ==============================================================
+frame "📦 **Streaming Engine** (white-box)" as STR_BOX #LightYellow {
+
+  component "**Frame Packer**\n責務: 1 フレーム → MJPEG packet\n   header (12B) + JPEG + CRC16\n実装: mjpeg_protocol.c\n      mjpeg_pack_frame()" as C_PACK
+
+  component "**Batch Aggregator**\n責務: 2 frame バッチ化\n   batch header (16B) + meta×N + JPEG×N\n   max ~122 KB\n実装: mjpeg_protocol.c\n      mjpeg_pack_batch()" as C_BATCH
+
+  component "**CRC-16-CCITT Calculator**\n責務: 整合性チェック\n   ビット単位逐次計算\n実装: mjpeg_protocol.c\n      mjpeg_crc16_ccitt()" as C_CRC
+
+  component "**Metrics Packer**\n責務: 58 B metrics packet 生成\n   sync=0xCAFEBEEF\n   13 fields + CRC16\n実装: mjpeg_protocol.c\n      mjpeg_pack_metrics()" as C_METR
+
+  component "**Legacy Protocol Handler**\n責務: H.264 NAL packing\n実装: protocol_handler.c\n⚠ 現行 MJPEG 路では未使用" as C_PROTO #LightGray
+}
+
+C_PACK  ..> C_CRC : "CRC 付与"
+C_BATCH ..> C_CRC : "CRC 付与"
+C_METR  ..> C_CRC : "CRC 付与"
+
+' ==============================================================
+' Transport Manager (white-box)
+' ==============================================================
+frame "🚚 **Transport Manager** (white-box)" as TX_BOX #LightCyan {
+
+  component "**Wi-Fi Lifecycle**\n責務: GS2200M アソシエーション\n   AP connect / DHCP\n実装: wifi_manager.c" as C_WIFI
+
+  component "**TCP Server (BSD socket)**\n責務: listen / accept / send\n   SO_SNDBUF = 256 KB 要求\n実装: tcp_server.c\n      tcp_server_init/send_*" as C_TCP_SRV
+
+  component "**Auto-Reconnect FSM**\n責務: 切断検知 → backoff → 再 accept\n   max=5, backoff 1s + N×2s\n実装: tcp_server.c\n      tcp_server_handle_disconnect/\n      wait_reconnect/send_with_reconnect" as C_RECON
+
+  component "**TCP Health Monitor**\n責務: 送信時間トラッキング\n   moving avg / spike count\n実装: tcp_server.c\n      tcp_health_update()\n      g_tcp_health" as C_HEALTH
+
+  component "**USB Transport**\n責務: USB CDC-ACM bulk send\n   /dev/ttyACM0 経由\n実装: usb_transport.c" as C_USB
+}
+
+C_TCP_SRV --> C_HEALTH : "send_time_us 通知"
+C_TCP_SRV ..> C_RECON  : "切断検知"
+C_RECON   --> C_TCP_SRV : "再 accept 後の fd"
+C_WIFI    ..> C_TCP_SRV : "IP 取得後\n   listen 開始"
+
+' ==============================================================
+' L2 境界インタフェース (provides / requires)
+' ==============================================================
+() "frame_pool\n(pop)" as I_FBM_POP
+() "batch_packet\n(byte buf)" as I_BATCH
+() "transmit_done" as I_TX_DONE
+() "metrics_pkt\n(58B)" as I_METR
+() "tcp_health_*" as I_HEALTH
+
+' Streaming required (FBM から frame を pull)
+C_PACK   ..> I_FBM_POP : "frame_queue_pull"
+C_BATCH  ..> I_FBM_POP : "frame_queue_pull ×N"
+
+' Streaming provided
+C_PACK   -( I_BATCH
+C_BATCH  -( I_BATCH
+C_METR   -( I_METR
+
+' Transport required
+I_BATCH  )-- C_TCP_SRV
+I_BATCH  )-- C_USB
+I_METR   )-- C_TCP_SRV
+
+' Transport provided
+C_TCP_SRV -( I_TX_DONE
+C_USB     -( I_TX_DONE
+I_TX_DONE )-- C_PACK : "FBM へ\n   buffer 解放"
+
+C_HEALTH  -( I_HEALTH
+
+' ==============================================================
+' 内部バッファ
+' ==============================================================
+package "Internal Buffers" #LightCoral {
+  database "MJPEG batch buf\n~122 KB (heap)" as D_BUF <<datastore>>
+  database "metrics_packet\n58 B (stack)" as D_METR <<datastore>>
+  database "tcp_health_monitor_t\nmoving_avg + spikes" as D_HEALTH <<datastore>>
+  database "tcp_server_t\nfd, port, reconnect_count" as D_TCPS <<datastore>>
+}
+
+C_BATCH  --> D_BUF
+C_METR   --> D_METR
+C_HEALTH --> D_HEALTH
+C_TCP_SRV --> D_TCPS
+
+' ==============================================================
+' External (NuttX kernel + GS2200M)
+' ==============================================================
+package "External" #LightGray {
+  [BSD socket\n(NET_TCP_NO_STACK=y)] as EXT_SOCK
+  [usrsock RPC] as EXT_USRS
+  [GS2200M driver task] as EXT_GS
+  [USB CDC-ACM driver] as EXT_USBDRV
+}
+
+C_TCP_SRV ..> EXT_SOCK : "send/recv"
+EXT_SOCK ..> EXT_USRS  : "usrsock IPC"
+EXT_USRS ..> EXT_GS    : "SPI 4MHz"
+
+C_USB ..> EXT_USBDRV : "/dev/ttyACM0\n   write()"
+
+' ==============================================================
+' 観察ノート
+' ==============================================================
+note as NOTE_TX #LightYellow
+  **🔍 L2.B 観察事項**:
+
+  • **MJPEG_BATCHING_ENABLED = 0 (mjpeg_protocol.h:42)**
+    - Batch Aggregator は実装されているが現行 OFF
+    - usb_thread_func は単フレーム送信路
+
+  • **Auto-Reconnect (Phase 9)**:
+    - exponential backoff (1s + N×2s, max=5)
+    - Phase 9 実測: PC FPS 6.74 → 2.77 (再接続中の停止 5-15s が支配)
+    - 「再接続が品質を悪化させる」逆相関の発見 (ADR-002 v1.1)
+
+  • **TCP Health Monitor (Phase 9.2)**:
+    - 移動平均と spike カウントを metrics packet に同梱
+    - GS2200M driver タスクからは「観測対象」のみで書き込まない
+      (✅ 修正: 旧プロセスビュー note の「複数スレッド書き込み」誤解を解消)
+
+  • **NET_TCP_NO_STACK=y の意味**:
+    - NuttX 自身は TCP スタックを持たず、usrsock 経由で GS2200M に委譲
+    - SO_SNDBUF 256 KB 要求 → ベンダーが実際に honor するかは未保証
+    - 構造的天井 #1 (tx_buff[1] 直列化) を回避できない
+
+  • **CRC-16-CCITT は逐次計算**:
+    - LUT (256 エントリ) はサンプルとして doc 内に存在するが
+      実装は逐次 (Phase 7 性能解析時の確認済み事実)
+end note
+
+note bottom
+  **arc42 階層位置**:
+  • 親: spresense_main_board_l1_buildingblocks.puml の 📦+🚚 黒箱
+  • 同階層 L2: L2.A (Capture), L2.C (Adaptive Controller)
+  • L1 で定義した provides/requires インタフェースを継承
+    - frame_pool (required): Frame Buffer Manager から pop
+    - batch_packet (provided→required): Streaming → Transport
+    - transmit_done (provided): Transport → Frame Buffer Manager
+    - metrics_pkt (provided): Health Monitor 経由で Transport へ
+end note
+
+@enduml

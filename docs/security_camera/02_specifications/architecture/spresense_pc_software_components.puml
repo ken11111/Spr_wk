@@ -1,0 +1,120 @@
+@startuml spresense_pc_software_components
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title PC ソフトウェア コンポーネント図 (arc42)\nRust_ws/security_camera_viewer (Phase 4.1+ baseline)\n機能/役割レベル — gui_main + pipeline 3-thread 構成
+
+' ==============================================================
+' PC viewer プロセス (white-box)
+' ==============================================================
+frame "💻 security_camera_viewer (Rust)\n単一プロセス, eframe (egui) GUI" as PC_BOX #LightYellow {
+
+  ' --- Connection layer (input) ---
+  package "Connection (入力源)" #LightCyan {
+    component "**TCP Reader**\n責務: WiFi 経由 MJPEG 受信\n   再接続クライアント\n実装: tcp_connection.rs" as C_TCP
+
+    component "**Serial Reader**\n責務: USB CDC-ACM 受信\n   /dev/ttyACM0 自動検出\n実装: serial.rs" as C_SER
+  }
+
+  ' --- Pipeline (3-thread bounded channels) ---
+  package "Pipeline (3 thread, bounded)" #LightGreen {
+    component "**TCP/Serial Reader thread**\n責務: バイト → RawPacket\n   protocol parse" as T_READ
+
+    component "**JPEG Decoder thread**\n責務: RawPacket → DecodedFrame\n   JPEG → RGB" as T_DEC
+
+    component "**GUI thread (main)**\n責務: フレーム表示 + 操作\n   egui + texture upload" as T_GUI
+  }
+
+  ' --- Functional components ---
+  package "ドメインロジック" #LightYellow {
+    component "**Protocol Decoder**\n責務: 0xCAFEBABE/BABF/BEEF\n   分解 + CRC 検証\n実装: protocol.rs" as C_PROTO
+
+    component "**Metrics Logger**\n責務: Spresense metrics 受信解析\n   FPS / TCP health 計測\n実装: metrics.rs" as C_METR
+
+    component "**Ring Buffer**\n責務: JPEG フレーム履歴\n実装: ring_buffer.rs" as C_RING
+
+    component "**Motion Detector**\n責務: 差分検知 (ヒステリシス)\n実装: motion_detector.rs" as C_MOT
+
+    component "**MP4 Recorder**\n責務: 録画 (連続/モーション時)\n実装: mp4_recorder.rs" as C_MP4
+  }
+}
+
+' ==============================================================
+' Bounded channels (構造的選択 — ADR-008)
+' ==============================================================
+package "Internal Channels (bounded)" #LightCoral {
+  database "**packet_ch\nbounded(3)**\n約 150 KB peak\n(pipeline.rs:31)" as D_PKTCH <<datastore>>
+  database "**frame_ch\nbounded (TBD)**" as D_FRMCH <<datastore>>
+}
+
+' ==============================================================
+' データフロー
+' ==============================================================
+T_READ --> C_PROTO   : "byte stream parse"
+C_PROTO --> D_PKTCH  : "RawPacket\n(MJPEG / metrics)"
+D_PKTCH --> T_DEC    : "pull"
+T_DEC --> D_FRMCH    : "DecodedFrame (RGB)"
+D_FRMCH --> T_GUI
+
+C_TCP --> T_READ
+C_SER --> T_READ
+
+T_GUI ..> C_RING
+T_GUI ..> C_MOT
+T_GUI ..> C_MP4
+T_GUI ..> C_METR : "metrics packet 取込"
+
+' ==============================================================
+' 外部 (PC OS / Spresense)
+' ==============================================================
+package "外部" #LightGray {
+  [Spresense (TCP server)] as EXT_SPR_TCP
+  [Spresense (USB CDC-ACM)] as EXT_SPR_USB
+  [PC display\n(egui swapchain)] as EXT_DISP
+  [filesystem\n(*.mp4, metrics CSV)] as EXT_FS
+}
+
+EXT_SPR_TCP ..> C_TCP : "TCP socket"
+EXT_SPR_USB ..> C_SER : "/dev/ttyACMx"
+T_GUI ..> EXT_DISP
+C_MP4 ..> EXT_FS
+C_METR ..> EXT_FS
+
+' ==============================================================
+' 観察ノート
+' ==============================================================
+note as NOTE_PC #LightYellow
+  **🔍 PC arc42 観察**:
+
+  • **bounded(3) は意図的 (ADR-008)**:
+    - ADR-005 は当初 unbounded を主張
+    - 実装で `mpsc::sync_channel(3)` を採用 → ADR-008 で経緯を記録
+    - 約 150 KB の peak を許容しつつ back-pressure を効かせる設計
+
+  • **3-thread Pipeline (Phase 8 設計)**:
+    - 段階間を bounded channel で分離 → 各段の処理時間を独立化
+    - GUI thread はフレームを取り出すだけ → 描画レート安定
+
+  • **入力は 2 経路 (排他)**:
+    - TCP 経路 (WiFi via GS2200M) — 構造的天井 #1/#2 の影響あり
+    - Serial 経路 (USB CDC-ACM) — Spresense 拡張ボード経由
+
+  • **Metrics の役割**:
+    - Spresense 側 58B metrics packet を受信 → CSV 出力
+    - GUI 側で TCP health / FPS をリアルタイム表示
+    - PC 側 FPS と Spresense 側 FPS の **両方** を計測
+
+  • **本図の境界**:
+    - GUI 内部 (egui の細かい layout) は描かない
+    - 「役割」レベルでの責務分割を arc42 流に表現
+end note
+
+note bottom
+  **arc42 階層位置**:
+  • デプロイ図 (spresense_deployment_current.puml) の PC ノード内
+  • 上位: SYSTEM_ARCHITECTURE.md / ADR-005, ADR-008
+  • 関連: pipeline.rs (3-thread), gui_main.rs (egui 描画)
+end note
+
+@enduml

@@ -1,0 +1,113 @@
+@startuml spresense_gs2200m_module_components
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title GS2200M モジュール コンポーネント図 (arc42 - 最小記述)\nベンダー BB (TCP/IP スタック内蔵) のため外面のみ可視化\n\n⚠ モジュール内部は非公開 — 観測可能な driver 側のキュー/バッファのみ図示
+
+' ==============================================================
+' GS2200M ベンダー BB (内部不可視)
+' ==============================================================
+frame "📡 GS2200M モジュール (ベンダー BB)\nGainSpan / Telit IoT WiFi 802.11n" as GS_BOX #LightCoral {
+
+  ' --- I/O ports ---
+  portin  "SPI MOSI in\n(4 MHz, slave)" as p_spi_in
+  portout "SPI MISO out" as p_spi_out
+  portin  "DataReady (interrupt)" as p_dr
+  portout "WiFi RF TX" as p_rf_tx
+  portin  "WiFi RF RX" as p_rf_rx
+
+  component "**ベンダー TCP/IP スタック**\n(ブラックボックス, ファームウェア)\n責務: TCP/UDP/HTTP\n   handshake / send / recv\n   [APIは AT コマンド経由]" as C_VTCP #LightGray
+  component "**WiFi PHY/MAC**\n(802.11n, 2.4 GHz)" as C_PHY #LightGray
+
+  p_spi_in --> C_VTCP
+  C_VTCP --> p_spi_out
+  C_VTCP <--> C_PHY
+  C_PHY --> p_rf_tx
+  p_rf_rx --> C_PHY
+  C_VTCP ..> p_dr : "通知 (RX完了/切断/エラー)"
+}
+
+' ==============================================================
+' Spresense 側 driver (NuttX kernel) — 観測可能な構造
+' ==============================================================
+frame "🔧 Spresense GS2200M driver (NuttX kernel)\nspresense/nuttx/drivers/wireless/gs2200m.c" as DRV_BOX #LightYellow {
+
+  component "**SPI Transfer Engine**\n責務: SPI 4MHz 双方向\n   送受信シリアライズ (mutex)" as C_SPI
+
+  component "**Command Builder**\n責務: AT コマンド組立\n   header (RD_REQ/WR_REQ etc)" as C_CMD
+
+  component "**Notification Dispatcher**\n責務: 通知 Q 管理\n   CID 単位で受信通知" as C_NOTIF
+
+  component "**Packet Queue Manager**\n責務: socket(CID) 単位の受信 Q" as C_PKTQ
+
+  ' --- Kernel-side data stores (構造的天井) ---
+  package "Critical Buffers (構造的天井)" #Pink {
+    database "🔴 **tx_buff[1] × 1500 B**\n=送信完全直列化=\n#define MAX_PKT_LEN 1500\n(g2200m.c:76,189)" as D_TXBUF <<datastore>>
+    database "**notif_q (MAX_NOTIF_Q=18)**\n16 sockets + 切断 + dummy\n(gs2200m.c:78)" as D_NOTIF <<datastore>>
+    database "**pkt_q[16]**\nper-CID 受信 Q\n(gs2200m.c:184)" as D_PKTQ <<datastore>>
+  }
+
+  database "**total_bulk + BULK_THRESHOLD\n=8 KB**\n(gs2200m.c:99,551)" as D_BULK <<datastore>>
+
+  C_SPI --> C_CMD
+  C_CMD --> D_TXBUF
+  D_TXBUF --> p_spi_in : "SPI 送信"
+  p_spi_out --> C_SPI : "SPI 受信"
+  C_SPI --> C_NOTIF
+  C_NOTIF --> D_NOTIF
+  C_NOTIF --> C_PKTQ
+  C_PKTQ --> D_PKTQ
+  C_SPI ..> D_BULK : "総量管理"
+}
+
+' ==============================================================
+' 上位 (NuttX usrsock + アプリ側 TCP)
+' ==============================================================
+package "上位 (本図対象外)" #LightCyan {
+  [usrsock RPC] as EXT_USRS
+  [tcp_server.c\n(SO_SNDBUF=256KB 要求)] as EXT_TCP
+}
+EXT_TCP ..> EXT_USRS
+EXT_USRS ..> C_SPI : "send/recv 委譲"
+
+' ==============================================================
+' 観察ノート
+' ==============================================================
+note as NOTE_GS #LightYellow
+  **🔍 GS2200M arc42 観察 (vendor BB)**:
+
+  • **NET_TCP_NO_STACK=y**:
+    - NuttX 自身は TCP スタックを持たない
+    - すべての TCP/UDP は usrsock 経由で GS2200M に委譲
+    - SO_SNDBUF=256KB 要求はベンダーが実際に honor するか保証なし
+
+  • **構造的天井 #1: tx_buff[1]**:
+    - SPI 送信バッファは **1 個のみ × 1500 B**
+    - 122 KB の MJPEG batch は 84 回の SPI 転送に分割
+    - **送信は完全直列化** (これが最大のボトルネック)
+
+  • **構造的天井 #2: 関連の IOB プール**:
+    - 上位 NuttX 側 IOB = 8 × 196 B = 1568 B (本図対象外)
+    - IOB_THROTTLE=0 (流量制御なし)
+    - IOB → tx_buff 1500B 単位で逐次転送
+
+  • **BULK_THRESHOLD = 8 KB**:
+    - これを超えると bulk モード切替 → 大量送信が始まる
+    - MJPEG batch (~122KB) は完全に bulk モード対象
+
+  • **本図の意図**:
+    - GS2200M モジュール本体は **非公開・改変不能**
+    - driver 側の構造 (tx_buff, pkt_q, notif_q) のみが観測可能
+    - 性能最適化は driver/上位の側でしか行えない
+end note
+
+note bottom
+  **arc42 階層位置**:
+  • L1 の Spresense メインボードと並ぶ独立ノード
+  • デプロイ図上では「Spresense 物理アセンブリ」内のサブノード
+  • 関連: SPRESENSE_TCP_CONSTRAINTS.md §3 (構造的天井全リスト)
+  • 関連: gs2200m_health_state_machine.puml (健全性状態遷移)
+end note
+
+@enduml

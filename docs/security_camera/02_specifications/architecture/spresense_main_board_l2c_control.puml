@@ -1,0 +1,127 @@
+@startuml spresense_main_board_l2c_control
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title L2.C: Adaptive Controller 詳細 (white-box)\nL1 「🎛️ Adaptive Controller」 黒箱 → Phase 10/11 内部構造
+
+' ==============================================================
+' Adaptive Controller white-box
+' ==============================================================
+frame "🎛️ **Adaptive Controller** (white-box)\nPhase 10 (PID) + Phase 11 (多変数+予測)" as CTRL_BOX #LightYellow {
+
+  ' --- Phase 10 ---
+  package "Phase 10: PID 制御" #LightCyan {
+    component "**PID Core (Phase 10)**\n責務: P+I 制御 (Kp=0.15, Ki=0.02)\n   setpoint=3.5, [5, 30] FPS\n   period=100ms (10 Hz)\n実装: fps_controller.c" as C_PID10
+  }
+
+  ' --- Phase 11 ---
+  package "Phase 11: 多変数 + 予測" #LightGreen {
+    component "**Frame Statistics**\n責務: 移動窓 (10 frames)\n   平均/分散/複雑度 (smoothing=0.8)\n実装: frame_statistics.c" as C_STATS
+
+    component "**Multi-Variable Input**\n責務: 6 変数を [0,1] 正規化\n   weighted_control_input\n   (queue 0.6 + size 0.2 +\n    transmission 0.1 + pred 0.1)\n実装: enhanced_control.h API" as C_MVI
+
+    component "**Adaptive PID**\n責務: 複雑度に応じてゲイン適応\n   adapt_gains(complexity)\n   出力履歴 (size=5) で安定性監視\n実装: adaptive_pid_*\n      (enhanced_control.h API)" as C_APID
+
+    component "**Predictive Controller**\n責務: 5-point trend / correlation\n   predicted_queue_load 出力\n   prediction accuracy 自己評価\n実装: predictive_controller_*\n      (enhanced_control.h API)" as C_PRED
+
+    component "**Buffer Manager**\n責務: 動的キュー深度 (5/7/9)\n   complexity 高で拡張\n   resize_count 統計\n実装: buffer_manager_*\n      (enhanced_control.h API)" as C_BMGR
+
+    component "**Stability + Fallback**\n責務: 出力分散監視\n   閾値超過 3 回で\n   Phase 10 にフォールバック\n実装: enhanced_control_system_*" as C_STAB
+  }
+}
+
+' --- Phase 11 → 10 fallback ---
+C_STAB ..> C_PID10 : "trigger_fallback_to_phase10()"
+
+' --- Phase 11 内部依存 ---
+C_STATS --> C_MVI   : "complexity, avg, variance"
+C_MVI   --> C_APID  : "weighted error"
+C_MVI   --> C_PRED
+C_PRED  --> C_MVI   : "predicted_queue_load\n(feedback)"
+C_STATS --> C_BMGR  : "complexity"
+C_APID  --> C_STAB  : "output history"
+C_PRED  --> C_STAB  : "prediction accuracy"
+
+' ==============================================================
+' L2 境界インタフェース (provides / requires)
+' ==============================================================
+() "queue_depth\n(observe)" as I_DEPTH
+() "frame_size\n(observe)" as I_SIZE
+() "transmission_time\n(observe)" as I_TX
+() "fps_runtime\n(actuate)" as I_FPS
+() "queue_resize\n(actuate)" as I_RESIZE
+
+' Required (input)
+I_DEPTH    )-- C_PID10
+I_DEPTH    )-- C_MVI
+I_SIZE     )-- C_STATS
+I_TX       )-- C_MVI
+
+' Provided (output)
+C_PID10  -( I_FPS
+C_APID   -( I_FPS
+C_BMGR   -( I_RESIZE
+
+' ==============================================================
+' 内部データ構造
+' ==============================================================
+package "Internal State" #LightCoral {
+  database "fps_controller_t\nintegral, prev_error" as D_PID <<datastore>>
+  database "frame_statistics_t\nwindow[10], complexity" as D_STATS <<datastore>>
+  database "adaptive_pid_controller_t\ncurrent_kp/ki/kd, history[5]" as D_APID <<datastore>>
+  database "predictive_controller_t\nsize_history[5], trend_coef" as D_PRED <<datastore>>
+  database "buffer_manager_t\ncurrent_buffer_size, util" as D_BMGR <<datastore>>
+  database "enhanced_control_system_t\n(統合)" as D_ENH <<datastore>>
+}
+
+C_PID10 --> D_PID
+C_STATS --> D_STATS
+C_APID  --> D_APID
+C_PRED  --> D_PRED
+C_BMGR  --> D_BMGR
+C_STAB  --> D_ENH
+
+' ==============================================================
+' 観察ノート
+' ==============================================================
+note as NOTE_CTRL #LightYellow
+  **🔍 L2.C 観察事項**:
+
+  • **Phase 10 (PID) は実装済み・統合済み**:
+    - Kp=0.15, Ki=0.02, setpoint=3.5 (キュー深度)
+    - 出力 [5, 30] FPS, 制御周期 100 ms
+    - camera_set_fps_runtime() で V4L2 に作用 (L2.A の C_CAM_WRAP)
+
+  • **Phase 11 (多変数+予測) は仕様策定段階**:
+    - enhanced_control.h に API 公開 (Public Function Prototypes)
+    - 統合先: camera_thread_func / usb_thread_func の制御サイクル
+    - フォールバック設計済み (Phase 10 へ自動退避)
+
+  • **重み配分 (CONTROL_WEIGHT_*)**:
+    - queue depth 0.6 (主因子: 構造的天井 #1 が支配)
+    - frame size 0.2, transmission 0.1, prediction 0.1
+    - 重みは MJPEG 路の経験的設定 (今後の調整余地あり)
+
+  • **予測の意味**:
+    - 5-point linear trend で next size を予測
+    - prediction_accuracy が低ければ予測を抑制 (自己ゲート)
+    - 「予測が当たらない動画」(動きが急激) で性能が落ちる前提を内蔵
+
+  • **構造的天井との関係**:
+    - PID/予測の出力は "FPS と queue depth" にしか作用しない
+    - tx_buff[1] / IOB プールの構造的天井は制御不可能
+    - 適応制御は **天井の手前で踏み止まる** ためのもの
+end note
+
+note bottom
+  **arc42 階層位置**:
+  • 親: spresense_main_board_l1_buildingblocks.puml の 🎛️ Adaptive Controller
+  • 同階層 L2: L2.A (Capture), L2.B (Streaming + Transport)
+  • L1 で定義した provides/requires インタフェースを継承
+    - queue_depth (required): Frame Buffer Manager から
+    - queue_resize (provided): Frame Buffer Manager へ
+    - fps_runtime: Capture Pipeline (L2.A の C_CAM_WRAP) へ作用
+end note
+
+@enduml

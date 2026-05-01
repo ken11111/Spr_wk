@@ -3,18 +3,20 @@ skinparam defaultFontName "Noto Sans CJK JP"
 skinparam backgroundColor #FEFEFE
 skinparam componentStyle rectangle
 
-title プロセスビュー: Spresense メインボード\nスレッド構成・優先度・同期 (4+1 View - Process View)
+title プロセスビュー: Spresense メインボード\nスレッド構成・優先度・同期 (4+1 View - Process View)\n3 アプリスレッド + 1 NuttX kernel スレッド
 
 ' ==============================================================
 ' Threads (NuttX Tasks)
 ' ==============================================================
 package "NuttX Tasks (Spresense メインボード)" #LightYellow {
 
-  rectangle "🧵 **main task**\n(camera_app_main.c)\nprio=100, stack=8192\n責務: 起動・初期化・spawn" as T_MAIN #LightGreen
+  rectangle "🧵 **main task**\n(camera_app_main.c)\nprio=100, stack=8192\n責務: 起動・初期化・spawn\n   3 つの worker thread を pthread_create" as T_MAIN #LightGreen
 
-  rectangle "🎬 **camera_thread_func**\n(camera_threads.c)\nprio=100 (assumed)\n責務: V4L2 dequeue → encode\n   → frame_queue_push(g_action_queue)" as T_CAM #LightCyan
+  rectangle "🎬 **camera_thread_func**\n(camera_threads.c:~250)\nprio=100\n責務: V4L2 dequeue → frame 取得\n   frame_statistics_update (L2.C 入力)\n   → frame_queue_push(g_action_queue)" as T_CAM #LightCyan
 
-  rectangle "🚚 **usb_thread_func**\n(camera_threads.c)\nprio=100\n責務: frame_queue_pull(g_action_queue)\n   → MJPEG batch (BATCH_SIZE=2)\n   → tcp_server_send_with_reconnect()\n     または usb_transport_send()" as T_USB #LightCyan
+  rectangle "🚚 **usb_thread_func**\n(camera_threads.c:~600)\nprio=100\n責務: frame_queue_pull(g_action_queue)\n   → MJPEG batch (BATCH_SIZE=2)\n   → tcp_server_send_with_reconnect()\n     または usb_transport_send_bytes()" as T_USB #LightCyan
+
+  rectangle "🎛️ **control_thread_func** (Phase 10)\n(camera_threads.c:1330)\nprio=100\n責務: 10 Hz PID 制御ループ (100ms 周期)\n   queue_depth 観測 → fps_controller_update\n   → camera_set_fps_runtime\n   → apply_priority_boost\n⚠ Phase 11 (enhanced_control) は .c 未実装" as T_CTRL #LightYellow
 
   rectangle "📡 **gs2200m driver task**\n(spresense/nuttx/drivers/wireless/gs2200m.c)\nprio=50, stack=2048\n責務: SPI 経由 GS2200M 通信\n   send/recv シリアライズ\n   notif_q への通知投入" as T_GS #LightBlue
 }
@@ -24,50 +26,60 @@ package "NuttX Tasks (Spresense メインボード)" #LightYellow {
 ' ==============================================================
 package "Shared Resources & Synchronization" #LightCoral {
   database "g_empty_queue" as Q_EMPTY <<shared queue>>
-  database "g_action_queue" as Q_ACTION <<shared queue>>
-  rectangle "tcp_server (struct)\n(tcp_server.c)" as TCP_STRUCT
-  rectangle "metrics_packet\n+ tcp_health_*" as METRICS
+  database "g_action_queue\n(g_queue_mutex で保護)" as Q_ACTION <<shared queue>>
+  database "g_fps_controller\n(control_thread のみ書込)" as FPS_STATE <<shared state>>
+  database "g_frame_statistics\n(camera_thread のみ書込)" as STAT_STATE <<shared state>>
+  rectangle "tcp_server (struct)\n(tcp_server.c)\n+ g_tcp_health\n  (tcp_server のみ書込)" as TCP_STRUCT
+  rectangle "metrics_packet\n(usb_thread のみ書込)" as METRICS
 }
 
 ' ==============================================================
 ' データフロー & 同期
 ' ==============================================================
-T_MAIN --> T_CAM : "pthread_create"
-T_MAIN --> T_USB : "pthread_create"
+T_MAIN --> T_CAM  : "pthread_create\n(camera_threads.c:1469)"
+T_MAIN --> T_USB  : "pthread_create\n(camera_threads.c:1488)"
+T_MAIN --> T_CTRL : "pthread_create\n(camera_threads.c:1516)"
 
-T_CAM ..> Q_EMPTY  : "pull (空き取得)"
-T_CAM ..> Q_ACTION : "push (撮影完了)"
+T_CAM ..> Q_EMPTY    : "pull (空き取得)"
+T_CAM ..> Q_ACTION   : "push (撮影完了)"
+T_CAM ..> STAT_STATE : "update (frame.size)"
 
-T_USB ..> Q_ACTION : "pull (送信対象)"
-T_USB ..> Q_EMPTY  : "push (解放)"
-
-T_USB --> TCP_STRUCT : "send 経由"
+T_USB ..> Q_ACTION   : "pull (送信対象)"
+T_USB ..> Q_EMPTY    : "push (解放)"
+T_USB --> TCP_STRUCT : "send_with_reconnect"
 T_USB --> METRICS    : "metrics 送信"
 
-T_GS  ..> METRICS    : "tcp_health_*\n更新 (SPI 経由)"
+T_CTRL ..> Q_ACTION  : "depth 読取\n   (g_queue_mutex)"
+T_CTRL --> FPS_STATE : "fps_controller_update"
+T_CTRL ..> T_CAM     : "camera_set_fps_runtime\n   (V4L2 経由で間接作用)"
+
+T_GS  ..> TCP_STRUCT : "tcp_health_*\n読取のみ\n(書込は T_USB 側)"
 
 ' ==============================================================
 ' 注意・観察
 ' ==============================================================
 note as PROC_NOTE #LightYellow
-  **🧵 プロセスビュー観察**:
+  **🧵 プロセスビュー観察 (実装事実ベース)**:
 
-  • **2 つの主要アプリスレッド + 1 つのカーネルスレッド (gs2200m)**
-    - アプリは Producer-Consumer パターン
-      camera_thread (P) → g_action_queue → usb_thread (C)
-  • g_action_queue / g_empty_queue は **共有資源**
-    - frame_queue_push/pull のスレッドセーフ性を要確認
-  • gs2200m driver は **NuttX kernel 側で独立スレッド**
-    - prio=50 (アプリより低い、stack も極小 2KB)
-  • metrics は **複数スレッドが書き込み**
-    - TCP health (gs2200m) と perf metrics (camera/usb) が
-      同じ metrics_packet 構造体に書く可能性 → 排他制御要確認
+  • **3 つの主要アプリスレッド + 1 つのカーネルスレッド (gs2200m)**
+    - camera_thread (Producer)
+    - usb_thread (Consumer)
+    - **control_thread (Phase 10 PID, 10 Hz 周期)** ← 旧版で見落とし箇所
+  • **g_action_queue は 3 スレッドが触る共有資源**:
+    - camera_thread (push), usb_thread (pull), control_thread (depth 観測)
+    - g_queue_mutex で排他制御
+  • **書込権を 1 スレッドに集約 (race 回避)**:
+    - g_fps_controller: control_thread のみ
+    - g_frame_statistics: camera_thread のみ
+    - g_tcp_health: usb_thread (tcp_server_send 内) のみ
+  • **gs2200m driver task の責務は SPI 通信のみ**:
+    - g_tcp_health 等のアプリ側 metrics には触らない
+    - prio=50 (アプリより低い) → 高負荷時 SPI 遅延が構造的天井 #1 と相互作用
 
   **設計判断のポイント**:
-  • アプリ 2 スレッド構成は十分シンプル
-  • gs2200m driver の優先度が低い (prio 50) のは設計判断
-    高負荷時に GS2200M 通信が遅延 → 構造的天井 (SPRESENSE_TCP_CONSTRAINTS §10) と相互作用
-  • 共有キューのロック競合が PC FPS のジッタ要因の可能性
+  • Phase 11 (enhanced_control) は **.c 未実装** で control_thread 内のロジックは
+    現状 fps_controller (Phase 10) のみ
+  • control_thread が camera_thread に作用するのは V4L2 ioctl 経由 (間接)
 end note
 
 note bottom

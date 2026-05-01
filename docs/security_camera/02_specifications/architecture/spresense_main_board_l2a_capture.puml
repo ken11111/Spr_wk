@@ -16,8 +16,11 @@ frame "📷 **Capture Pipeline** (white-box)\nL1 黒箱の内部展開" as CAP_B
 
   component "**Frame Builder**\n責務: camera_frame_t 組立\n   timestamp_us 付与\n   frame_count インクリメント\n実装: camera_manager.c\n      camera_get_frame()" as C_BUILDER
 
-  ' --- 未使用パスは灰色 (実装はあるが現行 MJPEG 路では未使用) ---
-  component "**H.264 Encoder Adapter**\n責務: YUV → H.264 NAL\n   /dev/video1 経由\n実装: encoder_manager.c\n⚠ 現行 MJPEG 路では未使用" as C_H264 #LightGray
+  ' --- 観測点: frame.size を Adaptive Controller (L2.C) に提供 ---
+  component "**Frame Statistics Tap**\n責務: frame.size 観測 → 移動窓統計\n実装: frame_statistics_update()\n   (camera_threads.c:475,481 で\n    camera_thread から直接呼出)\nDownstream: L2.C へ frame_size 入力" as C_STATS_TAP #LightCyan
+
+  ' --- 未使用パス (コンパイル対象だが caller 0 件 = dead code) ---
+  component "**H.264 Encoder Adapter** ❌\n責務 (設計): YUV → H.264 NAL\n   /dev/video1 経由\n実装: encoder_manager.c\n⚠ Makefile で CSRCS に含まれ\n   コンパイルされるが\n   encoder_encode_frame の caller 0 件\n   = **dead code** (現行 MJPEG 路で未参照)" as C_H264 #LightGray
 }
 
 ' ==============================================================
@@ -26,6 +29,7 @@ frame "📷 **Capture Pipeline** (white-box)\nL1 黒箱の内部展開" as CAP_B
 () "v4l2_dev\n(/dev/video)" as I_V4L2_DEV
 () "frame_produced\n(camera_frame_t)" as I_FRAME_OUT
 () "fps_runtime\n(set/get)" as I_FPS_API
+() "frame_size\n(observe)" as I_FSIZE
 
 ' Required (V4L2 driver)
 C_CAM_WRAP   ..> I_V4L2_DEV : "VIDIOC_S_FMT/PARM"
@@ -34,10 +38,12 @@ C_RING       ..> I_V4L2_DEV : "VIDIOC_DQBUF/QBUF/\n   STREAMON"
 ' Provided
 C_BUILDER    -( I_FRAME_OUT
 C_CAM_WRAP   -( I_FPS_API
+C_STATS_TAP  -( I_FSIZE
 
 ' 内部関係
 C_CAM_WRAP --> C_RING    : "REQBUFS\n   (mode=RING,\n    count=3)"
 C_RING     --> C_BUILDER : "DQBUF 完了\n   (生 V4L2 buffer)"
+C_BUILDER  --> C_STATS_TAP : "frame.size 提供\n   (camera_thread が\n    直接呼出)"
 
 ' ==============================================================
 ' データフロー (バッファ)
@@ -70,8 +76,15 @@ note as NOTE_CAP #LightYellow
 
   • **ISX012 は JPEG 直接出力**
     - V4L2_PIX_FMT_JPEG (camera_manager.c:190)
-    - encoder_manager.c (H.264 path) は **現行未使用**
+    - encoder_manager.c (H.264 path) は **dead code**:
+      Makefile (CSRCS:48) で compile されるが caller 0 件
     - MJPEG ストリーミングなのでハードエンコードは不要
+
+  • **frame_statistics は L2.C の責務だが実行は camera_thread 内**:
+    - frame_statistics_init/update を camera_thread_func から直接呼出
+    - L2.C への入力源として **frame_size IF** を本図で提供
+    - 実装の凝集 (camera_thread) と設計の責務 (Adaptive Controller)
+      がズレているが、観測点としては Capture 側に置くのが自然
 
   • **3 × 64 KB triple buffer (ADR-003)**
     - V4L2_BUF_MODE_RING (USERPTR) で連続キャプチャ

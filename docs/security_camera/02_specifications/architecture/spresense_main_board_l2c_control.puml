@@ -2,114 +2,100 @@
 skinparam defaultFontName "Noto Sans CJK JP"
 skinparam backgroundColor #FEFEFE
 skinparam componentStyle rectangle
+top to bottom direction
 
-title L2.C: Adaptive Controller 詳細 (white-box)\nL1 「🎛️ Adaptive Controller」 黒箱 → Phase 10/11 内部構造
+title L2.C: Adaptive Controller 詳細 (white-box)\nL1 「🎛️ Adaptive Controller」 黒箱 → Phase 10 (実装済) + Phase 11 (仕様のみ・未実装)
 
 ' ==============================================================
 ' Adaptive Controller white-box
 ' ==============================================================
-frame "🎛️ **Adaptive Controller** (white-box)\nPhase 10 (PID) + Phase 11 (多変数+予測)" as CTRL_BOX #LightYellow {
+frame "🎛️ **Adaptive Controller** (white-box)\nPhase 10 (実装済・統合済) + Phase 11 (.h のみ, .c 未実装)" as CTRL_BOX #LightYellow {
 
-  ' --- Phase 10 ---
-  package "Phase 10: PID 制御" #LightCyan {
-    component "**PID Core (Phase 10)**\n責務: P+I 制御 (Kp=0.15, Ki=0.02)\n   setpoint=3.5, [5, 30] FPS\n   period=100ms (10 Hz)\n実装: fps_controller.c" as C_PID10
+  ' --- Phase 10: 実装済み ---
+  package "✅ Phase 10: PID 制御 (実装済・control_thread で動作中)" #LightGreen {
+    component "**PID Core (Phase 10)** ✅\n責務: P+I 制御 (Kp=0.15, Ki=0.02)\n   setpoint=3.5, [5, 30] FPS\n   period=100ms (10 Hz)\n実装: fps_controller.c\nスレッド: control_thread_func\n   (camera_threads.c:1330)" as C_PID10
+
+    component "**Frame Statistics** ✅\n責務: 移動窓 (10 frames)\n   平均/分散/複雑度 (smoothing=0.8)\n実装: frame_statistics.c\n呼出箇所: camera_thread_func\n   (camera_threads.c:475,481)\n⚠ 動作スレッドは camera_thread\n   (Adaptive Controller 内ではない)" as C_STATS
   }
 
-  ' --- Phase 11 ---
-  package "Phase 11: 多変数 + 予測" #LightGreen {
-    component "**Frame Statistics**\n責務: 移動窓 (10 frames)\n   平均/分散/複雑度 (smoothing=0.8)\n実装: frame_statistics.c" as C_STATS
+  ' --- Phase 11: 仕様のみ・未実装 ---
+  package "⚠ Phase 11: 多変数+予測 (仕様策定段階・.c 実装無し)" #LightGray {
+    component "**Multi-Variable Input** ❌\n責務: 6 変数 [0,1] 正規化\n.h API: enhanced_control.h\n.c: 実装ファイル無し\ncaller: 0 件" as C_MVI #LightGray
 
-    component "**Multi-Variable Input**\n責務: 6 変数を [0,1] 正規化\n   weighted_control_input\n   (queue 0.6 + size 0.2 +\n    transmission 0.1 + pred 0.1)\n実装: enhanced_control.h API" as C_MVI
+    component "**Adaptive PID** ❌\n責務: 複雑度依存 gain 適応\n.h API: enhanced_control.h\n.c: 実装ファイル無し\ncaller: 0 件" as C_APID #LightGray
 
-    component "**Adaptive PID**\n責務: 複雑度に応じてゲイン適応\n   adapt_gains(complexity)\n   出力履歴 (size=5) で安定性監視\n実装: adaptive_pid_*\n      (enhanced_control.h API)" as C_APID
+    component "**Predictive Controller** ❌\n責務: 5-point trend\n.h API: enhanced_control.h\n.c: 実装ファイル無し\ncaller: 0 件" as C_PRED #LightGray
 
-    component "**Predictive Controller**\n責務: 5-point trend / correlation\n   predicted_queue_load 出力\n   prediction accuracy 自己評価\n実装: predictive_controller_*\n      (enhanced_control.h API)" as C_PRED
+    component "**Buffer Manager** ❌\n責務: 動的キュー深度\n.h API: enhanced_control.h\n.c: 実装ファイル無し\ncaller: 0 件" as C_BMGR #LightGray
 
-    component "**Buffer Manager**\n責務: 動的キュー深度 (5/7/9)\n   complexity 高で拡張\n   resize_count 統計\n実装: buffer_manager_*\n      (enhanced_control.h API)" as C_BMGR
-
-    component "**Stability + Fallback**\n責務: 出力分散監視\n   閾値超過 3 回で\n   Phase 10 にフォールバック\n実装: enhanced_control_system_*" as C_STAB
+    component "**Stability + Fallback** ❌\n責務: 出力分散監視\n   不安定時 Phase 10 へ退避\n.h API: enhanced_control.h\n.c: 実装ファイル無し\ncaller: 0 件" as C_STAB #LightGray
   }
 }
 
-' --- Phase 11 → 10 fallback ---
-C_STAB ..> C_PID10 : "trigger_fallback_to_phase10()"
-
-' --- Phase 11 内部依存 ---
-C_STATS --> C_MVI   : "complexity, avg, variance"
-C_MVI   --> C_APID  : "weighted error"
-C_MVI   --> C_PRED
-C_PRED  --> C_MVI   : "predicted_queue_load\n(feedback)"
-C_STATS --> C_BMGR  : "complexity"
-C_APID  --> C_STAB  : "output history"
-C_PRED  --> C_STAB  : "prediction accuracy"
+' --- Phase 11 未実装ブロック相互の依存 (設計上の予定) は描かない ---
+' --- Phase 10 内の依存関係のみ実線 ---
+C_STATS --> C_PID10 : "complexity 提供\n(現在は LOG 出力のみ)"
 
 ' ==============================================================
 ' L2 境界インタフェース (provides / requires)
 ' ==============================================================
 () "queue_depth\n(observe)" as I_DEPTH
 () "frame_size\n(observe)" as I_SIZE
-() "transmission_time\n(observe)" as I_TX
 () "fps_runtime\n(actuate)" as I_FPS
-() "queue_resize\n(actuate)" as I_RESIZE
 
 ' Required (input)
-I_DEPTH    )-- C_PID10
-I_DEPTH    )-- C_MVI
-I_SIZE     )-- C_STATS
-I_TX       )-- C_MVI
+I_DEPTH    )-- C_PID10  : "frame_queue_depth(g_action_queue)"
+I_SIZE     )-- C_STATS  : "frame.size 観測"
 
-' Provided (output)
+' Provided (output) — Phase 10 のみ実線
 C_PID10  -( I_FPS
-C_APID   -( I_FPS
-C_BMGR   -( I_RESIZE
+
+' Phase 11 が予定していた接続はすべて点線 + 未実装注記
+C_MVI    .-( I_FPS  : "(計画) -- 未実装"
 
 ' ==============================================================
 ' 内部データ構造
 ' ==============================================================
 package "Internal State" #LightCoral {
-  database "fps_controller_t\nintegral, prev_error" as D_PID <<datastore>>
-  database "frame_statistics_t\nwindow[10], complexity" as D_STATS <<datastore>>
-  database "adaptive_pid_controller_t\ncurrent_kp/ki/kd, history[5]" as D_APID <<datastore>>
-  database "predictive_controller_t\nsize_history[5], trend_coef" as D_PRED <<datastore>>
-  database "buffer_manager_t\ncurrent_buffer_size, util" as D_BMGR <<datastore>>
-  database "enhanced_control_system_t\n(統合)" as D_ENH <<datastore>>
+  database "**fps_controller_t** ✅\nintegral, prev_error\n(g_fps_controller)" as D_PID <<datastore>>
+  database "**frame_statistics_t** ✅\nwindow[10], complexity\n(g_frame_statistics)" as D_STATS <<datastore>>
+  database "*adaptive_pid_controller_t* ❌\n(型定義のみ)" as D_APID <<datastore>>
+  database "*predictive_controller_t* ❌\n(型定義のみ)" as D_PRED <<datastore>>
+  database "*buffer_manager_t* ❌\n(型定義のみ)" as D_BMGR <<datastore>>
+  database "*enhanced_control_system_t* ❌\n(型定義のみ)" as D_ENH <<datastore>>
 }
 
 C_PID10 --> D_PID
 C_STATS --> D_STATS
-C_APID  --> D_APID
-C_PRED  --> D_PRED
-C_BMGR  --> D_BMGR
-C_STAB  --> D_ENH
+C_APID  ..> D_APID  #LightGray
+C_PRED  ..> D_PRED  #LightGray
+C_BMGR  ..> D_BMGR  #LightGray
+C_STAB  ..> D_ENH   #LightGray
 
 ' ==============================================================
 ' 観察ノート
 ' ==============================================================
 note as NOTE_CTRL #LightYellow
-  **🔍 L2.C 観察事項**:
+  **🔍 L2.C 観察事項 (実装事実ベース)**:
 
-  • **Phase 10 (PID) は実装済み・統合済み**:
+  • **✅ Phase 10 (PID) は実装済み・統合済み**:
+    - control_thread_func (camera_threads.c:1330) で 10 Hz 動作
     - Kp=0.15, Ki=0.02, setpoint=3.5 (キュー深度)
-    - 出力 [5, 30] FPS, 制御周期 100 ms
-    - camera_set_fps_runtime() で V4L2 に作用 (L2.A の C_CAM_WRAP)
+    - 出力 [5, 30] FPS → camera_set_fps_runtime() で V4L2 に作用
 
-  • **Phase 11 (多変数+予測) は仕様策定段階**:
-    - enhanced_control.h に API 公開 (Public Function Prototypes)
-    - 統合先: camera_thread_func / usb_thread_func の制御サイクル
-    - フォールバック設計済み (Phase 10 へ自動退避)
+  • **❌ Phase 11 (多変数+予測) は .h のみ、.c 実装ファイル不在**:
+    - `enhanced_control.h` に 25 個の関数プロトタイプ宣言
+    - `enhanced_control.c` ファイル自体が存在しない (`ls enhanced_control*`)
+    - Makefile の CSRCS にも未追加 (= ビルド対象でない)
+    - grep で `adaptive_pid_*` `predictive_controller_*` 等の caller 0 件
+    - **= リンクは通る (未参照シンボルは出ない) が、機能は何も動かない**
 
-  • **重み配分 (CONTROL_WEIGHT_*)**:
-    - queue depth 0.6 (主因子: 構造的天井 #1 が支配)
-    - frame size 0.2, transmission 0.1, prediction 0.1
-    - 重みは MJPEG 路の経験的設定 (今後の調整余地あり)
-
-  • **予測の意味**:
-    - 5-point linear trend で next size を予測
-    - prediction_accuracy が低ければ予測を抑制 (自己ゲート)
-    - 「予測が当たらない動画」(動きが急激) で性能が落ちる前提を内蔵
+  • **frame_statistics は Phase 11 の入力源だが、現状は L2.A 側で動く**:
+    - camera_thread_func から init/update を直接呼出 (camera_threads.c:475,481)
+    - 現行は LOG_INFO 出力のみ。Phase 11 が実装されれば消費される
 
   • **構造的天井との関係**:
-    - PID/予測の出力は "FPS と queue depth" にしか作用しない
+    - Phase 10 が動かせるのは "FPS と queue depth" の 2 点のみ
     - tx_buff[1] / IOB プールの構造的天井は制御不可能
     - 適応制御は **天井の手前で踏み止まる** ためのもの
 end note
@@ -119,9 +105,10 @@ note bottom
   • 親: spresense_main_board_l1_buildingblocks.puml の 🎛️ Adaptive Controller
   • 同階層 L2: L2.A (Capture), L2.B (Streaming + Transport)
   • L1 で定義した provides/requires インタフェースを継承
-    - queue_depth (required): Frame Buffer Manager から
-    - queue_resize (provided): Frame Buffer Manager へ
-    - fps_runtime: Capture Pipeline (L2.A の C_CAM_WRAP) へ作用
+    - queue_depth (required): control_thread が g_action_queue から読む
+    - fps_runtime (provided): camera_set_fps_runtime() 経由で L2.A の Camera Wrapper へ
+  • **重要**: Phase 11 ブロックは将来計画の可視化目的で残しているが、
+    現時点では「動かない」ことを灰色 ❌ で明示
 end note
 
 @enduml

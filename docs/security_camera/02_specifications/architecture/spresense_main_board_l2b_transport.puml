@@ -18,7 +18,7 @@ frame "📦 **Streaming Engine** (white-box)" as STR_BOX #LightYellow {
 
   component "**Metrics Packer**\n責務: 58 B metrics packet 生成\n   sync=0xCAFEBEEF\n   13 fields + CRC16\n実装: mjpeg_protocol.c\n      mjpeg_pack_metrics()" as C_METR
 
-  component "**Legacy Protocol Handler**\n責務: H.264 NAL packing\n実装: protocol_handler.c\n⚠ 現行 MJPEG 路では未使用" as C_PROTO #LightGray
+  component "**Legacy Protocol Handler** ❌\n責務 (設計): H.264 NAL packing\n   + handshake packet 生成\n実装: protocol_handler.c\n⚠ Makefile (CSRCS:49) で compile される\n   が **両関数とも caller 0 件**:\n   - protocol_pack_nal_unit\n   - protocol_create_handshake\n   = **完全 dead code** (H.264 path 全体が休眠)" as C_PROTO #LightGray
 }
 
 C_PACK  ..> C_CRC : "CRC 付与"
@@ -32,9 +32,9 @@ frame "🚚 **Transport Manager** (white-box)" as TX_BOX #LightCyan {
 
   component "**Wi-Fi Lifecycle**\n責務: GS2200M アソシエーション\n   AP connect / DHCP\n実装: wifi_manager.c" as C_WIFI
 
-  component "**TCP Server (BSD socket)**\n責務: listen / accept / send\n   SO_SNDBUF = 256 KB 要求\n実装: tcp_server.c\n      tcp_server_init/send_*" as C_TCP_SRV
+  component "**TCP Server (BSD socket)**\n責務: listen / accept / send (内部)\n   SO_SNDBUF = 256 KB 要求\n実装: tcp_server.c\n   - tcp_server_init (init)\n   - tcp_server_send (内部関数)\n   - tcp_server_send_direct (内部関数)\n⚠ アプリ公開 IF は\n   ★ tcp_server_send_with_reconnect ★ のみ" as C_TCP_SRV
 
-  component "**Auto-Reconnect FSM**\n責務: 切断検知 → backoff → 再 accept\n   max=5, backoff 1s + N×2s\n実装: tcp_server.c\n      tcp_server_handle_disconnect/\n      wait_reconnect/send_with_reconnect" as C_RECON
+  component "**Auto-Reconnect FSM**\n=★アプリ公開 IF の唯一の窓口★\n責務: 切断検知 → backoff → 再 accept\n   送信失敗時に内部で再接続+再送\n   max=5, backoff 1s + N×2s\n実装: tcp_server.c\n      tcp_server_send_with_reconnect()\n   (camera_threads.c:753, 893 で\n    呼出)" as C_RECON
 
   component "**TCP Health Monitor**\n責務: 送信時間トラッキング\n   moving avg / spike count\n実装: tcp_server.c\n      tcp_health_update()\n      g_tcp_health" as C_HEALTH
 
@@ -65,14 +65,18 @@ C_BATCH  -( I_BATCH
 C_METR   -( I_METR
 
 ' Transport required
-I_BATCH  )-- C_TCP_SRV
+' --- 重要: アプリは _with_reconnect のみ呼ぶ ---
+I_BATCH  )-- C_RECON  : "★ 唯一の公開 IF ★"
 I_BATCH  )-- C_USB
-I_METR   )-- C_TCP_SRV
+I_METR   )-- C_RECON  : "★ metrics も _with_reconnect 経由 ★"
 
 ' Transport provided
-C_TCP_SRV -( I_TX_DONE
+C_RECON   -( I_TX_DONE
 C_USB     -( I_TX_DONE
 I_TX_DONE )-- C_PACK : "FBM へ\n   buffer 解放"
+
+' 内部呼出関係 (TCP)
+C_RECON --> C_TCP_SRV : "内部委譲\n   tcp_server_send → 失敗時 reconnect"
 
 C_HEALTH  -( I_HEALTH
 
@@ -116,6 +120,18 @@ note as NOTE_TX #LightYellow
   • **MJPEG_BATCHING_ENABLED = 0 (mjpeg_protocol.h:42)**
     - Batch Aggregator は実装されているが現行 OFF
     - usb_thread_func は単フレーム送信路
+
+  • **アプリ公開 IF の凝集 (★ 重要)**:
+    - app からは `tcp_server_send_with_reconnect` のみ呼出
+      (camera_threads.c:753, 893)
+    - `tcp_server_send` / `_send_direct` は public 宣言だが
+      アプリからは呼ばれていない (内部関数化が望ましい)
+    - = **再接続を経ない送信路は事実上閉じている**
+
+  • **H.264 path 全体が dead code**:
+    - protocol_handler.c の 2 関数とも caller 0 件
+    - encoder_manager.c (L2.A) も dead code
+    - = システム全体が **MJPEG 単一路** に収束済み
 
   • **Auto-Reconnect (Phase 9)**:
     - exponential backoff (1s + N×2s, max=5)

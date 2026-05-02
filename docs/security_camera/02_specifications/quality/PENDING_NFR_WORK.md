@@ -159,7 +159,29 @@
 
 ---
 
-### P2-C. 詳細 Threat Model (STRIDE / DREAD)
+### ✅ P2-C. 詳細 Threat Model (STRIDE / DREAD) — **完了 (2026-05-02)**
+
+**成果物**: [`THREAT_MODEL.md`](THREAT_MODEL.md) 新設 (~340 行)
+**実施内容の要点**:
+- STRIDE 6 カテゴリ × 14 脅威シナリオを DREAD (D+R+E+A+D, max 50) で採点
+- 上位 5 件 (DREAD ≥ 35):
+  1. TI-1 (48) MJPEG 盗聴 (Wireshark)
+  2. TS-1 (46) PC viewer なりすまし
+  3. TI-2 (45) WiFi 認証情報のリポジトリ漏洩 → X-7 と直結
+  4. TD-1 (42) TCP 8888 接続スパム DoS
+  5. TD-2 (35) tx_buff 枯渇誘発 DoS
+- 観察: 「認証なし」起点で TS-1 → TI-1/TI-3/TD-1/TD-2 が連鎖的に脆弱 → **TLS-PSK 1 機構で複数脅威を緩和可**
+- Phase 12 緊急対策 3 件:
+  1. X-7 WiFi 認証情報リポジトリ分離
+  2. LAN 隔離前提の運用文書化 (X-4 ランブックの一部)
+  3. TLS-PSK or アプリ層認証 (Phase 12 セキュリティ Option B)
+- §1 Scope で「LAN 内が信頼境界」前提を明示、対象外 (公開 NW / WiFi 突破 / 物理改竄) も記述
+
+**派生発見**: TI-2 (WiFi 認証情報リポジトリ漏洩, DREAD 45) は緩和策コストが極小 (X-7 で .gitignore + .example 化のみ) → Phase 12 序盤の最優先タスクに位置付け
+
+---
+
+### P2-C (旧 — 完了済み記述, 履歴用)
 
 **目的**: SECURITY_GAP_ANALYSIS.md に簡易 STRIDE があるが、各脅威について DREAD 等の数値評価が未実施。
 

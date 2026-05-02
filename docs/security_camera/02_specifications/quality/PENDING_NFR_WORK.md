@@ -272,13 +272,17 @@
 - `apps/examples/security_camera/README.md` に §0 セットアップ手順追記 (cp + 編集) + 警告
 - THREAT_MODEL.md TI-2 (DREAD 45) と相互参照
 
-**残課題 (ユーザー判断必要)**:
-git history には旧 commit にハードコードされた WiFi 認証情報が残存。完全な漏洩リスク除去には git history サニタイズ (`git filter-repo` 等) が必要。本セッションではユーザー判断待ちのため未実施。
-- **判断材料 1**: リポジトリが現在 public か private か (private なら緊急度低)
-- **判断材料 2**: 他の協力者がこのリポジトリを clone しているか (history 書換でリビルド必要)
-- **判断材料 3**: 同じ WiFi 認証情報を継続使用するか (パスワード変更すれば history 漏洩は無効化される)
+**git history サニタイズ判断 (2026-05-02 ユーザー確定)**:
+✅ **Option C: 何もしない (history は現状維持)**
 
-**推奨**: WiFi パスワード変更 + history は現状維持 (運用簡易・リスク実質無効化)
+**判断根拠**:
+- 現状の WiFi AP は **ノート PC の AP 機能** で、検証中のみ有効化される運用
+- 本番運用開始前なので、漏洩 history があっても実害は限定的
+- 今後の本番運用は `.gitignore` 化された新運用フローで開始するため、漏洩リスクは未来に持ち込まれない
+
+**本番運用移行時の TODO** (Phase 12+ で再評価):
+- 本番 AP 切替時に WIFI_PASSWORD を必ず新規発行 (history 漏洩済の旧 password を再使用しない)
+- 公開リポジトリ化前に再度 X-7 残課題として履歴サニタイズを再検討
 
 ---
 

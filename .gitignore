@@ -38,3 +38,8 @@ apps/examples/asmpApp/
 *.pcapng
 docs/security_camera/06_evidence/raw_data/pcap_captures/
 docs/security_camera/06_evidence/raw_data/csv_metrics/
+
+# Secrets / credentials (X-7: WiFi 認証情報のリポジトリ分離)
+# wifi_config.h contains real WIFI_SSID and WIFI_PASSWORD.
+# Use wifi_config.h.example as template (cp wifi_config.h.example wifi_config.h)
+apps/examples/security_camera/wifi_config.h

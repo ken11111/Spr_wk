@@ -1,7 +1,18 @@
 /****************************************************************************
- * apps/examples/security_camera/wifi_config.h
+ * apps/examples/security_camera/wifi_config.h.example
  *
- * WiFi Configuration (Phase 7)
+ * WiFi Configuration TEMPLATE (Phase 7)
+ *
+ * SETUP INSTRUCTIONS:
+ *   1. Copy this file to wifi_config.h:
+ *        cp wifi_config.h.example wifi_config.h
+ *   2. Edit wifi_config.h with your actual WiFi credentials
+ *   3. wifi_config.h is .gitignore'd to prevent credential leakage
+ *
+ * SECURITY NOTE (X-7):
+ *   - Never commit wifi_config.h to the repository
+ *   - Never share wifi_config.h via insecure channels (email, chat, etc.)
+ *   - Rotate WIFI_PASSWORD periodically (recommended every 90 days)
  *
  ****************************************************************************/
 
@@ -12,10 +23,10 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* WiFi Network Configuration */
+/* WiFi Network Configuration -- REPLACE WITH YOUR VALUES */
 
-#define WIFI_SSID        "DESKTOP-GPU979R"    /* WiFi SSID */
-#define WIFI_PASSWORD    "B54p3530"           /* WiFi WPA2 password */
+#define WIFI_SSID        "YOUR_SSID_HERE"      /* WiFi SSID */
+#define WIFI_PASSWORD    "YOUR_PASSWORD_HERE"  /* WiFi WPA2 password */
 #define WIFI_AUTH        0   /* Unused: auth is hardcoded in wifi_manager.c */
 
 /* TCP Server Configuration */

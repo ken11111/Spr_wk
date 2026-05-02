@@ -263,7 +263,26 @@
 
 ---
 
-### X-7. WiFi 認証情報のリポジトリ分離 (緊急度: 高)
+### ✅ X-7. WiFi 認証情報のリポジトリ分離 — **完了 (2026-05-02)**
+
+**実施内容**:
+- `wifi_config.h.example` 新設 (placeholder 値: YOUR_SSID_HERE / YOUR_PASSWORD_HERE) + セキュリティ注意書き
+- `.gitignore` に `apps/examples/security_camera/wifi_config.h` 追加
+- `git rm --cached wifi_config.h` で track 外し (ローカル実体は保持)
+- `apps/examples/security_camera/README.md` に §0 セットアップ手順追記 (cp + 編集) + 警告
+- THREAT_MODEL.md TI-2 (DREAD 45) と相互参照
+
+**残課題 (ユーザー判断必要)**:
+git history には旧 commit にハードコードされた WiFi 認証情報が残存。完全な漏洩リスク除去には git history サニタイズ (`git filter-repo` 等) が必要。本セッションではユーザー判断待ちのため未実施。
+- **判断材料 1**: リポジトリが現在 public か private か (private なら緊急度低)
+- **判断材料 2**: 他の協力者がこのリポジトリを clone しているか (history 書換でリビルド必要)
+- **判断材料 3**: 同じ WiFi 認証情報を継続使用するか (パスワード変更すれば history 漏洩は無効化される)
+
+**推奨**: WiFi パスワード変更 + history は現状維持 (運用簡易・リスク実質無効化)
+
+---
+
+### X-7 (旧 — 完了済み記述, 履歴用)
 
 **理由**: P1-B 調査で判明 — `apps/examples/security_camera/wifi_config.h` に **WiFi SSID / Password がハードコード** され、git track されている。リポジトリが公開されるとセキュリティリスク。
 

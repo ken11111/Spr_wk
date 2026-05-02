@@ -11,6 +11,20 @@ Spresense HDR Camera Board を使用した防犯カメラシステムのサン�
 
 ## ビルド方法
 
+### 0. WiFi 設定 (初回のみ)
+
+WiFi 認証情報は `wifi_config.h` に書き込みますが、**このファイルは `.gitignore` 済**です (X-7: 認証情報のリポジトリ漏洩防止)。
+
+初回セットアップ:
+
+```bash
+cd apps/examples/security_camera
+cp wifi_config.h.example wifi_config.h
+# wifi_config.h を編集して WIFI_SSID と WIFI_PASSWORD を実際の値に変更
+```
+
+⚠ **絶対に `wifi_config.h` をコミットしないこと**。`.gitignore` で track 外しており、`git add` 時に自動除外される。詳細は [`docs/security_camera/02_specifications/quality/THREAT_MODEL.md`](../../../docs/security_camera/02_specifications/quality/THREAT_MODEL.md) TI-2 (DREAD 45) 参照。
+
 ### 1. 設定
 
 ```bash

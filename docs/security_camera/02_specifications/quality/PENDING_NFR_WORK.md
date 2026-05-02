@@ -262,7 +262,26 @@
 
 ---
 
-### X-3. 個別 functional/ 仕様書 6 件の整合性チェック
+### ✅ X-3. 個別 functional/ 仕様書 7 件の整合性チェック — **完了 (2026-05-03)**
+
+**成果物**: [`FUNCTIONAL_SPEC_AUDIT.md`](FUNCTIONAL_SPEC_AUDIT.md) (~150 行) + 各 SPEC への警告バナー追加
+
+**監査結果サマリ**:
+- 🔴 重大乖離 2 件: ADAPTIVE_CONTROL_SPEC, SECURITY_SPEC, TEST_COVERAGE_ENHANCEMENT_SPEC
+- 🟡 部分乖離 4 件: CAMERA_CAPTURE, CONTROL_ENGINEERING (Phase 番号誤参照), RECORDING (未実装機能), STREAMING (Phase 11 機能誤主張)
+
+**実施したアクション**:
+- 7 SPEC 全件に警告バナーを冒頭に追加 (FUNCTIONAL_SPEC_AUDIT.md / SECURITY_GAP_ANALYSIS / GLOSSARY 等への cross-link)
+- 各 SPEC の本文は変更せず (内容自体は設計意図として価値があるため)
+- 派生候補タスク識別:
+  - Phase 11 .c 実装 or 仕様削除判断 (FMEA B8)
+  - RECORDING SPEC を要求書 v1.0 整合化 (X-5a-d 連動)
+  - セキュリティ Option A〜D 判断 (Phase 12)
+  - **テストカバレッジ実測 + ベースライン確立** (新規 X-8 候補)
+
+---
+
+### X-3 (旧 — 完了済み記述, 履歴用)
 
 **理由**: 要求書 v1.0 確定により、`functional/` 配下 6 件 (CAMERA_CAPTURE / STREAMING / RECORDING / ADAPTIVE_CONTROL / CONTROL_ENGINEERING / SECURITY) との整合性が変化している可能性。
 
@@ -366,6 +385,20 @@
 **規模**: 小〜中 (history サニタイズの判断が伴う)
 
 **関連**: SECURITY_GAP_ANALYSIS.md (本件は実装乖離ではなく「設定管理の問題」), CROSS_CUTTING_CONCERNS.md §3
+
+---
+
+### X-8. テストカバレッジ実測 + ベースライン確立 (新規, 緊急度: 中)
+
+**理由**: X-3 監査で判明 — TEST_COVERAGE_ENHANCEMENT_SPEC.md の「カバレッジ 92%」が未計測値であり、QUALITY_REQUIREMENTS §7.5 でも ⚪ 未計測と判定済。
+
+**作業内容**:
+- 単体テストの存在確認 (現状 Spresense 側はテスト無し疑い)
+- gcov / llvm-cov 等でカバレッジ計測機構を導入
+- ベースライン確立 → 改善目標を再設定
+- TEST_COVERAGE_ENHANCEMENT_SPEC.md を実測値ベースで改訂
+
+**規模**: 中〜大 (テストフレームワーク導入が必要なら大)
 
 ---
 

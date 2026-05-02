@@ -230,7 +230,32 @@
 
 ---
 
-### X-4. 運用ランブック (Operations Runbook)
+### ✅ X-4. 運用ランブック (Operations Runbook) — **完了 (2026-05-02)**
+
+**成果物**:
+- `docs/security_camera/07_operations/` ディレクトリ新設
+- [`07_operations/README.md`](../../07_operations/README.md): ディレクトリ目的 + 索引
+- [`07_operations/RUNBOOK.md`](../../07_operations/RUNBOOK.md) (~340 行): 9 セクション構成
+
+**RUNBOOK.md の構成**:
+- §0 事前確認 (LAN 隔離前提など 4 項目)
+- §1 症状チェックリスト (S1〜S8)
+- §2 トリアージ (4 質問のフロー)
+- §3 軽症障害復旧 (7 手順): PC viewer 起動 / 接続確立 / TCP Health 観察 / RECONNECTING / クラッシュ / シリアルログ解析 / 録画問題
+- §4 中重症復旧 (4 手順): Spresense 強制再起動 / WiFi 再接続 / FAILED 状態 / Tier C 暫定切替
+- §5 環境問題 (3 手順): ストレージ / CPU 過負荷 / LAN 環境
+- §6 エスカレーション (Tier 移行判断条件: 1日3回以上 FAILED / 常時 500ms 超 / Full HD 要求 / ハード故障)
+- §7 事後対応 (記録テンプレート)
+- §8 連絡先・エスカレーション体制 (現状: 単一開発者、本番運用時 TODO)
+- §9 関連文書
+
+**関連** クロスリンク追加:
+- UC-7 (primary_use_cases.md) 関連実装欄から RUNBOOK へ
+- exception_scenarios.md §検知手段サマリから RUNBOOK へ
+
+---
+
+### X-4 (旧 — 完了済み記述, 履歴用)
 
 **理由**: ADR-002 v1.1 の発見 (再接続 5 回失敗で FAILED 固着) に対応する**人手介入手順**が未文書化。QAS-8 で「未定義」と明記済。
 

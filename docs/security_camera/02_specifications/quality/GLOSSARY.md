@@ -10,8 +10,8 @@
 
 ## §1 Phase 定義 (公式 = 制御工学系)
 
-> **⚠ 文書間の定義揺れに関する注意**:
-> `MASTER_ROADMAP_2026.md` には Phase 10 = AI統合・マルチカメラ / Phase 11 = プラットフォーム化 と書かれているが、これは**統合前の構想段階の旧定義**である。本リポジトリの Phase 10 / 11 公式定義は下記**制御工学系**を採用する (ユーザー判断, 2026-05-01)。MASTER_ROADMAP_2026 は将来 v2.0 改訂で Phase 番号再割り当て予定。
+> **✅ 文書間の定義揺れ解消済み (2026-05-03)**:
+> `MASTER_ROADMAP_2026.md` v1.0 では Phase 10 = AI統合・マルチカメラ / Phase 11 = プラットフォーム化 / Phase 12 = 商用化 だったが、**v2.0 (2026-05-02) で Phase 13 / 14 / 15 に再割り当て** (X-2 タスク完了)。本リポジトリの Phase 10 / 11 公式定義は下記**制御工学系**で確定。Phase 12 は「Tier 移行 + セキュリティ判断 + 残課題対応」として再定義。
 
 ### Phase 1
 **定義**: QVGA MJPEG 基本実装 (USB CDC-ACM 経由)。プロトコル骨格と基本ストリーミング確立。
@@ -67,13 +67,28 @@
 **定義**: 制御工学統合 — `fps_controller.c` による PID 制御 (Kp=0.15, Ki=0.02, setpoint=3.5, 100ms 周期 / 10 Hz)。`control_thread_func` が独立スレッドで動作。
 **出典**: `01_requirements/phase10_control_engineering_requirements.md` / git commit `2ab7bfc`
 **関連**: PID 制御, 制御周期, control_thread_func
-**⚠ 旧定義との競合**: `MASTER_ROADMAP_2026.md` では「AI統合・マルチカメラ」と記載 (旧, 採用しない)
+**📜 旧定義の解消**: `MASTER_ROADMAP_2026.md` v1.0 の旧 Phase 10 (AI統合) は v2.0 で **Phase 13** に再割り当て済 (2026-05-02)
 
 ### Phase 11 (公式)
 **定義**: 適応制御拡張 — 多変数 (6 変数) + 予測制御の仕様策定段階。`enhanced_control.h` に API 宣言済だが **`.c` 未実装** (caller 0 件)。
 **出典**: `01_requirements/phase11_adaptive_control_requirements.md` / git commit `e371f94`
 **関連**: 適応制御, 予測制御, enhanced_control
-**⚠ 旧定義との競合**: `MASTER_ROADMAP_2026.md` では「プラットフォーム化」と記載 (旧, 採用しない)
+**📜 旧定義の解消**: `MASTER_ROADMAP_2026.md` v1.0 の旧 Phase 11 (プラットフォーム化) は v2.0 で **Phase 14** に再割り当て済 (2026-05-02)
+
+### Phase 12 (公式, 計画策定中)
+**定義**: Tier 移行判断 + セキュリティ判断 (Option A〜D) + 残技術負債対応。本セッション (2026-05-01〜02) の品質要求文書群が引継ぎ材料。
+**出典**: `02_specifications/quality/PENDING_NFR_WORK.md` 全体, RTM v5.0 §C
+**関連**: Tier 1/2/3/C, ADR-006 GATE-1, SECURITY_GAP_ANALYSIS Option A〜D
+**📜 旧定義の解消**: `MASTER_ROADMAP_2026.md` v1.0 の旧 Phase 12 (商用化) は v2.0 で **Phase 15** に再割り当て済 (2026-05-02)
+
+### Phase 13 / 14 / 15 (構想段階, 旧 Phase 10 / 11 / 12)
+**定義**:
+- Phase 13 = AI統合・マルチカメラ (旧 Phase 10)
+- Phase 14 = プラットフォーム化 (旧 Phase 11)
+- Phase 15 = 商用化・事業拡大 (旧 Phase 12)
+
+**出典**: `MASTER_ROADMAP_2026.md` v2.0 §3.2, §4.1, §4.2
+**関連**: 構想段階のため詳細実装は未着手
 
 ---
 

@@ -230,7 +230,27 @@
 
 ---
 
-### X-2. MASTER_ROADMAP_2026 v2.0 改訂
+### ✅ X-2. MASTER_ROADMAP_2026 v2.0 改訂 — **完了 (2026-05-03)**
+
+**成果物**: `05_future_actions/master_roadmap/MASTER_ROADMAP_2026.md` v2.0
+**実施内容**:
+- 冒頭に v2.0 改訂方針 + Phase 番号再割り当てマップ追記
+- 旧 Phase 10 → Phase 13 (AI統合・マルチカメラ) 再割り当て
+- 旧 Phase 11 → Phase 14 (プラットフォーム化) 再割り当て
+- 旧 Phase 12 → Phase 15 (商用化・事業拡大) 再割り当て
+- 新規 Phase 12 = Tier 移行 + セキュリティ判断 + 残課題対応 を追加
+- エグゼクティブサマリーを v2.0 内容に更新
+- 進捗表を Phase 10 (✅完了) / Phase 11 (🟡仕様策定) / Phase 12 (📋計画策定中) / Phase 13-15 (💭構想中) に再構成
+- §3.2 / §4.1 / §4.2 のセクション見出しに「旧Ph10」等の注記追加
+- mermaid gantt chart の Phase 番号修正
+- リスク管理 / リソース計画 / KPI 表内の Phase 番号修正
+
+連動更新:
+- GLOSSARY.md §1: 旧定義の解消ステータスに更新、Phase 12 と Phase 13/14/15 の項目追加
+
+---
+
+### X-2 (旧 — 完了済み記述, 履歴用)
 
 **理由**: 本セッションで Phase 10/11 定義の競合を「制御工学系を正規」と確定した (GLOSSARY §1)。`MASTER_ROADMAP_2026.md` の Phase 10 (AI統合・マルチカメラ) / Phase 11 (プラットフォーム化) は **Phase 番号再割り当て**が必要。
 

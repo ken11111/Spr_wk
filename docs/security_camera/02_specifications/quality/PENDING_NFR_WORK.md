@@ -75,7 +75,15 @@
 
 ---
 
-### P1-C. セキュリティ仕様の「設計済」と「実装済」分離
+### ⏭️ P1-C. セキュリティ仕様の「設計済」と「実装済」分離 — **スキップ (ユーザー判断 2026-05-02)**
+
+**判断理由**: SECURITY_GAP_ANALYSIS.md (138 行で乖離 9 項目を開示) と SECURITY_ARCHITECTURE.md / SECURITY_SPEC.md 冒頭の警告バナーで透明性は確保済。ファイル分割や renaming は cross-link 修正コストの方が大きく、効果に見合わないと判断。
+
+**派生派遣**: 「実装済セキュリティ要素」(WPA2-PSK / CRC-16-CCITT 等) の正の事実は今後 SECURITY_GAP_ANALYSIS.md §7 として追補する余地あり (緊急度低)
+
+---
+
+### P1-C (旧 — スキップされた記述, 履歴用)
 
 **目的**: SECURITY_GAP_ANALYSIS.md で乖離を開示済だが、より積極的な対応として SECURITY_ARCHITECTURE.md / SECURITY_SPEC.md 自体を「設計提案」と「実装済」に**ファイル分割**することで誤読を防ぐ。
 
@@ -92,7 +100,21 @@
 
 ## P2 タスク (中優先)
 
-### P2-A. Use Case / Scenarios 文書 (4+1 view §5)
+### ✅ P2-A. Use Case / Scenarios 文書 (4+1 view §5) — **完了 (2026-05-02)**
+
+**成果物**: [`../use_cases/`](../use_cases/) ディレクトリ新設 (5 ファイル)
+- `README.md` — 索引 + 設計原則
+- `actors.md` — 6 アクター (運用者 / 設置者 / 保守者 / 不正侵入者 / Spresense / PC viewer)
+- `use_case_overview.puml` (+ .png) — UML use case diagram
+- `primary_use_cases.md` — UC-1〜7 (起動/ストリーミング/動き検出録画/ファイル管理/切断復旧/設定変更/人手介入)
+- `exception_scenarios.md` — ES-1〜5 (構造的天井 #1 / WiFi切断 / USB切断 / PC クラッシュ / 設定誤り)
+
+各 UC は Cockburn 形式 (主アクター/前提/主シナリオ/例外/関連 Q+ADR+QAS+実装) で記述。
+要求書 v1.0 §1.1 から use_cases/ への cross-link 追加済。
+
+---
+
+### P2-A (旧 — 完了済み記述, 履歴用)
 
 **目的**: 「誰が・何のために・どう使うか」が文書化されていない。4+1 view の Scenarios が完全欠落。
 

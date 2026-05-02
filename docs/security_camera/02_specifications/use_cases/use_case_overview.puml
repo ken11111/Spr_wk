@@ -1,0 +1,107 @@
+@startuml use_case_overview
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+left to right direction
+
+title Spresense セキュリティカメラ — Use Case 全体図\n4+1 view Scenarios + arc42 §5
+
+' ==============================================================
+' Actors
+' ==============================================================
+:👤 運用者: as Operator
+:👤 設置者: as Installer
+:👤 保守者: as Maintainer
+:🚨 不正侵入者: as Adversary
+
+actor "🤖 Spresense\nデバイス" as Spresense <<system>>
+actor "🤖 PC viewer\nプロセス" as PCViewer <<system>>
+
+' ==============================================================
+' System boundary + use cases
+' ==============================================================
+rectangle "セキュリティカメラ システム" as System #LightYellow {
+
+  usecase "**UC-1**\nシステム起動" as UC1
+  usecase "**UC-2**\n常時 MJPEG\nストリーミング" as UC2
+  usecase "**UC-3**\n動き検出時の録画" as UC3
+  usecase "**UC-4**\n録画ファイル管理" as UC4
+  usecase "**UC-5**\nTCP 切断時の\n自動復旧" as UC5 #LightCoral
+  usecase "**UC-6**\n設定変更" as UC6
+  usecase "**UC-7**\n障害時の人手介入" as UC7 #LightCoral
+
+  ' Exception scenarios (extension points)
+  usecase "ES-1 GS2200M\nバッファ枯渇" as ES1 #Pink
+  usecase "ES-2 WiFi 切断" as ES2 #Pink
+  usecase "ES-4 PC viewer\nクラッシュ" as ES4 #Pink
+}
+
+' ==============================================================
+' Actor → UC associations
+' ==============================================================
+Operator --> UC1 : 起動
+Operator --> UC2 : 閲覧
+Operator --> UC3 : 確認
+Operator --> UC4 : 管理
+
+Installer --> UC1 : 設置/初期設定
+Installer --> UC6 : 設定変更
+Installer ..> System : ファームウェア書込
+
+Maintainer --> UC5 : 監視
+Maintainer --> UC7 : 介入
+Maintainer --> UC6 : 動的調整
+
+Spresense --> UC1
+Spresense --> UC2
+Spresense --> UC5
+Spresense --> UC6 : Phase 10\n動的 FPS
+
+PCViewer --> UC2
+PCViewer --> UC3
+PCViewer --> UC4
+PCViewer --> UC5
+
+' Adversary (脅威モデル)
+Adversary ..> System : 盗聴 / 不正接続\n(ES-* で対応)
+
+' ==============================================================
+' UC 間の関係 (extend / include)
+' ==============================================================
+UC2 <.. UC3 : <<extend>>\n動き検出時
+UC2 <.. UC5 : <<extend>>\n切断発生時
+UC5 <.. UC7 : <<extend>>\n5回失敗時 FAILED
+UC1 ..> UC2 : <<include>>\n起動成功で開始
+
+' ==============================================================
+' Exception → UC 関係
+' ==============================================================
+ES1 ..> UC5 : 引き起こす
+ES2 ..> UC5 : 引き起こす
+ES4 ..> UC5 : 引き起こす
+
+' ==============================================================
+' 注意ノート
+' ==============================================================
+note bottom of UC5
+  ⚠ ADR-002 v1.1 で逆効果と判明:
+  PC FPS 6.74 → 2.77 (-59%)
+  ドロップ率 53.7% → 74.2%
+  根本: 構造的天井 #1
+end note
+
+note bottom of UC7
+  ⚠ 運用ランブック未文書化 (X-4)
+  保守者は手順を毎回再構築
+end note
+
+note right of System
+  **関連文書**:
+  • 詳細 UC: primary_use_cases.md (UC-1〜7)
+  • 異常系: exception_scenarios.md (ES-1〜5)
+  • アクター: actors.md
+  • 上位要求: ../../01_requirements/FUNCTIONAL_REQUIREMENTS.md v1.0
+  • 機能仕様: ../functional/ (6 SPEC)
+  • 品質シナリオ: ../quality/QUALITY_ATTRIBUTE_SCENARIOS.md
+end note
+
+@enduml

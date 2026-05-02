@@ -1,13 +1,191 @@
 # 要求トレーサビリティマトリクス (RTM)
 
-**バージョン**: 4.0 (Phase 10 制御工学統合)
-**日付**: 2026-02-03
+**バージョン**: 5.0 (実装事実ベースの全面再構築)
+**日付**: 2026-05-02
 **対象システム**: Spresense-PC セキュリティカメラシステム
-**ベース**: Phase 10制御工学統合実装計画
 
-## 概要
+> ## ⚠ v5.0 改訂方針 (2026-05-02)
+>
+> **v4.0 (2026-02-03) 以前の問題**:
+> - 「全要求 100% 実装完了 ✅」と主張しているが、本セッションで判明した実態と乖離
+> - 例: REQ-CTRL-001 が「FPS 9.2fps 達成 🎯」だが、Phase 8 実測 PC FPS 6.74 / Phase 9 2.77
+> - ファイル名 `pid_controller.c` を引用しているが実装には存在せず (実際は `fps_controller.c`)
+> - 要求書 Q1-Q25 (v1.0) との紐付けがない (Q番号体系が後から確定したため)
+> - Phase 11 が「実装済」のような印象を与えるが実際は `.h` のみ (.c 未実装)
+> - セキュリティが「100% 実装完了」だが実装は無保護 (SECURITY_GAP_ANALYSIS.md 参照)
+>
+> **v5.0 のアプローチ**:
+> - **§A** Q1-Q25 主軸の正規 trace を新設 (新規メイン)
+> - **§B** 達成 / 乖離 / 未達成のサマリ (現実)
+> - **§C** Phase 12 引継ぎ事項
+> - **§D 以降 (旧 §1〜)**: v4.0 内容を **legacy / 不完全 trace** として保持 (削除しない、史的価値)
+>
+> v5.0 以降は §A〜§C を**正規 trace**、§D 以降を**参考資料**として扱う。
 
-本文書は、セキュリティカメラシステムの要求から仕様、実装、テスト、成果までの体系的なトレーサビリティを提供する。Phase 10制御工学統合により、従来の静的システムから自律最適化システムへの進化を遂げ、要求の完全性と一貫性をより高いレベルで確保する。
+---
+
+## §A. Q1-Q25 主軸 正規 トレーサビリティ (v5.0 メイン)
+
+### A.1 機能要求 trace (要求書 v1.0 §2)
+
+| Q# | 要求 (確定値) | 実装 | UC | QAS | 達成 |
+|---|---|---|---|---|---|
+| Q1 | VGA 640×480 @ 30 fps | `config.h:CAMERA_WIDTH/HEIGHT/FPS` | UC-2 | QAS-2 | ✅ |
+| Q2 | HDR 無効 | `CONFIG_CAMERA_HDR_ENABLE=false` | (UC-2 内部) | — | ✅ |
+| Q3 | カメラ JPEG + 録画 MP4 | `camera_manager.c` (V4L2_PIX_FMT_JPEG), `mp4_recorder.rs` | UC-2, UC-3 | — | ✅ (encoder_manager.c は dead code) |
+| Q4 | WiFi + USB 両対応 | `tcp_server.c`, `usb_transport.c` | UC-1, UC-2 | QAS-2 | ✅ |
+| Q5 | カスタム MJPEG プロトコル | `mjpeg_protocol.c` (sync_word 0xCAFEBABE) | UC-2 | — | ✅ (RTSP 暫定回答とは乖離) |
+| Q6 | 手動 + 動き検出録画 | `motion_detector.rs`, GUI 制御 | UC-3 | — | ✅ |
+| Q7 | MP4 形式 | `mp4_recorder.rs` (ffmpeg libx264) | UC-3, UC-4 | — | ✅ |
+| Q8 | 1GB 容量上限 | `gui_main.rs:MAX_RECORDING_SIZE` | UC-4 | — | 🟡 ローテーション未実装 (X-5a) |
+| Q9 | イベント分割のみ | (motion_detector 連動) | UC-3 | — | 🟡 時間分割未実装 (X-5b) |
+| Q10 | egui GUI | `gui_main.rs` (eframe) | UC-2 | — | ✅ |
+| Q11 | 外部プレーヤー前提 | (アプリ内再生 未実装) | UC-4 | — | 🟡 アプリ内再生 未実装 (X-5c) |
+| Q12 | PC 側で動き検出 | `motion_detector.rs` | UC-3 | — | ✅ (Spresense 側暫定回答から変更) |
+| Q13 | 単一カメラ | (config + GUI 単一前提) | (全 UC) | — | ✅ |
+| Q14 | タイムスタンプメタデータ | `metrics_packet_t.timestamp_ms` | UC-3 | — | 🟡 OSD 重畳 未実装 (X-5d) |
+| Q15 | 通知不要 | (未実装で要求と一致) | — | — | ✅ |
+
+### A.2 非機能要求 trace (要求書 v1.0 §3)
+
+| Q# | 要求 | 達成判定 | 根拠 | 関連 |
+|---|---|---|---|---|
+| Q16 (Must <1s) | 平均遅延 < 1s | ✅ | Phase 8: 134ms / Phase 9: 227ms | QAS-2 |
+| Q16 (Want <100ms) | 平均遅延 < 100ms | 🔴 **物理的に不可** | 構造的天井 #1 (`tx_buff[1]`) で律速 | QAS-2, GLOSSARY §2 #1 |
+| Q17 | フレームドロップ多少許容 | 🔴 実用限界 | Phase 8: 53.7% / Phase 9: 74.2% | QAS-2, FMEA B4 |
+| Q18 | Spresense 自動 / PC 手動起動 | ✅ | NuttX `camera_app_main` + 手動 cargo run | UC-1 |
+| Q19 | 自動再接続 + ログ | 🔴 **逆効果判明** | ADR-002 v1.1: PC FPS 6.74→2.77 (-59%) | UC-5, UC-7, QAS-1, QAS-8, RUNBOOK §4.3 |
+
+### A.3 ハードウェア・スコープ要求
+
+| Q# | 要求 | 実装 | 達成 |
+|---|---|---|---|
+| Q20 | WiFi 拡張 | GS2200M 経由 (SD は未活用) | ✅ |
+| Q21 | Linux/Windows 両対応 | 🟡 Linux/WSL2 のみ検証済、Windows 未検証 (X-5e) | 🟡 |
+| Q22 | Phase 1〜11 まで完了 | Phase 11 仕様策定済 (.c 未実装) | 🟡 Phase 11 .c 未実装 |
+| Q23 | Rust クレート (eframe + serial + ffmpeg) | `Cargo.toml` で確定 | ✅ |
+| Q24 | セキュリティ ローカル LAN 前提 | 🔴 **設計-実装乖離** TLS/JWT 設計のみ | SECURITY_GAP_ANALYSIS, THREAT_MODEL |
+| Q25 | 屋内/屋外 -5℃〜50℃ 24h 連続 | 🔴 **屋内のみ検証** 屋外/温度/24h 未実施 (X-5f, FMEA C7) | FMEA C7 |
+
+### A.4 構造的天井 (新規 trace, 要求書 §3.3)
+
+| 天井 # | 制約 | 影響する Q | 影響する QAS | 解消手段 |
+|---|---|---|---|---|
+| #1 | GS2200M `tx_buff[1] × 1500B` | Q16 Want, Q17, Q19 | QAS-1, QAS-2 | Tier 2/3/C 移行 |
+| #2 | NuttX IOB 1568B | Q16, Q19 | QAS-1 | Tier 2/3 移行 |
+| #3 | usrsock PREALLOC_CONNS=6 | (Q13 単一接続のため未顕在) | — | (現状不要) |
+| #4 | RAM 1.5 MB | Q1 Full HD, Q24 TLS | QAS-5, QAS-6 | Tier 2/3 移行 |
+| #5 | GS2200M 内部非公開 | (構造的) | (FMEA A4 RPN 560) | Tier 2/3/C 移行 |
+
+### A.5 Use Case → 機能仕様 → 実装 trace (UC 起点)
+
+| UC | 関連 Q | functional/SPEC | 主実装 |
+|---|---|---|---|
+| UC-1 起動 | Q4, Q18, Q21 | (起動シーケンス未文書化) | `camera_app_main.c`, `wifi_manager.c` |
+| UC-2 ストリーミング | Q1, Q4, Q5, Q16, Q17 | CAMERA_CAPTURE, STREAMING, ADAPTIVE_CONTROL | `camera_threads.c`, `mjpeg_protocol.c`, `tcp_server.c` |
+| UC-3 動き検出録画 | Q6, Q7, Q12, Q14 | RECORDING | `motion_detector.rs`, `mp4_recorder.rs` |
+| UC-4 ファイル管理 | Q7, Q8, Q9, Q11 | RECORDING | `gui_main.rs:MAX_RECORDING_SIZE` |
+| UC-5 切断復旧 | Q19 | (ADR-002 で代替) | `tcp_server.c:tcp_server_send_with_reconnect` |
+| UC-6 設定変更 | Q22, Q23 | CONTROL_ENGINEERING (Phase 10) | `config.h`, `fps_controller.c` |
+| UC-7 人手介入 | Q19 | (なし) | RUNBOOK.md (人手プロセス) |
+
+### A.6 ADR → 要求 / Phase trace
+
+| ADR | 概要 | 関連 Q | 関連 Phase |
+|---|---|---|---|
+| ADR-001 | TTY raw mode (USB) | Q4 | Phase 1〜2 |
+| ADR-002 v1.1 | TCP Health Monitor (再接続逆効果) | Q19 | Phase 9, 9.2 |
+| ADR-003 | V4L2 RING buffer 3×64KB | Q1 | Phase 1.5 |
+| ADR-004 | CRC LUT (実装は逐次計算で残存) | Q5 | (未実装) |
+| ADR-005 | 3-thread Pipeline (PC) | Q10, Q11 | Phase 8 |
+| ADR-006 | Progressive Resolution Validation | Q1 (Tier 移行判定) | (Phase 12+) |
+| ADR-008 | bounded(3) channel | Q10 | Phase 4.1+ |
+
+---
+
+## §B. 達成 / 乖離 / 未達成サマリ (v5.0)
+
+### ✅ 完全達成 (要求と実装が一致)
+
+Q2 / Q4 / Q6 / Q7 / Q10 / Q12 / Q13 / Q15 / Q16 (Must) / Q18 / Q20 / Q23
+
+### 🟡 乖離あり (要求と実装が異なるが許容範囲)
+
+| Q | 暫定回答 → 実装 |
+|---|---|
+| Q1 | Full HD → VGA (Tier 2/3 で達成可) |
+| Q3 | H.264 → MJPEG (encoder_manager dead code) |
+| Q5 | RTSP → カスタム MJPEG |
+| Q22 | Phase 11 まで完成 → Phase 11 .c 未実装 |
+
+### 🟡 部分達成 (技術負債あり)
+
+| Q | 未達成部分 | 残タスク |
+|---|---|---|
+| Q8 | 自動ローテーション未実装 | X-5a |
+| Q9 | 時間分割未実装 | X-5b |
+| Q11 | アプリ内再生未実装 | X-5c |
+| Q14 | OSD 重畳未実装 | X-5d |
+| Q21 | Windows 未検証 | X-5e |
+
+### 🔴 未達成 / 構造的不可
+
+| Q | 達成不可な理由 | 解消手段 |
+|---|---|---|
+| Q16 (100ms Want) | 構造的天井 #1 で律速 | Tier 2/3 移行 |
+| Q17 (ドロップ < 30%) | Phase 9 実測 74.2% | Tier 2/3 移行 |
+| Q19 (再接続) | ADR-002 v1.1 逆効果判明 | 戦略再考 + Tier 移行 |
+| Q24 (セキュリティ) | TLS/JWT 設計のみ実装無 | Phase 12 セキュリティ判断 (Option A〜D) |
+| Q25 (屋外/24h) | 未検証 | X-5f ストレステスト |
+
+---
+
+## §C. Phase 12 引継ぎ事項
+
+### C.1 緊急対応 (要求書 v1.0 §3.3 ハードウェア制約)
+
+| 優先度 | 引継ぎ項目 | 関連 |
+|---|---|---|
+| 🔴 1 | Tier 移行判断 (Q1, Q16, Q19 の構造的解消) | ADR-006 GATE-1, FMEA A4 (RPN 560) |
+| 🔴 2 | セキュリティ判断 (Q24 Option A/B/C/D) | THREAT_MODEL.md §8 |
+| 🔴 3 | 自動再接続戦略の見直し (現状逆効果) | ADR-002 v1.1, FMEA B3 (RPN 300) |
+
+### C.2 計画的対応
+
+| 引継ぎ項目 | 関連 |
+|---|---|
+| ストレージ ローテーション + 時間分割 | X-5a, X-5b, Q8/Q9 |
+| 屋外/温度/24h ストレステスト | X-5f, Q25, FMEA C7 |
+| アプリ内再生 UI | X-5c, Q11 |
+| OSD 重畳 | X-5d, Q14 |
+| Windows ネイティブビルド検証 | X-5e, Q21 |
+| CPU 予算実測手段 | X-6 (CPU_BANDWIDTH_BUDGET §5) |
+| 個別 functional/ SPEC 整合性チェック | X-3 |
+| MASTER_ROADMAP_2026 v2.0 改訂 | X-2 |
+
+### C.3 監視継続
+
+| 項目 | 関連 |
+|---|---|
+| Phase 11 .c 実装判断 | Q22, FMEA B8 |
+| dead code 削除 (encoder_manager / protocol_handler) | QAS-7, FMEA D7 |
+| ログスタイル統一 | CROSS_CUTTING_CONCERNS §1, FMEA D6 |
+
+### C.4 完了済み (本セッション 2026-05-01〜02)
+
+P0 (Glossary / QAS / 要求書 v1.0) / P1-A (CPU/帯域予算) / P1-B (Cross-cutting Concerns, X-7 派生) / P2-A (Use Case) / P2-B (FMEA) / P2-C (Threat Model) / X-7 (WiFi 認証情報) / X-4 (運用ランブック) / **X-1 (本書 RTM v5.0)**
+
+---
+
+## §D. v4.0 内容 (legacy / 参考資料 — 一部架空 KPI を含む)
+
+> ⚠ 以下のセクションは **v4.0 (2026-02-03)** に作成された内容を保持したものです。本セッションの実態調査で多くの「100% 達成」表記が実装事実と乖離していることが判明したため、**正規 trace としては §A〜§C を参照**してください。
+>
+> v4.0 内容を完全に削除しないのは、Phase 10 制御工学統合の **設計意図** が記録されているためです (実装と異なる箇所は v5.0 §A〜§C で訂正済)。
+
+---
+
+
 
 ### Phase 10 制御工学統合トレーサビリティ
 - **理論要求**: 制御工学G₁(s), G₂(s)モデル → 仕様 → 実装 → 検証 → 成果

@@ -324,3 +324,124 @@ void perf_logger_cleanup(void)
   LOG_INFO("Total frames processed: %u", g_total_frames);
 #endif
 }
+
+/****************************************************************************
+ * Per-thread CPU Time Tracking Implementation
+ *
+ * Uses CLOCK_THREAD_CPUTIME_ID (NuttX time.h:86) for per-calling-thread
+ * CPU time, contrasted against CLOCK_MONOTONIC for wall time. The ratio
+ * gives CPU utilization percent for the calling thread.
+ *
+ * X-6 (PENDING_NFR_WORK.md): P1-A 実測手段の確立
+ ****************************************************************************/
+
+void perf_thread_cpu_init(perf_thread_cpu_t *stats, const char *name)
+{
+  if (stats == NULL)
+    {
+      return;
+    }
+
+  memset(stats, 0, sizeof(perf_thread_cpu_t));
+  stats->name = name;
+  stats->max_percent = 0.0f;
+  stats->avg_percent = 0.0f;
+
+  /* Take an initial baseline sample so the first user-visible measurement
+   * has a valid prev_cpu_us / prev_wall_us pair.
+   */
+
+  struct timespec ts_cpu;
+  struct timespec ts_wall;
+
+  if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts_cpu) == 0)
+    {
+      stats->prev_cpu_us = (uint64_t)ts_cpu.tv_sec * 1000000ULL
+                         + (uint64_t)ts_cpu.tv_nsec / 1000ULL;
+    }
+
+  if (clock_gettime(CLOCK_MONOTONIC, &ts_wall) == 0)
+    {
+      stats->prev_wall_us = (uint64_t)ts_wall.tv_sec * 1000000ULL
+                          + (uint64_t)ts_wall.tv_nsec / 1000ULL;
+    }
+
+  LOG_INFO("perf_thread_cpu_init: name=%s",
+           (stats->name != NULL) ? stats->name : "(null)");
+}
+
+void perf_thread_cpu_sample(perf_thread_cpu_t *stats)
+{
+  if (stats == NULL)
+    {
+      return;
+    }
+
+  struct timespec ts_cpu;
+  struct timespec ts_wall;
+
+  if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts_cpu) != 0)
+    {
+      return;
+    }
+
+  if (clock_gettime(CLOCK_MONOTONIC, &ts_wall) != 0)
+    {
+      return;
+    }
+
+  uint64_t cpu_us = (uint64_t)ts_cpu.tv_sec * 1000000ULL
+                  + (uint64_t)ts_cpu.tv_nsec / 1000ULL;
+  uint64_t wall_us = (uint64_t)ts_wall.tv_sec * 1000000ULL
+                   + (uint64_t)ts_wall.tv_nsec / 1000ULL;
+
+  uint64_t cpu_delta = cpu_us - stats->prev_cpu_us;
+  uint64_t wall_delta = wall_us - stats->prev_wall_us;
+
+  if (wall_delta > 0)
+    {
+      /* CPU% = (CPU time spent) / (wall time elapsed) × 100 */
+
+      stats->cpu_percent = (float)cpu_delta * 100.0f / (float)wall_delta;
+
+      /* Cumulative average (running mean) */
+
+      if (stats->sample_count > 0)
+        {
+          stats->avg_percent =
+            (stats->avg_percent * (float)stats->sample_count
+             + stats->cpu_percent) / (float)(stats->sample_count + 1);
+        }
+      else
+        {
+          stats->avg_percent = stats->cpu_percent;
+        }
+
+      if (stats->cpu_percent > stats->max_percent)
+        {
+          stats->max_percent = stats->cpu_percent;
+        }
+    }
+
+  stats->prev_cpu_us = cpu_us;
+  stats->prev_wall_us = wall_us;
+  stats->sample_count++;
+}
+
+void perf_thread_cpu_log(const perf_thread_cpu_t *stats)
+{
+  if (stats == NULL || stats->name == NULL)
+    {
+      return;
+    }
+
+  /* Tag with [CPU] for easy syslog grep / parse_cpu_log.py extraction */
+
+  syslog(LOG_INFO,
+         "[CPU] %s: cur=%.1f%% avg=%.1f%% max=%.1f%% (n=%u)\n",
+         stats->name,
+         (double)stats->cpu_percent,
+         (double)stats->avg_percent,
+         (double)stats->max_percent,
+         (unsigned int)stats->sample_count);
+}

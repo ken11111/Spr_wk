@@ -402,7 +402,37 @@
 
 ---
 
-### X-6. CPU 予算の実測手段の確立
+### ✅ X-6. CPU 予算の実測手段の確立 — **実装準備完了 (2026-05-03)**
+
+**成果物**:
+- コード: `apps/examples/security_camera/perf_logger.{h,c}` に per-thread CPU 計測 API 追加
+  * `perf_thread_cpu_init/sample/log` 3 関数
+  * `perf_thread_cpu_t` 構造体 (cpu_percent / avg / max / sample_count)
+  * 採用方式: `clock_gettime(CLOCK_THREAD_CPUTIME_ID)` × `CLOCK_MONOTONIC` の比率
+- 計装: `apps/examples/security_camera/camera_threads.c`
+  * camera_thread (30 frames 周期 = ~1 sec)
+  * usb_thread (30 frames 周期)
+  * control_thread (10 cycles 周期 = ~1 sec @ 10Hz)
+- ガイド: [`../../07_operations/CPU_MEASUREMENT_GUIDE.md`](../../07_operations/CPU_MEASUREMENT_GUIDE.md) (~200 行)
+  * §1 計測アーキテクチャ (clock_gettime ベース採用理由)
+  * §2 ビルド・書込手順
+  * §3 計測実施シナリオ (A/B/C)
+  * §4 ログ集計 (parse_cpu_log.py 連動)
+  * §5 計測結果の文書反映フロー
+  * §6 トラブルシューティング
+- 集計スクリプト: `scripts/cpu_measurement/parse_cpu_log.py`
+  * syslog の `[CPU]` 行を正規表現抽出
+  * 平均/最大/合計を集計、CSV 出力対応
+  * smoke test 通過済
+
+**残課題 (ハードウェア実行が必要)**:
+- 実機での実測実施 (Phase 12 序盤推奨)
+- 結果を CPU_BANDWIDTH_BUDGET §2 / QUALITY_REQUIREMENTS §2.2 に反映
+- gs2200m driver task (kernel) の CPU 利用率は本実装の対象外 (要別手段, 例: CONFIG_SCHED_CPULOAD=y + `top`)
+
+---
+
+### X-6 (旧 — 完了済み記述, 履歴用)
 
 **理由**: P1-A の前提として、Cortex-M4F × 6 の CPU 利用率を実測する手段が未確立。
 

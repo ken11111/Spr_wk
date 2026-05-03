@@ -179,6 +179,84 @@ void perf_logger_print_stats(bool force);
 
 void perf_logger_cleanup(void);
 
+/****************************************************************************
+ * Per-thread CPU Time Tracking (X-6: P1-A 実測手段の確立)
+ *
+ * Each application thread periodically calls perf_thread_cpu_sample() to
+ * record its CPU time vs wall time. Result is stored as cpu_percent (0-100).
+ *
+ * Approach:
+ *   - clock_gettime(CLOCK_THREAD_CPUTIME_ID) returns calling thread's CPU time
+ *   - clock_gettime(CLOCK_MONOTONIC) returns wall time
+ *   - cpu_percent = (cpu_delta / wall_delta) × 100 between consecutive samples
+ *
+ * Single-core (CONFIG_SMP=n) constraint: sum of all thread cpu_percent
+ * approaches 100% under CPU-bound conditions.
+ ****************************************************************************/
+
+/* Per-thread CPU statistics */
+typedef struct perf_thread_cpu_s
+{
+  const char *name;          /* Thread name for logging (e.g., "camera") */
+  uint64_t   prev_cpu_us;    /* Previous CPU-time sample (us) */
+  uint64_t   prev_wall_us;   /* Previous wall-time sample (us) */
+  uint32_t   sample_count;   /* Number of samples taken */
+  float      cpu_percent;    /* Latest computed CPU% (0-100) */
+  float      avg_percent;    /* Cumulative average since init */
+  float      max_percent;    /* Peak observed CPU% */
+} perf_thread_cpu_t;
+
+/****************************************************************************
+ * Name: perf_thread_cpu_init
+ *
+ * Description:
+ *   Initialize per-thread CPU statistics. Must be called by the thread
+ *   itself at startup.
+ *
+ * Parameters:
+ *   stats - Statistics structure (typically a stack or static variable
+ *           local to the thread)
+ *   name  - Short name for logging (e.g., "camera", "usb", "control")
+ *
+ ****************************************************************************/
+
+void perf_thread_cpu_init(perf_thread_cpu_t *stats, const char *name);
+
+/****************************************************************************
+ * Name: perf_thread_cpu_sample
+ *
+ * Description:
+ *   Take a CPU-time sample and update stats->cpu_percent. Must be called
+ *   by the thread whose CPU usage is being measured (uses
+ *   CLOCK_THREAD_CPUTIME_ID which is per-calling-thread).
+ *
+ *   Recommended sampling interval: ~1 second (i.e., every 30 frames at
+ *   30 fps) — too short → measurement noise; too long → less responsive.
+ *
+ * Parameters:
+ *   stats - Statistics structure (initialized via perf_thread_cpu_init)
+ *
+ ****************************************************************************/
+
+void perf_thread_cpu_sample(perf_thread_cpu_t *stats);
+
+/****************************************************************************
+ * Name: perf_thread_cpu_log
+ *
+ * Description:
+ *   Emit syslog INFO line with current CPU% / avg / max for the given
+ *   stats. Format: "[CPU] <name>: cur=X.X% avg=Y.Y% max=Z.Z% (n=N)"
+ *
+ *   Designed for offline analysis: parse syslog with the helper script
+ *   in scripts/cpu_measurement/parse_cpu_log.py
+ *
+ * Parameters:
+ *   stats - Statistics structure
+ *
+ ****************************************************************************/
+
+void perf_thread_cpu_log(const perf_thread_cpu_t *stats);
+
 #ifdef __cplusplus
 }
 #endif

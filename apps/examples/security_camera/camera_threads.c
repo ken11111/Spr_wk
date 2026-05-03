@@ -344,6 +344,10 @@ void *camera_thread_func(void *arg)
   uint32_t consecutive_jpeg_errors = 0;      /* Phase 4.1.1 */
   uint64_t total_jpeg_bytes = 0;             /* For average JPEG size */
 
+  /* X-6: per-thread CPU% tracking (P1-A 実測手段) */
+  perf_thread_cpu_t cpu_stats;
+  perf_thread_cpu_init(&cpu_stats, "camera");
+
   LOG_INFO("== Camera thread started (Step 2: active) ==");
   LOG_INFO("Camera thread priority: %d", CAMERA_THREAD_PRIORITY);
 
@@ -496,6 +500,10 @@ void *camera_thread_func(void *arg)
       frame_count++;
       if (frame_count % stats_interval == 0)
         {
+          /* X-6: take CPU sample once per stats window */
+          perf_thread_cpu_sample(&cpu_stats);
+          perf_thread_cpu_log(&cpu_stats);
+
           int action_depth = frame_queue_depth(g_action_queue);
           int empty_depth = frame_queue_depth(g_empty_queue);
           uint32_t avg_jpeg_kb = (total_jpeg_bytes / frame_count) / 1024;
@@ -604,6 +612,10 @@ void *usb_thread_func(void *arg)
 
   uint32_t slow_send_count = 0;
   struct timespec send_start, send_end;
+
+  /* X-6: per-thread CPU% tracking (P1-A 実測手段) */
+  perf_thread_cpu_t cpu_stats;
+  perf_thread_cpu_init(&cpu_stats, "usb");
 
   (void)arg;  /* Unused parameter */
 
@@ -1144,6 +1156,10 @@ void *usb_thread_func(void *arg)
 
           if (packet_count % stats_interval == 0)
             {
+              /* X-6: take CPU sample once per stats window */
+              perf_thread_cpu_sample(&cpu_stats);
+              perf_thread_cpu_log(&cpu_stats);
+
               uint32_t avg_packet_size = total_bytes / packet_count;
               uint32_t throughput_kbps = (total_bytes * 8) / 1000;
 
@@ -1350,9 +1366,20 @@ void *control_thread_func(void *arg)
   static uint32_t control_cycle_count = 0;
   static uint64_t last_metrics_log_us = 0;
 
+  /* X-6: per-thread CPU% tracking (P1-A 実測手段) */
+  perf_thread_cpu_t cpu_stats;
+  perf_thread_cpu_init(&cpu_stats, "control");
+
   while (!g_shutdown_requested)
     {
       control_cycle_count++;
+
+      /* X-6: sample CPU once per ~1 sec (10 cycles at 10Hz) */
+      if ((control_cycle_count % 10) == 0)
+        {
+          perf_thread_cpu_sample(&cpu_stats);
+          perf_thread_cpu_log(&cpu_stats);
+        }
 
       /* Check for control failures */
       if (detect_control_failure())

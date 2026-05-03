@@ -2,8 +2,18 @@
 
 **作成日**: 2026-01-23
 **バージョン**: 1.0
-**ステータス**: Phase 5 セキュリティ強化
+**ステータス**: Phase 5 セキュリティ強化 (⚠ **設計提案**, 実装未着手)
 **対象システム**: Spresense HDRカメラ防犯カメラシステム Phase 9.2
+
+---
+
+> **⚠ 重要 (2026-05-03 追記)**: 本書は **セキュリティ設計提案** であり、現実装は本書記述の機構 (TLS 1.3 / WPA2-PSK 詳細仕様 / JWT 認証 / 暗号化等) のうち **WPA2-PSK のみ実装**。TLS / JWT / 暗号化 / 認証はすべて未実装。
+>
+> - 設計-実装乖離詳細: [`../quality/SECURITY_GAP_ANALYSIS.md`](../quality/SECURITY_GAP_ANALYSIS.md)
+> - 脅威モデル (DREAD 採点): [`../quality/THREAT_MODEL.md`](../quality/THREAT_MODEL.md) (TI-1 DREAD 48 / TS-1 DREAD 46 / TI-2 DREAD 45)
+> - 整合性監査: [`../quality/FUNCTIONAL_SPEC_AUDIT.md`](../quality/FUNCTIONAL_SPEC_AUDIT.md) §5
+>
+> 本書を読む際は、記述内容が「実装済」ではなく「設計提案」である点に注意。Phase 12 で SECURITY_GAP_ANALYSIS.md §5 Option A〜D の判断が必要。
 
 ---
 

@@ -1,5 +1,9 @@
 # Phase 11 適応制御システム技術仕様書
 
+> **⚠ 重要 (2026-05-03 追記)**: 本書は **仕様策定段階の設計提案** であり、実装は未着手。`enhanced_control.h` に API 宣言済だが **`.c` ファイル不存在、caller 0 件**。Phase 11 統合は判断保留中 (FMEA B8 RPN 225)。詳細は [`../quality/FUNCTIONAL_SPEC_AUDIT.md`](../quality/FUNCTIONAL_SPEC_AUDIT.md) §1, [`../architecture/spresense_main_board_l2c_control.puml`](../architecture/spresense_main_board_l2c_control.puml) 参照。
+
+---
+
 ## 1. システム概要
 
 ### 1.1 目的

@@ -5,6 +5,13 @@
 **対象システム**: Spresense → PC MJPEGストリーミング
 **ベース**: 制御工学分析による性能最適化
 
+> **⚠ Phase 11 機能注記 (2026-05-03)**: 本書記述の以下機能は **Phase 11 仕様策定段階で .c 未実装**:
+> - 「適応的バッファ管理」 (`buffer_manager_t` は型定義のみ)
+> - 「インテリジェントフレーム破棄」 (caller 0 件)
+>
+> 「Phase 10 PID 制御による動的最適化」は ✅ 実装済 (`fps_controller.c` + `control_thread_func`)。
+> 詳細は [`../quality/FUNCTIONAL_SPEC_AUDIT.md`](../quality/FUNCTIONAL_SPEC_AUDIT.md) §6, [`../architecture/spresense_main_board_l2c_control.puml`](../architecture/spresense_main_board_l2c_control.puml) 参照。
+
 ## 概要
 
 SpresenseカメラシステムからPC側への連続JPEG画像ストリーミング機能。Phase 10で制御工学理論を統合し、PID制御による動的最適化、適応的バッファ管理、インテリジェントフレーム破棄により、自律的に性能を最適化する高品質ストリーミングを実現。

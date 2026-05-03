@@ -5,6 +5,8 @@
 **対象システム**: Phase 10 制御工学統合実装
 **ベース**: Phase 8-9.2制御工学分析結果 + Spresense仕様調査結果
 
+> **⚠ Phase 番号注記 (2026-05-03)**: 本書中の「Phase 11 AI統合への基盤」記述は、MASTER_ROADMAP_2026.md v2.0 (2026-05-02) で Phase 番号再割り当てが行われた結果、**現在の Phase 11 (適応制御拡張) ではなく Phase 13 (旧 Phase 10 = AI 統合)** を指すように扱う。詳細は [`../quality/GLOSSARY.md`](../quality/GLOSSARY.md) §1 と [`../quality/FUNCTIONAL_SPEC_AUDIT.md`](../quality/FUNCTIONAL_SPEC_AUDIT.md) §3 参照。
+
 ## 概要
 
 Phase 10で新規導入する制御工学理論統合による自律最適化機能。PID制御、適応制御、予測制御を組み合わせた包括的システム最適化により、従来のスタティック制御からダイナミック制御へのパラダイムシフトを実現する。Phase 11 AI統合への基盤も同時に構築。

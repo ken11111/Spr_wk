@@ -1,9 +1,10 @@
 # CPU & 帯域 予算表 (Performance Budget)
 
-**バージョン**: 1.0
+**バージョン**: 1.1 (タイミング分析追加)
 **作成日**: 2026-05-01
-**目的**: SPRESENSE_TCP_CONSTRAINTS.md (メモリ予算) を補完し、CPU 利用率・帯域利用率・レイテンシを定量化する
-**位置付け**: P1-A タスク (PENDING_NFR_WORK.md)
+**最終更新**: 2026-05-03
+**目的**: SPRESENSE_TCP_CONSTRAINTS.md (メモリ予算) を補完し、CPU 利用率・帯域利用率・レイテンシを定量化 + PlantUML タイミング図で動的挙動を可視化
+**位置付け**: P1-A タスク (PENDING_NFR_WORK.md) + タイミング分析拡張 (2026-05-03)
 
 > **方針**: 既存実測値 (Phase 8/9 + perf_logger) と理論計算を併記。実測手段未確立の項目は **TBD** として計測方法を記載する。
 
@@ -238,6 +239,93 @@ typedef struct perf_thread_metrics_s {
 
 ---
 
+## §7 タイミング分析 (動的挙動の可視化)
+
+§2-§4 の静的分析を補完するため、PlantUML timing 図で時間軸ベースの動的挙動を可視化。実測値 (Phase 8/9) と perf_logger 計測点を紐付けて、構造的天井 #1 が顕在化する瞬間と連鎖メカニズムを把握する。
+
+### §7.1 図解一覧
+
+#### T-1: Frame Pipeline タイミング (~134ms)
+
+ソース: [`../architecture/cpu_timing_frame_pipeline.puml`](../architecture/cpu_timing_frame_pipeline.puml) / 画像: [`../architecture/cpu_timing_frame_pipeline.png`](../architecture/cpu_timing_frame_pipeline.png)
+
+![T-1 Frame Pipeline](../architecture/cpu_timing_frame_pipeline.png)
+
+5 アプリスレッド + SPI/WiFi の状態遷移を 0-200ms で表示。perf_logger.h:43-67 の計測点 (`ts_camera_poll_*`, `ts_camera_dqbuf_*`, `ts_pack_*`, `ts_usb_write_*`, `ts_frame_end`) との対応を明示。**TCP send (45-134ms) が 1 フレーム時間の 66% を占める**ことを視覚化。
+
+#### T-2: PID 制御 100ms サイクル × 1 秒
+
+ソース: [`../architecture/cpu_timing_pid_cycle.puml`](../architecture/cpu_timing_pid_cycle.puml) / 画像: [`../architecture/cpu_timing_pid_cycle.png`](../architecture/cpu_timing_pid_cycle.png)
+
+![T-2 PID Cycle](../architecture/cpu_timing_pid_cycle.png)
+
+control_thread の 10 Hz 動作と他 thread の CPU 競合を 1 秒間 (10 サイクル) で表示。500-700ms の構造的天井 #1 顕在化期間中も control_thread の PID 計算自体は維持される (~5ms / 100ms 周期) が、観測対象 (queue_depth) が異常値となり PID 出力が無効化される事実を示す。Phase 11 .c 実装時の追加負荷試算 (< 5ms 増) も併記。
+
+#### T-3: tx_buff[1] 直列化 — 84 SPI 転送
+
+ソース: [`../architecture/cpu_timing_tx_buff_serialization.puml`](../architecture/cpu_timing_tx_buff_serialization.puml) / 画像: [`../architecture/cpu_timing_tx_buff_serialization.png`](../architecture/cpu_timing_tx_buff_serialization.png)
+
+![T-3 tx_buff Serialization](../architecture/cpu_timing_tx_buff_serialization.png)
+
+122KB batch を 84 SPI 転送に分解する詳細。usb_thread が send() 内で ~125ms ブロックする期間と、その間 camera_thread が frame 生成を継続して action_queue overflow を引き起こす連鎖影響を視覚化。**構造的天井 #1 のメカニズムを最も詳細に示す図**。
+
+#### T-4: Auto-Reconnect FSM タイミング
+
+ソース: [`../architecture/cpu_timing_auto_reconnect.puml`](../architecture/cpu_timing_auto_reconnect.puml) / 画像: [`../architecture/cpu_timing_auto_reconnect.png`](../architecture/cpu_timing_auto_reconnect.png)
+
+![T-4 Auto-Reconnect](../architecture/cpu_timing_auto_reconnect.png)
+
+5 回 backoff (1s + 3s + 5s + 7s + 9s = 累計 25 秒) の状態遷移を秒単位で表示。tcp_server FSM / camera_thread / usb_thread / Health State / PC viewer の 5 レーンで Auto-Reconnect の **逆効果** (PC FPS 6.74→2.77, ドロップ 53.7%→74.2%) を時間軸で説明。RUNBOOK §3.4 / §4.3 連動。
+
+#### T-5: ジッタ分析 (134ms vs 2,713ms)
+
+ソース: [`../architecture/cpu_timing_jitter_comparison.puml`](../architecture/cpu_timing_jitter_comparison.puml) / 画像: [`../architecture/cpu_timing_jitter_comparison.png`](../architecture/cpu_timing_jitter_comparison.png)
+
+![T-5 Jitter Comparison](../architecture/cpu_timing_jitter_comparison.png)
+
+良性 (134ms 平均) と悪性 (2,713ms 最大) の対比。GS2200M 内部 buf 充填 → ACK タイムアウト → WR_MAX_RETRY 100 のメカニズムを可視化。**「ジッタ 20×」の正体**を構造的天井 #1 顕在化の連鎖として示す。
+
+### §7.2 主要観察 (静的分析を補完する追加発見)
+
+#### A. Producer-Consumer の非対称性 (T-1, T-3 から)
+- **camera_thread (Producer)**: ~33ms 周期で frame 生成
+- **usb_thread (Consumer)**: 1 batch ~134ms (構造的天井 #1 で律速)
+- **不均衡比 = 134 / 33 ≈ 4×**: action_queue (5/7/9) で 1-3 frame 分の余裕しか吸収できない
+- → 構造的天井 #1 顕在化時に即座に overflow → ドロップ率上昇
+
+#### B. control_thread の独立性 (T-2 から)
+- Phase 10 PID は **構造的天井 #1 顕在化時も時間的にロバスト** (10Hz 周期維持)
+- ただし **入力データが破綻** すると PID は無効化される
+- Phase 11 多変数制御を実装すれば「frame size が異常」「transmission time 過大」を観測軸に追加できる → ある程度ロバスト性向上見込み (FMEA B8 RPN 225 軽減効果あり)
+
+#### C. SPI 転送中の他スレッドへの連鎖影響 (T-3 から)
+- usb_thread が SPI 転送中ずっと block → queue pull できない
+- camera_thread が frame 生成継続 → queue overflow
+- gs2200m driver の prio=50 (アプリより低) → 高負荷時に SPI 自体も遅延
+- **連鎖効果が累積する構造**
+
+#### D. Auto-Reconnect の時間的非効率 (T-4 から)
+- 1 回目失敗から 5 回目失敗まで **累計 25 秒**
+- backoff 1s + 3s + 5s + 7s + 9s は **線形増加に近い** (exp ではない)
+- 25 秒間 camera_thread は frame 生成継続 → 推定 ~750 frame ドロップ (30fps × 25s)
+- 真の解決: max=5 → 3 短縮、または完全無効化 + 即時 FAILED 状態移行 + 通知
+
+#### E. ジッタの 2 モード性 (T-5 から)
+- ジッタは「連続変動」ではなく **2 状態モード** (134ms 平均 ⇔ 2,713ms 異常)
+- 異常モードへの遷移条件: 連続バースト + WiFi 劣化 + ACK 遅延累積
+- → モード判定 (`tcp_health_moving_avg_ms` 閾値超過 検出) で予兆検知可能
+
+### §7.3 Phase 12 判断材料への寄与
+
+| 判断 | 関連図 | タイミング分析からの寄与 |
+|---|---|---|
+| Tier 移行判断 | T-1, T-3, T-5 | 構造的天井 #1 が時間軸で支配的、ソフトチューニング不能を視覚化 |
+| 自動再接続戦略再考 | T-4 | 25 秒ロスとフレームドロップの定量化、max 短縮 + 即時 FAILED 移行を支持 |
+| Phase 11 .c 実装判断 | T-2 | 100ms 周期内の余裕を試算、追加負荷 < 5ms で実装可能性高 |
+| 運用ランブック (RUNBOOK) | T-4 | RECONNECTING 期間と FAILED 遷移点を時間で明示、待機判断の根拠 |
+
+---
+
 ## §6 結論と次のアクション
 
 | 観点 | 状態 | 次アクション |
@@ -272,3 +360,4 @@ typedef struct perf_thread_metrics_s {
 | バージョン | 日付 | 変更内容 |
 |---|---|---|
 | 1.0 | 2026-05-01 | 初版。CPU モデルの正確化 (CONFIG_SMP=n / 単一コア)、帯域予算 (SPI/WiFi/USB) 数値化、レイテンシ予算分解、計測手段の確立方針 |
+| 1.1 | 2026-05-03 | §7 タイミング分析 (動的挙動の可視化) 追加。PlantUML timing 図 5 枚 (T-1 Frame Pipeline / T-2 PID サイクル / T-3 tx_buff 直列化 / T-4 Auto-Reconnect / T-5 ジッタ比較) で静的分析を補完。Producer-Consumer 非対称性 / control_thread 独立性 / SPI 連鎖影響 / Auto-Reconnect 25 秒ロス / ジッタ 2 モード性 の 5 観察を新規追加 |

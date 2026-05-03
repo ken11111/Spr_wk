@@ -1,0 +1,138 @@
+@startuml cpu_timing_jitter_comparison
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+
+title T-5: ジッタ分析 — 悪性ケース 詳細 (Phase 8 最大 2,713ms)\n良性 134ms との比較は legend 内に / 構造的天井 #1 顕在化メカニズム
+
+robust "🚚 usb_thread send" as USB
+robust "📡 gs2200m driver" as GS
+concise "tx_buff[1]" as TX
+concise "GS2200M 内部 buf" as INT
+concise "WiFi ACK" as ACK
+
+' ==============================================================
+' 良性ケース 部分 (0-134ms): 圧縮表示で示す
+' ==============================================================
+@0
+USB is "send start" #LightGreen
+GS is "SPI loop" #LightYellow
+TX is BUSY
+INT is "余裕"
+ACK is OK
+
+@134
+USB is "良性: send 完了" #LightGreen
+GS is IDLE
+TX is FREE
+INT is "排出済"
+ACK is OK
+note bottom of USB
+  良性ケース (Phase 8 平均) は 134ms で完了
+  → 詳細は T-1 参照
+end note
+
+' ==============================================================
+' 悪性ケース (134ms 以降に延長): 内部 buf 充填からスタック
+' ==============================================================
+@200
+USB is "悪性: send (継続)" #Pink
+GS is "SPI loop" #Pink
+TX is BUSY
+INT is "充填中" #LightYellow
+ACK is "遅延"
+
+@500
+USB is "悪性: send (block)" #Pink
+GS is "wait ACK" #Pink
+TX is BUSY
+INT is "ほぼ満杯" #Pink
+ACK is "遅延"
+note top of INT
+  内部 buf 充填:
+  直前のフレームの送信
+  WiFi ACK 遅延が原因
+end note
+
+@1000
+USB is "悪性: send (block)" #Pink
+GS is "wait ACK" #Pink
+TX is BUSY
+INT is "満杯" #Pink
+ACK is "タイムアウト"
+note top of GS
+  ACK タイムアウト発生
+  WR_MAX_RETRY 100 まで再試行
+end note
+
+@1500
+USB is "悪性: send (block)" #Pink
+GS is "wait ACK" #Pink
+TX is BUSY
+INT is "満杯" #Pink
+
+@2000
+USB is "悪性: send (block)" #Pink
+GS is "wait ACK" #Pink
+TX is BUSY
+INT is "満杯" #Pink
+
+@2500
+USB is "悪性: send (block)" #Pink
+GS is "wait ACK" #Pink
+TX is BUSY
+INT is "排出開始" #LightYellow
+ACK is "遅延"
+
+@2700
+USB is "悪性: send (継続)" #LightYellow
+GS is "SPI loop 再開" #LightYellow
+TX is BUSY
+INT is "排出中" #LightYellow
+ACK is OK
+
+@2713
+USB is "悪性: send 完了" #LightYellow
+GS is IDLE
+TX is FREE
+INT is "排出済"
+ACK is OK
+note top of USB
+  Phase 8 最大値 2,713ms に到達
+  連続バースト負荷が引き金
+end note
+
+@2800
+USB is IDLE
+GS is IDLE
+
+highlight 0 to 134 #LightGreen : "🟢 良性 134ms (平均)"
+highlight 134 to 2713 #Pink : "🔴 悪性 2,713ms (最大, 平均の 20 倍)"
+
+legend bottom
+  **ジッタの正体 = 構造的天井 #1 が顕在化する条件**:
+
+  • **平均 134ms** (Phase 8): GS2200M 内部 buf 排出が SPI 転送に追いつく
+  • **最大 2,713ms** (Phase 8): 内部 buf が満杯 → ACK タイムアウト → WR_MAX_RETRY 100
+
+  **顕在化トリガー**:
+  1. 連続バースト負荷 (前フレーム未排出のうちに次フレーム送信)
+  2. WiFi 環境劣化 (帯域競合, 電波弱化)
+  3. ACK 遅延の累積
+
+  **対比**:
+  | 指標            | 良性   | 悪性    | 比 |
+  |---|---|---|---|
+  | TCP send 時間   | 134ms  | 2,713ms | 20× |
+  | 影響 frame 数   | 1      | ~80     | 80× |
+  | PC FPS への影響 | 微小   | 急落    | 重大 |
+
+  **Phase 9 ピーク**: 5,228ms (Phase 8 比 1.9 倍悪化)
+  Auto-Reconnect 戦略が品質を悪化させる原因の一つ → ADR-002 v1.1
+
+  **解消手段**: Tier 2/3/C 移行 (構造的天井 #1 を経路自体から外す)
+
+  関連: bak/04_test_results/22_PHASE8_PERFORMANCE_ANALYSIS.md
+       bak/04_test_results/26_PHASE9_AUTO_RECONNECT_ANALYSIS.md
+endlegend
+
+@enduml

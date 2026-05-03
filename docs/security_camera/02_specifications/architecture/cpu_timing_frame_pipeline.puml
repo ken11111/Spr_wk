@@ -1,0 +1,125 @@
+@startuml cpu_timing_frame_pipeline
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+
+title T-1: Frame Pipeline タイミング (1 フレームの end-to-end ~134ms)\n横軸 ms / Phase 8 実測ベース / perf_logger.h:43-67 計測点併記
+
+robust "📷 camera_thread" as CAM
+robust "🚚 usb_thread" as USB
+robust "🎛️ control_thread" as CTRL
+robust "📡 gs2200m driver" as GS
+concise "tx_buff[1]" as TX
+concise "WiFi RF" as WIFI
+
+@0
+CAM is "DQBUF wait"
+USB is "queue wait"
+CTRL is IDLE
+GS is IDLE
+TX is FREE
+WIFI is IDLE
+
+@10
+CAM is "DQBUF wait" #LightYellow
+note bottom of CAM
+  ts_camera_dqbuf_start (perf_logger.h:46)
+  V4L2 ring buffer DQBUF (blocking)
+end note
+
+@33
+CAM is "RUN: pack" #LightGreen
+note bottom of CAM
+  ts_camera_dqbuf_end → ts_pack_start
+  ISX012 から JPEG 取得 完了
+  mjpeg_pack_frame() 開始
+end note
+
+@40
+CAM is "queue push"
+USB is "queue pull" #LightGreen
+note bottom of USB
+  frame_queue_pull(g_action_queue)
+  batch_packet 構築開始
+end note
+
+@45
+USB is "RUN: send" #LightGreen
+GS is "RUN: SPI tx" #LightYellow
+TX is BUSY
+note top of GS
+  tcp_server_send_with_reconnect (tcp_server.c:602)
+  → SPI 転送ループ開始
+end note
+
+@50
+WIFI is "TX burst"
+note bottom of WIFI : 802.11n 送信 (~5ms)
+
+@100
+GS is "RUN: SPI tx" #LightYellow
+TX is BUSY
+note top of GS
+  84 回 SPI 転送 中盤 (1500B/pkt × ~84)
+  構造的天井 #1: tx_buff 直列化中
+end note
+
+@130
+USB is "RUN: send" #LightGreen
+GS is "RUN: SPI tx" #LightYellow
+TX is BUSY
+WIFI is "TX burst"
+
+@134
+USB is "queue wait"
+GS is IDLE
+TX is FREE
+WIFI is "ACK"
+note bottom of USB
+  tcp_server_send 完了
+  Phase 8 実測平均 = 134 ms ✅
+end note
+
+@140
+WIFI is IDLE
+CAM is "DQBUF wait"
+note bottom of CAM : 次フレーム待機
+
+' Control thread の 100ms 周期
+@100
+CTRL is "RUN: PID" #LightCyan
+note top of CTRL
+  control_thread_func (camera_threads.c:1330)
+  fps_controller_update() — 100ms 周期 / 10Hz
+  queue_depth 観測 → camera_set_fps_runtime
+end note
+
+@105
+CTRL is IDLE
+
+' ==============================================================
+highlight 33 to 134 #LightGreen : "正常パス (Phase 8 実測 134ms 平均)"
+highlight 45 to 134 #LightYellow : "tx_buff 占有期間 (構造的天井 #1)"
+
+@200
+CAM is IDLE
+USB is IDLE
+GS is IDLE
+
+legend bottom
+  **計測点マッピング (perf_logger.h:43-67)**:
+  • ts_frame_start = @0 (フレーム処理開始)
+  • ts_camera_poll_start/end = @0-10 (poll 待機)
+  • ts_camera_dqbuf_start/end = @10-33 (DQBUF ioctl)
+  • ts_pack_start/end = @33-40 (mjpeg_pack_frame)
+  • ts_usb_write_start/end = @45-134 (TCP send 経由)
+  • ts_frame_end = @134
+
+  **観察**:
+  • 1 フレーム合計 ~134ms のうち TCP send が **89ms (66%)** を占める
+  • SPI 4 MHz 律速で構造的天井 #1 が支配的
+  • Q16 100ms Want は **物理的に不可** (TCP send 単独で超過)
+  • control_thread (Phase 10 PID) は 100ms 周期で短時間 (~5ms) RUN
+  • 実測根拠: bak/04_test_results/22_PHASE8_PERFORMANCE_ANALYSIS.md
+endlegend
+
+@enduml

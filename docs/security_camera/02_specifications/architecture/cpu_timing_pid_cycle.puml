@@ -1,0 +1,135 @@
+@startuml cpu_timing_pid_cycle
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+
+title T-2: PID 制御 100ms サイクル × 1 秒 (10 サイクル)\n通常時 vs 構造的天井 #1 顕在化時の対比
+
+robust "🎛️ control_thread (Phase 10 PID, 10Hz)" as CTRL
+robust "🚚 usb_thread (TCP send)" as USB
+robust "📷 camera_thread" as CAM
+robust "📡 gs2200m driver" as GS
+
+@0
+CTRL is "RUN: PID" #LightCyan
+USB is "TCP send" #LightGreen
+CAM is "DQBUF/pack" #LightGreen
+GS is "SPI tx" #LightYellow
+
+@10
+CTRL is IDLE
+
+@100
+CTRL is "RUN: PID" #LightCyan
+USB is "TCP send" #LightGreen
+CAM is "DQBUF/pack" #LightGreen
+GS is "SPI tx" #LightYellow
+
+@110
+CTRL is IDLE
+
+@200
+CTRL is "RUN: PID" #LightCyan
+
+@210
+CTRL is IDLE
+
+@300
+CTRL is "RUN: PID" #LightCyan
+
+@310
+CTRL is IDLE
+
+@400
+CTRL is "RUN: PID" #LightCyan
+
+@410
+CTRL is IDLE
+
+' ==============================================================
+' @500-700: 構造的天井 #1 顕在化 (TCP send が長期化)
+' ==============================================================
+
+@500
+USB is "TCP send (劣化)" #Pink
+GS is "SPI tx (block)" #Pink
+CTRL is "RUN: PID" #LightCyan
+
+@510
+CTRL is IDLE
+note top of CTRL
+  PID 計算は ~5ms (軽量)
+  → 構造的天井 #1 でも本体は遅延しない
+end note
+
+@600
+CTRL is "RUN: PID" #LightCyan
+USB is "TCP send (劣化)" #Pink
+GS is "SPI tx (block)" #Pink
+note bottom of USB
+  Phase 9 ピーク時:
+  TCP send が 1000ms+ でブロック
+  構造的天井 #1 顕在化
+end note
+
+@610
+CTRL is IDLE
+
+@700
+CTRL is "RUN: PID" #LightCyan
+USB is "TCP send (劣化)" #Pink
+GS is "SPI tx (block)" #Pink
+
+@710
+CTRL is IDLE
+
+' 復帰
+@800
+USB is "TCP send" #LightGreen
+GS is "SPI tx" #LightYellow
+CTRL is "RUN: PID" #LightCyan
+
+@810
+CTRL is IDLE
+
+@900
+CTRL is "RUN: PID" #LightCyan
+
+@910
+CTRL is IDLE
+
+@1000
+CTRL is "RUN: PID" #LightCyan
+
+@1010
+CTRL is IDLE
+
+' ==============================================================
+highlight 500 to 700 #Pink : "構造的天井 #1 顕在化 (TCP 劣化)"
+
+legend bottom
+  **観察**:
+
+  • **control_thread の優位性**: 優先度 100, PID 計算は < 5ms / 100ms 周期
+    → 構造的天井 #1 が顕在化しても **PID サイクル自体は壊れない**
+
+  • **しかし PID の "観測対象" が壊れる**:
+    queue_depth が異常値になり、PID の出力が無効化される可能性
+    → Phase 11 多変数制御で frame size + transmission time も入力に
+       (現状 .c 未実装)
+
+  • **Phase 11 .c 実装時の試算**:
+    - 100ms 周期内で:
+      * weighted_control_input: < 1ms
+      * adaptive_pid_update: < 1ms
+      * predictive_control_update (5-point trend): < 2ms
+      * stability_check: < 1ms
+    → 合計 < 5ms 増 (現 < 5ms から < 10ms へ)、十分余裕あり
+
+  • **別の懸念 (frame_statistics)**:
+    camera_thread が frame ごとに frame_statistics_update 呼出
+    → camera_thread 側の負荷増 (本書では観測対象外)
+
+  関連: Phase 10 commit 2ab7bfc / Phase 11 commit e371f94 (.c 未実装)
+endlegend
+
+@enduml

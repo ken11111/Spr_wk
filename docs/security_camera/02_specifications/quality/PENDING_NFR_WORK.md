@@ -484,7 +484,26 @@
 
 ---
 
-## 取り組み優先度の提案
+## 🚀 Phase 12 確定方針 (2026-05-05 ユーザー判断)
+
+**Phase 12 = Tier 1 維持 + 家庭用 運用品質確立**
+
+新規ハード導入なし + 本番ターゲット家庭用 が確定したことにより、本台帳の各タスクは以下のように再分類される:
+
+| 分類 | タスク | 取扱 |
+|---|---|---|
+| **Phase 12 序盤 必須** | X-6 実機計測, X-5f ST-1, X-8 Stage 1 | 実測 3 件, Phase 12.1 で実施 |
+| **Phase 12.2 戦略判断** | ADR-002 v1.2 (Auto-Reconnect 見直し) | 12.1 実測ベース |
+| **Phase 12.3 段階セキュリティ** | Option B 実装 (PSK / IP allowlist / ログ署名) | LAN 隔離前提を運用文書化 |
+| **Phase 12.4 撤回 (推奨)** | Phase 11 .c 実装 (FMEA B8) | 家庭用に不要、obsolete マーク |
+| **Phase 12.5 仕様確定** | 要求書 v1.1 (本日 commit), PRODUCTION_DEPLOYMENT_CHECKLIST 新規 | WONT FIX 恒久化 |
+| **Phase 13 以降** | X-5f ST-3〜8 (温度/Jamming等), X-8 Stage 2-3, Tier 移行検討 | 家庭用想定では Phase 12 では不要 |
+
+詳細: [`../../05_future_actions/phase_planned/Phase12_実施計画書.md`](../../05_future_actions/phase_planned/Phase12_実施計画書.md)
+
+---
+
+## 取り組み優先度の提案 (Phase 12 確定前の旧表 — 履歴用)
 
 ### 即時着手候補 (Phase 12 序盤)
 - **P1-A** CPU/帯域予算 — 数値根拠が定量化されると Tier 移行判断の精度向上

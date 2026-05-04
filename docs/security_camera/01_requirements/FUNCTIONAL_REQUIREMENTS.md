@@ -3,12 +3,22 @@
 ## 📋 ドキュメント情報
 
 - **作成日**: 2025-12-14
-- **バージョン**: 1.0 (確定)
-- **最終更新**: 2026-05-01
-- **ステータス**: ✅ **実装事実併記により確定**
+- **バージョン**: 1.1 (Phase 12 確定方針反映)
+- **最終更新**: 2026-05-05
+- **ステータス**: ✅ **Tier 1 + 家庭用 で恒久化**
 - **目的**: ユーザー要求の明確化と実装事実の整合性確保
 
 > **📌 v1.0 改訂方針 (2026-05-01)**: v0.1 ドラフトの Q1-Q25 を確定するため、各 Q ブロック末尾に「**📌 実装事実 (Phase X 時点)**」セクションを追加。元のドラフト内容と暫定回答は履歴的価値として保持。要求と実装の乖離は隠さず明示する。
+>
+> **📌 v1.1 改訂方針 (2026-05-05)**: ユーザー判断により **「新規ハード導入なし (Tier 1 維持) + 本番ターゲット家庭用」** に確定。これにより以下が **WONT FIX (恒久対象外)** となった:
+> - **Q1**: Full HD は構造的天井 #1 で物理的不可 → **VGA 640×480 で確定**
+> - **Q3**: H.264 transport は dead code → **MJPEG で確定**
+> - **Q5**: RTSP は採用しない → **カスタム MJPEG プロトコルで確定**
+> - **Q16 Want (100ms)**: 構造的天井 #1 で物理的不可 → **Must (1s) で確定** (Phase 8 実測 134ms ✅ 達成)
+> - **Q24**: TLS/mTLS/JWT は RAM 1.5MB 制約で実装困難 → **LAN 隔離前提 + アプリ層簡易認証 (Option B)**
+>
+> Phase 12 で実装される機能は [`Phase12_実施計画書.md`](../05_future_actions/phase_planned/Phase12_実施計画書.md) §2 を参照。
+>
 > 関連: [`../02_specifications/quality/QUALITY_REQUIREMENTS.md`](../02_specifications/quality/QUALITY_REQUIREMENTS.md), [`../02_specifications/quality/GLOSSARY.md`](../02_specifications/quality/GLOSSARY.md)
 
 ---
@@ -750,10 +760,11 @@ Spresense HDRカメラボードを使用した防犯カメラシステムを構�
 |---|---|---|
 | 0.1 | 2025-12-14 | 初版ドラフト。Q1-Q25 すべて「🔴 要確認」として作成 |
 | 1.0 | 2026-05-01 | **v1.0 確定**: Phase 1-11 実装事実を Q1-Q25 各ブロックに「📌 実装事実」セクションとして併記。§3.3 (ハードウェア制約による達成限界) 新規追加、構造的天井 #1〜#5 と要求の関係を明示。§9 まとめを「確定/乖離/未達」マトリクス形式に変更。`../02_specifications/quality/` 配下文書 (GLOSSARY / QUALITY_REQUIREMENTS / QAS / SECURITY_GAP_ANALYSIS) と相互参照を整備 |
+| 1.1 | 2026-05-05 | **Phase 12 確定方針反映**: ユーザー判断「新規ハード導入なし + 家庭用」により Q1 (Full HD) / Q3 (H.264) / Q5 (RTSP) / Q16 Want (100ms) / Q24 (TLS) を **WONT FIX 恒久化**。冒頭にスコープ注記追加。Phase12_実施計画書.md と相互参照 |
 
 ---
 
-**文書バージョン**: 1.0 (確定)
-**最終更新**: 2026-05-01
-**ステータス**: ✅ **実装事実併記により確定** (元ドラフト構造保持、各 Q に実装事実を追記)
+**文書バージョン**: 1.1 (Phase 12 確定方針反映)
+**最終更新**: 2026-05-05
+**ステータス**: ✅ **Tier 1 + 家庭用 恒久化** (WONT FIX 5 件明示)
 **関連文書**: [`../02_specifications/quality/QUALITY_REQUIREMENTS.md`](../02_specifications/quality/QUALITY_REQUIREMENTS.md), [`../02_specifications/quality/GLOSSARY.md`](../02_specifications/quality/GLOSSARY.md), [`../02_specifications/quality/QUALITY_ATTRIBUTE_SCENARIOS.md`](../02_specifications/quality/QUALITY_ATTRIBUTE_SCENARIOS.md), [`../02_specifications/quality/SECURITY_GAP_ANALYSIS.md`](../02_specifications/quality/SECURITY_GAP_ANALYSIS.md)

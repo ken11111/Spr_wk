@@ -405,7 +405,29 @@
 
 ---
 
-### X-8. テストカバレッジ実測 + ベースライン確立 (新規, 緊急度: 中)
+### ✅ X-8. テストカバレッジ実測 + ベースライン確立 — **ベースライン確立 (2026-05-05)**
+
+**成果物**: [`TEST_COVERAGE_BASELINE.md`](TEST_COVERAGE_BASELINE.md) (~250 行)
+
+**実測ベースライン (2026-05-05)**:
+- PC viewer (Rust): **31 test 関数** (35 pass / 0 fail / 3 ignored)
+  * cargo test --features gui で全件成功
+  * テスト密度: protocol/motion/ring 系は高 (1.0+)、gui_main 1815 行は test 0
+- Spresense アプリ (C): **0 test 関数**
+  * NuttX 内蔵 unit test framework なし、ハード依存で host build 困難
+
+**改善計画 (Phase 12 以降)**:
+- Stage 1: cargo-llvm-cov 導入 → CI で行カバレッジ自動測定
+- Stage 2: gui_main.rs 分割 (1815 行 → 5+ モジュール)
+- Stage 3: Spresense Pure-Logic 抽出 (mjpeg_protocol / fps_controller / frame_statistics)
+
+**新数値目標**: 1 ヶ月で PC 30% / 3 ヶ月で 50% (旧 92% は撤回)
+
+**関連 X-3 派生**: TEST_COVERAGE_ENHANCEMENT_SPEC.md v1.0 の「92%」を本書ベースに改訂が必要 (Phase 12)
+
+---
+
+### X-8 (旧 — 完了済み記述, 履歴用)
 
 **理由**: X-3 監査で判明 — TEST_COVERAGE_ENHANCEMENT_SPEC.md の「カバレッジ 92%」が未計測値であり、QUALITY_REQUIREMENTS §7.5 でも ⚪ 未計測と判定済。
 

@@ -336,14 +336,26 @@
 
 要求書 v1.0 §9 で「⚪ 未達成 / 未検証」と確定したもの:
 
-| ID | 項目 | 関連 Q | 規模 |
-|---|---|---|---|
-| X-5a | ストレージ ローテーション (1GB 上限到達時の古いファイル削除) | Q8 | 中 |
-| X-5b | 録画ファイルの時間分割 (1 時間ごとなど) | Q9 | 小〜中 |
-| X-5c | アプリ内再生 UI (egui で MP4 再生) | Q11 | 中 |
-| X-5d | OSD 重畳 (映像にタイムスタンプ書き込み) | Q14 | 中 |
-| X-5e | Windows ネイティブビルド検証 | Q21 | 小 |
-| X-5f | 屋外 / 温度範囲 / 24h 連続稼働ストレステスト | Q25 | 大 |
+| ID | 項目 | 関連 Q | 規模 | 状態 |
+|---|---|---|---|---|
+| ✅ X-5a | ストレージ ローテーション (1GB 上限到達時の古いファイル削除) | Q8 | 中 | **実装済 (Rust_ws c737f3b)** |
+| ✅ X-5b | 録画ファイルの時間分割 (1 時間ごとなど) | Q9 | 小〜中 | **実装済 (Rust_ws c737f3b)** |
+| X-5c | アプリ内再生 UI (egui で MP4 再生) | Q11 | 中 | 未着手 |
+| ✅ X-5d | OSD 重畳 (映像にタイムスタンプ書き込み) | Q14 | 中 | **実装済 (Rust_ws c737f3b)** |
+| X-5e | Windows ネイティブビルド検証 | Q21 | 小 | 未着手 |
+| X-5f | 屋外 / 温度範囲 / 24h 連続稼働ストレステスト | Q25 | 大 | 未着手 |
+
+**X-5a/b/d 実装メモ (2026-05-04)**:
+- Rust_ws リポジトリ commit `c737f3b` で実装
+  * `ui_tokens.rs` 新設 (Design System トークン + paint_hud + ConnState)
+  * `mp4_recorder.rs` 拡張: `RecordingPolicy` + `RecordingManager`
+    (X-5a 容量上限ローテーション + X-5b 時間/バイト分割)
+  * `gui_main.rs` 統合: apply_visuals + paint_hud オーバーレイ
+  * `ring_buffer.rs::iter_frames()` 追加 (pre-existing build break 修正)
+- 並行して外部ハンドオフ "Spresense Security Camera Design System.zip"
+  のダークテーマ + §文言 (信号なし · NO SIGNAL 等) を適用
+- `cargo check --features gui --bin security_camera_gui` 通過 (44 warnings)
+- 実 GUI 動作テストは Phase 12 で実機検証
 
 **関連**: TECHNICAL_DEBT_REGISTER.md と一部重複の可能性 → 統合管理候補
 

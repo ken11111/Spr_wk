@@ -75,10 +75,11 @@
 **関連**: 適応制御, 予測制御, enhanced_control
 **📜 旧定義の解消**: `MASTER_ROADMAP_2026.md` v1.0 の旧 Phase 11 (プラットフォーム化) は v2.0 で **Phase 14** に再割り当て済 (2026-05-02)
 
-### Phase 12 (公式, 計画策定中)
-**定義**: Tier 移行判断 + セキュリティ判断 (Option A〜D) + 残技術負債対応。本セッション (2026-05-01〜02) の品質要求文書群が引継ぎ材料。
-**出典**: `02_specifications/quality/PENDING_NFR_WORK.md` 全体, RTM v5.0 §C
-**関連**: Tier 1/2/3/C, ADR-006 GATE-1, SECURITY_GAP_ANALYSIS Option A〜D
+### Phase 12 (公式, 確定方針 2026-05-05)
+**定義**: **Tier 1 維持 + 家庭用 運用品質確立** — 新規ハード導入なし、家庭 LAN 内個人運用を最終ターゲットとして実用品質を確立。実測 (CPU / 24h 連続 / カバレッジ) → 自動再接続戦略改定 → セキュリティ Option B 段階実装 → 仕様恒久化 (要求書 v1.1) の 6 サブ Phase。
+**出典**: `05_future_actions/phase_planned/Phase12_実施計画書.md` v1.0 / git commit (Phase 12 キックオフ)
+**関連**: Tier 1, セキュリティ Option B (LAN 隔離 + アプリ層 PSK + IP allowlist + ログ署名)
+**WONT FIX 確定**: Q1 Full HD / Q3 H.264 transport / Q5 RTSP / Q16 Want 100ms / Q24 TLS
 **📜 旧定義の解消**: `MASTER_ROADMAP_2026.md` v1.0 の旧 Phase 12 (商用化) は v2.0 で **Phase 15** に再割り当て済 (2026-05-02)
 
 ### Phase 13 / 14 / 15 (構想段階, 旧 Phase 10 / 11 / 12)

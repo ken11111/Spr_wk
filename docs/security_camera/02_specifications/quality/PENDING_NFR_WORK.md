@@ -340,10 +340,15 @@
 |---|---|---|---|---|
 | ✅ X-5a | ストレージ ローテーション (1GB 上限到達時の古いファイル削除) | Q8 | 中 | **実装済 (Rust_ws c737f3b)** |
 | ✅ X-5b | 録画ファイルの時間分割 (1 時間ごとなど) | Q9 | 小〜中 | **実装済 (Rust_ws c737f3b)** |
-| X-5c | アプリ内再生 UI (egui で MP4 再生) | Q11 | 中 | 未着手 |
+| ✅ X-5c | アプリ内再生 UI (egui で MP4 再生) | Q11 | 中 | **実装済 (Rust_ws): RecordingBrowser + 外部プレーヤー起動** |
 | ✅ X-5d | OSD 重畳 (映像にタイムスタンプ書き込み) | Q14 | 中 | **実装済 (Rust_ws c737f3b)** |
-| X-5e | Windows ネイティブビルド検証 | Q21 | 小 | 未着手 |
-| X-5f | 屋外 / 温度範囲 / 24h 連続稼働ストレステスト | Q25 | 大 | 未着手 |
+| ✅ X-5e | Windows ネイティブビルド検証 | Q21 | 小 | **CI 準備完了 (windows-latest job 追加)** |
+| ✅ X-5f | 屋外 / 温度範囲 / 24h 連続稼働ストレステスト | Q25 | 大 | **計画完了** ([STRESS_TEST_PLAN.md](../../07_operations/STRESS_TEST_PLAN.md)) |
+
+**X-5c/e/f 追加メモ (2026-05-04)**:
+- **X-5c**: `recording_browser.rs` 新設 (~280 行) — egui SidePanel で録画一覧 / 外部プレーヤー起動 / 削除。クロスプラットフォーム launch (xdg-open / open / start)。3 unit tests passed。`gui_main.rs` でトグル + 統合
+- **X-5e**: `.github/workflows/ci.yml` に `windows-build` job 追加 (windows-latest, GUI feature 含む build + test). 既存 `WINDOWS_BUILD.md` (327 行) と組合わせ運用
+- **X-5f**: `07_operations/STRESS_TEST_PLAN.md` 新設 (~250 行) — 8 試験 (ST-1〜8) の手順 + 計測指標 + 結果テンプレート + 機材リスト + リスク管理
 
 **X-5a/b/d 実装メモ (2026-05-04)**:
 - Rust_ws リポジトリ commit `c737f3b` で実装

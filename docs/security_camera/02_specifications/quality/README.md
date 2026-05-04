@@ -21,6 +21,7 @@ ISO/IEC 25010 品質属性体系で散在 NFR を整理し、文書間の用語�
 | [`FMEA.md`](FMEA.md) | 28 失敗モードの S/O/D/RPN 採点 + 対策状況 | §11 |
 | [`THREAT_MODEL.md`](THREAT_MODEL.md) | STRIDE × DREAD 14 脅威シナリオ + Phase 12 軽減策優先度 | §10 |
 | [`FUNCTIONAL_SPEC_AUDIT.md`](FUNCTIONAL_SPEC_AUDIT.md) | functional/ 7 SPEC の整合性監査 + 推奨アクション | §11 |
+| [`TEST_COVERAGE_BASELINE.md`](TEST_COVERAGE_BASELINE.md) | テスト棚卸し (PC 31 件 / Spresense 0 件) + 改善計画 | §11 |
 | [`PENDING_NFR_WORK.md`](PENDING_NFR_WORK.md) | 未着手 NFR タスク台帳 (P1 / P2 / 計画外, 全 12 件) | — |
 
 ---

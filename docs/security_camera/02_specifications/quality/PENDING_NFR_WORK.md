@@ -405,7 +405,28 @@
 
 ---
 
-### ✅ X-8. テストカバレッジ実測 + ベースライン確立 — **ベースライン確立 (2026-05-05)**
+### ✅ X-8. テストカバレッジ実測 + ベースライン確立 — **Phase 12.1 Stage 1 完了 (2026-05-08)**
+
+**Stage 1 実測結果 (2026-05-08)**:
+- cargo-llvm-cov v0.8.5 + llvm-tools-preview インストール
+- `cargo llvm-cov --features gui --summary-only` 実行成功
+- **総合行カバレッジ: 16.75%** (3510 行中 2922 未カバー)
+- 健全: motion_detector 95.71% / ring_buffer 89.12%
+- 0% 帯: gui_main 1151 行 / mp4_recorder 225 行 / ui_tokens 155 行
+- → TEST_COVERAGE_ENHANCEMENT_SPEC v1.0「92%」主張は実測 75pt 乖離と確定
+
+**Stage 1 副次成果**:
+- CI workflow: 旧 cargo-tarpaulin job を **cargo-llvm-cov** に切替 (Codecov v4)
+- カバレッジ後退検出 (baseline 16.0% threshold) を CI に追加
+- TEST_COVERAGE_BASELINE.md v1.1 で Stage 4 数値目標を実測ベースに再設定 (1ヶ月 25% / 3ヶ月 40%)
+
+**残り Stage 2-3** (Phase 13 候補):
+- Stage 2 PC viewer モジュール分割 (gui_main 1151 行 → 個別 ui::* モジュール)
+- Stage 3 Spresense Pure-Logic 抽出 + host build (mjpeg_protocol / fps_controller / frame_statistics)
+
+---
+
+### ✅ X-8. テストカバレッジ実測 + ベースライン確立 (旧 — 2026-05-05 ベースライン確立, 2026-05-08 Stage 1 実測完了で更新)
 
 **成果物**: [`TEST_COVERAGE_BASELINE.md`](TEST_COVERAGE_BASELINE.md) (~250 行)
 

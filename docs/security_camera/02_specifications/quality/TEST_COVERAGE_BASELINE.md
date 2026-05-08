@@ -1,10 +1,11 @@
 # Test Coverage Baseline (テストカバレッジ ベースライン) — X-8
 
-**バージョン**: 1.0
+**バージョン**: 1.1 (cargo-llvm-cov 実測値反映)
 **作成日**: 2026-05-05
+**最終更新**: 2026-05-08
 **対象**: PC viewer (Rust) + Spresense アプリ (C)
 **目的**: X-3 監査で判明した「テストカバレッジ 92%」未根拠問題に対するベースライン確立 + 改善計画
-**位置付け**: X-8 タスク (PENDING_NFR_WORK.md)
+**位置付け**: X-8 タスク (PENDING_NFR_WORK.md), Phase 12.1 Stage 1 完了
 
 > **背景**: `functional/TEST_COVERAGE_ENHANCEMENT_SPEC.md` v1.0 (2026-01-23) は「カバレッジ 92% → 95% (3% 向上)」と数値目標を掲げているが、**実測値の根拠が無い**ことが X-3 監査で判明 ([`FUNCTIONAL_SPEC_AUDIT.md`](FUNCTIONAL_SPEC_AUDIT.md) §7)。本書は実測ベースの新しい起点となる。
 
@@ -68,22 +69,53 @@ $ cargo test --features gui
 - 🟡 metrics / mp4_recorder / tcp_connection / serial: 密度低 — I/O 系で mock が無いため難
 - 🔴 **gui_main.rs (1815 行) は test 0** — 巨大単一ファイル + GUI が test friction の主因
 
-### 1.4 行ベースカバレッジ (TBD: ツール未導入)
+### 1.4 行ベースカバレッジ (cargo-llvm-cov 実測 2026-05-08)
 
-実装行カバレッジ % を算出するには:
+`cargo install cargo-llvm-cov` (v0.8.5) + `rustup component add llvm-tools-preview` で導入。
 
+**実行コマンド**:
 ```bash
-# 推奨: cargo-llvm-cov
-cargo install cargo-llvm-cov
-cargo llvm-cov --features gui --html
-# 出力: target/llvm-cov/html/index.html
-
-# 代替: cargo-tarpaulin (Linux のみ)
-cargo install cargo-tarpaulin
-cargo tarpaulin --features gui --out Html
+cd /home/ken/Rust_ws/security_camera_viewer
+cargo llvm-cov --features gui --summary-only
 ```
 
-**現状**: ツール未インストールのため**行ベース %は未計測**。本書の「テスト密度」は line coverage の代理指標としてのみ使用。Phase 12 で `cargo install cargo-llvm-cov` 実施後、本書 §1.4 を実測値で置換する。
+**実測結果 (2026-05-08, 35 test pass)**:
+
+| ファイル | 行 % | 関数 % | 行数 | 未カバー行 |
+|---|---:|---:|---:|---:|
+| **motion_detector.rs** | **95.71%** | 88.89% | 210 | 9 |
+| **ring_buffer.rs** | **89.12%** | 76.19% | 147 | 16 |
+| protocol.rs | 36.70% | 56.25% | 297 | 188 |
+| metrics.rs | 35.22% | 41.67% | 159 | 103 |
+| recording_browser.rs | 34.38% | 37.50% | 192 | 126 |
+| serial.rs | 8.06% | 15.38% | 124 | 114 |
+| tcp_connection.rs | 3.07% | 11.11% | 326 | 316 |
+| pipeline.rs | 1.46% | 6.67% | 343 | 338 |
+| **gui_main.rs** | **0.00%** | 0.00% | 1151 | 1151 |
+| **mp4_recorder.rs** | **0.00%** | 0.00% | 225 | 225 |
+| **ui_tokens.rs** | **0.00%** | 0.00% | 155 | 155 |
+| main.rs | 0.00% | 0.00% | 181 | 181 |
+| **TOTAL** | **16.75%** | **30.91%** | **3510** | **2922** |
+
+**重要発見**:
+
+1. **TEST_COVERAGE_ENHANCEMENT_SPEC v1.0 の「92%」主張は完全に未根拠** — 実測 16.75% で 75pt 以上の乖離 (X-3 監査が指摘した通り)
+2. **コアロジック (motion / ring_buffer) は 90%+ で健全** — 既存テストの質は悪くない
+3. **GUI/IO 系 (gui_main 1151 行 / mp4_recorder 225 行 / ui_tokens 155 行) は 0%**
+4. **大きいファイルほどカバレッジが低い** — gui_main 32.8% / 全行に占める寄与
+5. **ネットワーク系 (tcp_connection / pipeline / serial) も低カバレッジ** (3-8%) — `#[ignore]` 試験を活用しきれていない
+
+**カバレッジを 1pt 上げる効率**:
+
+| 対象 | 1pt 上昇に必要なテスト追加行 | コスト感 |
+|---|---:|---|
+| gui_main.rs | ~35 行 | 高 (GUI tests は friction 大) |
+| mp4_recorder.rs | ~35 行 | 中 (ffmpeg mock 整備) |
+| tcp_connection.rs | ~35 行 | 中 (network mock) |
+| ui_tokens.rs | ~35 行 | **低** (純粋関数 / 定数) |
+| pipeline.rs | ~35 行 | 中 (3 thread 動作 test) |
+
+**ROI 順 (低コスト先)**: ui_tokens (paint_hud 単体テスト) → pipeline (mock channel) → mp4_recorder (file system mock) → tcp_connection (TcpListener mock)。
 
 ---
 
@@ -164,15 +196,20 @@ NuttX RTOS 上の組込み C コードは以下の理由で**通常の cargo tes
 - 行カバレッジ 80%+ 目標
 - CI で host build + test 実行
 
-### Stage 4: 数値目標
+### Stage 4: 数値目標 (2026-05-08 実測ベースで再設定)
 
-X-3 監査の指摘 (92% 数値未根拠) を解消するため、**新しい目標**:
+**現状**: PC viewer 行カバレッジ = **16.75%** (実測, motion / ring_buffer の 90%+ が支える)
 
-| 領域 | 1 ヶ月後 | 3 ヶ月後 |
+| 領域 | 1 ヶ月後 (Phase 12 内) | 3 ヶ月後 (Phase 13 検討時) |
 |---|---|---|
-| PC viewer 行カバレッジ | ベースライン計測 + 30% | 50% |
-| Spresense Pure-Logic 行カバレッジ | (Stage 3 に依存) | 60% |
-| CI 上の自動測定 | 有効化済 | weekly レポート |
+| PC viewer 行カバレッジ全体 | **25%** (現 16.75% から +8pt — ROI 高い箇所優先) | **40%** (gui_main 部分テスト + GUI 抽出) |
+| ui_tokens.rs | 60% (paint_hud 関数を切出してテスト可能化) | 80% |
+| mp4_recorder.rs | 30% (RecordingPolicy / ローテーションロジックの単体テスト) | 50% |
+| tcp_connection.rs | 30% (TcpListener mock 整備) | 50% |
+| Spresense Pure-Logic 行カバレッジ | (Stage 3 着手判断 — Phase 13 候補) | 60% (mjpeg_protocol 抽出後) |
+| CI 上の自動測定 | ✅ 有効化済 + 失敗時に PR block | weekly トレンドレポート |
+
+**改訂方針**: 旧目標 (1ヶ月で 30% / 3ヶ月で 50%) は実測前の予測値。実測 16.75% から見ると **8pt 上昇 (25%)** が現実的。Stage 2 の gui_main 分割を待たずに ui_tokens 単体テスト追加で +5pt 程度は短期実現可能。
 
 ---
 
@@ -191,3 +228,4 @@ X-3 監査の指摘 (92% 数値未根拠) を解消するため、**新しい目
 | バージョン | 日付 | 変更内容 |
 |---|---|---|
 | 1.0 | 2026-05-05 | 初版。X-8 ベースライン確立。PC 側 31 test (35 pass / 0 fail / 3 ignore) を計測、密度指標を導入、ツール導入 (Stage 1) → モジュール分割 (Stage 2) → Spresense Pure-Logic 抽出 (Stage 3) の 3 段改善計画を策定 |
+| 1.1 | 2026-05-08 | **Phase 12.1 Stage 1 完了**: cargo-llvm-cov v0.8.5 導入 + 実測。総合行カバレッジ **16.75%** (旧主張 92% から 75pt の乖離確認)。motion 95.71% / ring_buffer 89.12% が支える、gui_main / mp4_recorder / ui_tokens は 0%。Stage 4 数値目標を実測ベースに改訂 (1ヶ月 25% / 3ヶ月 40%) |

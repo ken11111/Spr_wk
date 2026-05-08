@@ -420,6 +420,11 @@
 - カバレッジ後退検出 (baseline 16.0% threshold) を CI に追加
 - TEST_COVERAGE_BASELINE.md v1.1 で Stage 4 数値目標を実測ベースに再設定 (1ヶ月 25% / 3ヶ月 40%)
 
+**Phase 12.1 Stage 1 後続改善 (2026-05-08)**:
+- ui_tokens.rs に 11 単体テスト追加 (ConnState dot_color/label, 4px scale, 色階層 等)
+- 総合カバレッジ **16.75% → 19.41%** (+2.66pt)、ui_tokens **0% → 44.14%**
+- 1ヶ月目標 25% への進捗 33%
+
 **残り Stage 2-3** (Phase 13 候補):
 - Stage 2 PC viewer モジュール分割 (gui_main 1151 行 → 個別 ui::* モジュール)
 - Stage 3 Spresense Pure-Logic 抽出 + host build (mjpeg_protocol / fps_controller / frame_statistics)

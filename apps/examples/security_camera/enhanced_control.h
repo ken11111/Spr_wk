@@ -3,6 +3,34 @@
  *
  *   Copyright 2025 Security Camera Project - Phase 11
  *
+ * ============================================================================
+ * ⚠ OBSOLETE — Phase 12.4 で撤回 (2026-05-08)
+ * ============================================================================
+ *
+ * 撤回理由 (Phase 12 確定方針 2026-05-05):
+ *   ① 新規ハード導入なし (Tier 1 維持)
+ *   ② 本番ターゲット家庭用
+ *   → Phase 10 の単一入力 PID 制御 (fps_controller.c) で十分。
+ *      Phase 11 の多変数+予測適応制御は家庭用には過剰。
+ *
+ * 状態:
+ *   - 本ヘッダ内の API 宣言 (multi_variable_input_*, adaptive_pid_*,
+ *     predictive_controller_*, buffer_manager_*, enhanced_control_system_*)
+ *     はすべて .c 実装が存在せず、caller も 0 件 (FMEA B8 RPN 225)。
+ *   - Phase 10 PID (fps_controller.c) は引き続き有効、Phase 11 のみ撤回。
+ *
+ * 関連:
+ *   - docs/security_camera/05_future_actions/phase_planned/Phase12_実施計画書.md
+ *     §Phase 12.4 (推奨判断: 撤回)
+ *   - docs/security_camera/02_specifications/quality/FMEA.md B8 → 解消
+ *   - docs/security_camera/02_specifications/architecture/spresense_main_board_l2c_control.puml
+ *     (Phase 11 ブロック → 「撤回済」マークに更新)
+ *
+ * 後方互換のため本ヘッダは保持するが、新規コードからは include しないこと。
+ * 将来 Tier 移行 (Phase 13 候補) で Tier 2/3 へ進む場合、本ヘッダを起点に
+ * 再評価 + .c 実装の判断を行う。
+ * ============================================================================
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:

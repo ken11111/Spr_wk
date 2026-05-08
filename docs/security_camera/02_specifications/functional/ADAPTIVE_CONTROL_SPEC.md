@@ -1,6 +1,14 @@
 # Phase 11 適応制御システム技術仕様書
 
-> **⚠ 重要 (2026-05-03 追記)**: 本書は **仕様策定段階の設計提案** であり、実装は未着手。`enhanced_control.h` に API 宣言済だが **`.c` ファイル不存在、caller 0 件**。Phase 11 統合は判断保留中 (FMEA B8 RPN 225)。詳細は [`../quality/FUNCTIONAL_SPEC_AUDIT.md`](../quality/FUNCTIONAL_SPEC_AUDIT.md) §1, [`../architecture/spresense_main_board_l2c_control.puml`](../architecture/spresense_main_board_l2c_control.puml) 参照。
+> **✗ 撤回 (2026-05-08, Phase 12.4 ユーザー判断)**: 本仕様は **撤回** された。
+>
+> **撤回理由**: Phase 12 確定方針 (Tier 1 維持 + 家庭用) により、Phase 10 単一入力 PID で十分であり Phase 11 多変数+予測適応制御は過剰機能と判定。
+>
+> - `enhanced_control.h` は OBSOLETE 注記つきで保持 (将来 Tier 移行時の再評価起点)
+> - FMEA B8 (RPN 225 → 1, 解消) と L2.C 図 (Phase 11 = 「✗ 撤回」表示) も連動更新済
+> - 詳細: [`../../05_future_actions/phase_planned/Phase12_実施計画書.md`](../../05_future_actions/phase_planned/Phase12_実施計画書.md) §Phase 12.4
+>
+> 本書は撤回された設計の記録として保持する (Phase 13 で Tier 移行時の参考資料)。
 
 ---
 

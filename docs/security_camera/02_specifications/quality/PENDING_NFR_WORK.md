@@ -366,6 +366,46 @@
 
 ---
 
+### X-9. Spresense ファームウェア リビルド経路の整備 (新規, 緊急度: 中)
+
+**理由**: 2026-05-09 の起動準備確認時に判明 — `tools/config.py examples/security_camera` 実行で `RuntimeError: Config "examples/security_camera" not found` が発生。本リポジトリには `apps/examples/security_camera/Kconfig` は存在するが、Spresense SDK の標準 defconfig 登録 (`tools/config.py --list` の出力対象) には**含まれていない**。
+
+**再現条件**:
+1. `cd spresense/sdk && make distclean` で `nuttx.spk` が消失
+2. `./tools/config.py examples/security_camera` でリコンフィグしようとしても上記エラー
+3. 結果として X-6 計装 (perf_thread_cpu_*) を反映した nuttx.spk のリビルドが不可
+
+**現状回避策 (2026-05-09 適用済)**:
+- `/home/ken/Spr_ws/spresense_v3.0.0_backup/sdk/nuttx.spk` (Spresense v3.0.0 当時の生成物) を `spresense/sdk/nuttx.spk` に手動コピー
+- これは **X-6 計装なしの旧版**。基本動作テストには使えるが、CPU 利用率実測 (Phase 12.1) には使えない
+
+**作業内容**:
+1. **defconfig 探索/作成**: `spresense/sdk/configs/examples/security_camera/defconfig` を新設、`tools/config.py examples/security_camera` で読み込めるようにする
+2. **再現可能なビルド手順**:
+   ```
+   cd spresense/sdk
+   ./tools/config.py examples/security_camera   # ← これが通るように整備
+   make
+   # 結果: nuttx.spk が生成され、X-6 計装 (perf_thread_cpu_*) が含まれる
+   ```
+3. **CI 上の build-only ジョブ追加** (実機書込なしで Spresense 側ビルド検証)
+4. **README / WINDOWS_BUILD.md の更新** で再現手順を文書化
+
+**規模**: 中 (defconfig 作成 + Makefile 整備 + CI ジョブ + 文書化)
+
+**ブロックする他タスク**:
+- Phase 12.1 X-6 (CPU 実測): nuttx.spk の X-6 計装版が無いと実測不可
+- Phase 12.1 X-5f ST-1: 同 fw を必要とする
+- Phase 12.3 Step B-2 (PSK 認証実装): 実装後の動作確認に新 fw が必要
+
+**関連**:
+- アプリ本体: `apps/examples/security_camera/`
+- バックアップ参照: `/home/ken/Spr_ws/spresense_v3.0.0_backup/`
+- Spresense SDK ツール: `spresense/sdk/tools/config.py`
+- 計装 commit: `ac7dfa7` (X-6 perf_thread_cpu_* 追加)
+
+---
+
 ### ✅ X-7. WiFi 認証情報のリポジトリ分離 — **完了 (2026-05-02)**
 
 **実施内容**:

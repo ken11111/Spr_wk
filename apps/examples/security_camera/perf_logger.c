@@ -435,9 +435,13 @@ void perf_thread_cpu_log(const perf_thread_cpu_t *stats)
       return;
     }
 
-  /* Tag with [CPU] for easy syslog grep / parse_cpu_log.py extraction */
+  /* Tag with [CPU] for easy syslog grep / parse_cpu_log.py extraction.
+   * LOG_INFO は config.h で syslog(6, "[CAM] " fmt) 形式のマクロ定義済のため、
+   * ここでは別タグ [CPU] を出すために syslog() を直接呼ぶ。
+   * 第 1 引数は数値リテラル 6 = LOG_INFO syslog level.
+   */
 
-  syslog(LOG_INFO,
+  syslog(6,
          "[CPU] %s: cur=%.1f%% avg=%.1f%% max=%.1f%% (n=%u)\n",
          stats->name,
          (double)stats->cpu_percent,

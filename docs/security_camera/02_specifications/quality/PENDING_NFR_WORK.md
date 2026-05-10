@@ -366,6 +366,47 @@
 
 ---
 
+### X-10. Spresense apps repo + NuttX upstream API drift 解消 (新規, 緊急度: 中-高)
+
+**理由**: 2026-05-10 X-9 build 検証時に判明 — `examples/security_camera` defconfig は適用できるが、`make` 実行で **3 種類の API drift エラー**が発生:
+
+1. **`struct file_struct.fs_fd` 不在** (NuttX 側で削除された)
+   - 影響箇所: `spresense/sdk/apps/system/readline/readline.c:53`, `spresense/sdk/apps/system/cle/cle.c:1126`
+   - 修正案: `instream->fs_fd` → `fileno(instream)` (POSIX 標準)
+
+2. **`IFF_DOWN` マクロ未定義**
+   - 影響箇所: `spresense/sdk/apps/netutils/netlib/netlib_setifstatus.c:121`
+   - 原因: `nuttx/include/net/if.h` には `IFF_UP` のみ定義
+   - 修正案: `req.ifr_flags |= IFF_DOWN;` → `req.ifr_flags &= ~IFF_UP;`
+
+3. **その他 (連鎖的に発生する可能性大)**: NuttX 側 API 変更が apps repo に追従していない箇所が他にも存在する見込み
+
+**根本原因**: spresense submodule (Sony の repo) と nuttx upstream の同期遅れ
+
+**作業内容 (Phase 12 序盤推奨)**:
+1. **方針 A: 上記 3 件を patch として保持 + 局所修正** (最小コスト)
+   - 各 patch をリポジトリに保存し、build 前に `git apply` する Makefile target を追加
+   - Phase 12.1 X-6 実機計測の最低条件
+2. **方針 B: spresense submodule を upstream の最新版に追従** (中コスト)
+   - Sony 提供の最新 spresense (nuttx + apps) に切替
+   - 既存 .config / defconfig との互換性確認が必要
+3. **方針 C: build 対象から problematic モジュール除外** (短期しのぎ)
+   - cle / readline / netlib_setifstatus を defconfig で disable
+   - だが NSH や DHCPC が依存しているため難しい
+
+**規模**: 中 (方針 A) 〜 大 (方針 B)
+
+**ブロックする他タスク**:
+- Phase 12.1 X-6 (CPU 実測) 実機検証
+- Phase 12.1 X-5f ST-1 24h 連続稼働
+- Phase 12.3 Step B-2 (PSK 認証) 実機検証
+
+**現状回避策**:
+- `spresense_v3.0.0_backup/sdk/nuttx.spk` (旧版, X-6 計装なし) を使い続ける
+- ただし perf_thread_cpu_* は呼ばれないので CPU 実測不可
+
+---
+
 ### ✅ X-9. Spresense ファームウェア リビルド経路の整備 — **defconfig 整備完了 (2026-05-09)**
 
 **実施内容 (本セッション)**:
@@ -383,8 +424,11 @@
 過去に nuttx.spk が生成できていた経緯は **README §1 の代替手順 (menuconfig 経由)** で `.config` を手動構築していた可能性が高い。spresense submodule 上に security_camera defconfig がコミットされた痕跡なし → 「使ってなかったから無かった」が結論 (2026-05-09 ユーザー確認)。
 
 **残課題**:
-- `kconfig-frontends` パッケージのインストール (`sudo apt install kconfig-frontends`) は本セッションで実施できず (sudo 対話必要)。実機ビルド時にユーザー側で実行
-- `make olddefconfig` 後の `make` 実行 (実 nuttx.spk 生成) は `kconfig-conf` 必須のため未検証
+- ✅ `kconfig-frontends` 導入: 本セッションで .deb 展開 → `$HOME/.local` 配置 → 動作確認済 (sudo 不要回避策)
+- ✅ defconfig 適用: `./tools/config.py examples/security_camera` 通過確認、`NET_IPv4` / `NET_USRSOCK_UDP` 追加で gs2200m driver も通過
+- ✅ X-6 perf_logger.c の `syslog(LOG_INFO,...)` バグ修正 (LOG_INFO マクロとの衝突解消)
+- 🔴 **完全 make は未到達**: spresense submodule の apps repo と NuttX upstream の API drift で 3 件以上のエラー
+  → **X-10 として別タスク化** (上記参照)
 - CI build-only ジョブの追加 (Phase 12 後半 or Phase 13)
 
 ---

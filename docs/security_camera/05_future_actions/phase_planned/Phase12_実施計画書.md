@@ -174,8 +174,58 @@ Phase 12 完了 = Tier 1 + 家庭用 確定後、Phase 13 は以下の選択肢:
 
 ---
 
+## §A ブランチ運用 (Phase 12 以降, 2026-05-10 確定)
+
+Phase 12 の **Spresense ソース変更**は `phase12-firmware` ブランチで管理し、main は docs / 計画 / 整合性管理に専念する。既存の `phase10-control` `phase11-adaptive-control` パターンを継承。
+
+### 役割分担
+
+| ブランチ | 範囲 | コミット内容 |
+|---|---|---|
+| `main` | docs / 計画 / 整合性 | 仕様書, 監査結果, RUNBOOK, GLOSSARY 等 (`docs/`, README.md) |
+| `phase12-firmware` | Spresense ソース実装 | `apps/examples/security_camera/*.{c,h}`, `spresense` submodule pointer, X-10 patches |
+
+### 切り替え運用
+
+- Spresense ソースを触る作業 (X-6 計装, X-10 patches, fw build 検証) は **必ず phase12-firmware に checkout してから実施**
+- main を直接編集するのは docs / 計画系のみ
+- 双方を同期したい場合は cherry-pick で意図的に運ぶ (自動 merge は禁止)
+
+### main の整合性 (2026-05-10 切り出し時)
+
+```
+main HEAD = (Phase 12 cleanup 後の最新) — docs only
+phase12-firmware HEAD = 49003fe (切り出し時の Spresense ソース込み snapshot)
+
+submodule pointer:
+  main             → spresense @ e9a4f170 (defconfig 関連 0 commits, クリーン)
+  phase12-firmware → spresense @ 08434c2a (defconfig + NET_IPv4)
+```
+
+### バックアップタグ (緊急復旧用)
+
+- `main-backup-2026-05-10` (main repo)
+- `phase12-source-snapshot` (49003fe を別名で保存)
+- `master-backup-2026-05-10` (spresense submodule)
+
+### Phase 12 完了時の merge ポリシー
+
+```bash
+git checkout main
+git merge --no-ff phase12-firmware -m "Merge Phase 12 firmware into main (X-6/X-9/X-10 完了)"
+```
+
+`merge-clean` skill で自動化可能。merge 前に CI build (X-9) + 実機検証 (Phase 12.1) 完了が前提。
+
+### Phase 13 以降の継承
+
+同パターンで `phase13-XXX` を切り出す。docs と source の二系統運用を継続。
+
+---
+
 ## 改訂履歴
 
 | バージョン | 日付 | 変更内容 |
 |---|---|---|
 | 1.0 | 2026-05-05 | 初版。ユーザー判断 (新規ハード導入なし + 家庭用) を反映、6 サブ Phase 構成、WONT FIX 5 件確定、完了基準 (A)〜(E)、リスクと対策、Phase 13 選択肢 |
+| 1.1 | 2026-05-10 | §A ブランチ運用追記。Phase 12 Spresense ソース変更を `phase12-firmware` ブランチに分離、main は docs-only。バックアップタグ + merge ポリシー記載 |

@@ -27,18 +27,34 @@ cp wifi_config.h.example wifi_config.h
 
 ### 1. 設定
 
+#### 前提パッケージ (Linux/WSL)
+
+```bash
+# kconfig フロントエンド (Spresense SDK ビルドで必須)
+sudo apt-get install -y kconfig-frontends
+
+# ARM クロスコンパイラ
+sudo apt-get install -y gcc-arm-none-eabi
+```
+
+#### 推奨手順 (defconfig 経由, X-9 で整備, 2026-05-09):
+
 ```bash
 cd /path/to/spresense/sdk
 ./tools/config.py examples/security_camera
 ```
 
-または既存の設定に追加:
+`spresense/sdk/configs/examples/security_camera/defconfig` を読み込み、必要設定 (CDCACM / VIDEO_ISX012 / WIFI_GS2200M / NET_TCP_NO_STACK 等) を反映する。
+
+#### 代替手順 (menuconfig での手動有効化):
 
 ```bash
 ./tools/config.py default
 make menuconfig
 # -> Application Configuration -> Examples -> Security Camera を有効化
 ```
+
+⚠ defconfig 経由を強く推奨。menuconfig 経由は設定漏れが起きやすい。
 
 ### 2. ビルド
 

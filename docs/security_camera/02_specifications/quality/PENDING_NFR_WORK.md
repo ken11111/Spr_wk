@@ -366,7 +366,30 @@
 
 ---
 
-### X-9. Spresense ファームウェア リビルド経路の整備 (新規, 緊急度: 中)
+### ✅ X-9. Spresense ファームウェア リビルド経路の整備 — **defconfig 整備完了 (2026-05-09)**
+
+**実施内容 (本セッション)**:
+- `spresense/sdk/configs/examples/security_camera/defconfig` 新規作成 (40 エントリ)
+  * 標準 camera 例 (LCD 系) からの差分: -EXAMPLES_CAMERA / -LCD_* 等を除外
+  * 必須追加: CDCACM (USB CDC-ACM) + EXAMPLES_SECURITY_CAMERA + VIDEO_ISX012
+  * WiFi 系: WIRELESS_GS2200M / WL_GS2200M / NET_TCP_NO_STACK / NET_USRSOCK_TCP / NETUTILS_DHCPC
+  * 構造的天井 #2 設定: IOB_NBUFFERS=8 / IOB_BUFSIZE=196 (現状値を defconfig に明示化)
+  * SPI クロック: WL_GS2200M_SPI_FREQUENCY=4000000 (4 MHz, 構造的天井 #1)
+- `./tools/config.py --list` で `examples/security_camera` が認識されることを確認 ✅
+- `./tools/config.py examples/security_camera` で defconfig 読込成功 ✅
+- README.md 更新: 推奨手順 (defconfig 経由) + 代替 (menuconfig) を併記
+
+**調査結果**:
+過去に nuttx.spk が生成できていた経緯は **README §1 の代替手順 (menuconfig 経由)** で `.config` を手動構築していた可能性が高い。spresense submodule 上に security_camera defconfig がコミットされた痕跡なし → 「使ってなかったから無かった」が結論 (2026-05-09 ユーザー確認)。
+
+**残課題**:
+- `kconfig-frontends` パッケージのインストール (`sudo apt install kconfig-frontends`) は本セッションで実施できず (sudo 対話必要)。実機ビルド時にユーザー側で実行
+- `make olddefconfig` 後の `make` 実行 (実 nuttx.spk 生成) は `kconfig-conf` 必須のため未検証
+- CI build-only ジョブの追加 (Phase 12 後半 or Phase 13)
+
+---
+
+### X-9 (旧 — 完了済み記述, 履歴用)
 
 **理由**: 2026-05-09 の起動準備確認時に判明 — `tools/config.py examples/security_camera` 実行で `RuntimeError: Config "examples/security_camera" not found` が発生。本リポジトリには `apps/examples/security_camera/Kconfig` は存在するが、Spresense SDK の標準 defconfig 登録 (`tools/config.py --list` の出力対象) には**含まれていない**。
 

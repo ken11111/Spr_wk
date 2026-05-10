@@ -4,12 +4,12 @@ skinparam backgroundColor #FEFEFE
 skinparam componentStyle rectangle
 top to bottom direction
 
-title L2.C: Adaptive Controller 詳細 (white-box)\nL1 「🎛️ Adaptive Controller」 黒箱 → Phase 10 (実装済) + Phase 11 (仕様のみ・未実装)
+title L2.C: Adaptive Controller 詳細 (white-box)\nL1 「🎛️ Adaptive Controller」 黒箱 → Phase 10 (実装済) + Phase 11 (✗ 撤回 2026-05-08)
 
 ' ==============================================================
 ' Adaptive Controller white-box
 ' ==============================================================
-frame "🎛️ **Adaptive Controller** (white-box)\nPhase 10 (実装済・統合済) + Phase 11 (.h のみ, .c 未実装)" as CTRL_BOX #LightYellow {
+frame "🎛️ **Adaptive Controller** (white-box)\nPhase 10 (実装済・統合済) + Phase 11 (✗ 撤回, Phase 12.4)" as CTRL_BOX #LightYellow {
 
   ' --- Phase 10: 実装済み ---
   package "✅ Phase 10: PID 制御 (実装済・control_thread で動作中)" #LightGreen {
@@ -18,17 +18,17 @@ frame "🎛️ **Adaptive Controller** (white-box)\nPhase 10 (実装済・統合
     component "**Frame Statistics** ✅\n責務: 移動窓 (10 frames)\n   平均/分散/複雑度 (smoothing=0.8)\n実装: frame_statistics.c\n呼出箇所: camera_thread_func\n   (camera_threads.c:475,481)\n⚠ 動作スレッドは camera_thread\n   (Adaptive Controller 内ではない)" as C_STATS
   }
 
-  ' --- Phase 11: 仕様のみ・未実装 ---
-  package "⚠ Phase 11: 多変数+予測 (仕様策定段階・.c 実装無し)" #LightGray {
-    component "**Multi-Variable Input** ❌\n責務: 6 変数 [0,1] 正規化\n.h API: enhanced_control.h\n.c: 実装ファイル無し\ncaller: 0 件" as C_MVI #LightGray
+  ' --- Phase 11: ✗ 撤回 (Phase 12.4 ユーザー判断 2026-05-08) ---
+  package "✗ Phase 11: 多変数+予測 (撤回, Phase 12.4)" #Pink {
+    component "**Multi-Variable Input** ✗ 撤回\n.h: OBSOLETE マーク済\n撤回理由: 家庭用 Tier 1 で過剰" as C_MVI #LightGray
 
-    component "**Adaptive PID** ❌\n責務: 複雑度依存 gain 適応\n.h API: enhanced_control.h\n.c: 実装ファイル無し\ncaller: 0 件" as C_APID #LightGray
+    component "**Adaptive PID** ✗ 撤回\n.h: OBSOLETE マーク済" as C_APID #LightGray
 
-    component "**Predictive Controller** ❌\n責務: 5-point trend\n.h API: enhanced_control.h\n.c: 実装ファイル無し\ncaller: 0 件" as C_PRED #LightGray
+    component "**Predictive Controller** ✗ 撤回\n.h: OBSOLETE マーク済" as C_PRED #LightGray
 
-    component "**Buffer Manager** ❌\n責務: 動的キュー深度\n.h API: enhanced_control.h\n.c: 実装ファイル無し\ncaller: 0 件" as C_BMGR #LightGray
+    component "**Buffer Manager** ✗ 撤回\n.h: OBSOLETE マーク済" as C_BMGR #LightGray
 
-    component "**Stability + Fallback** ❌\n責務: 出力分散監視\n   不安定時 Phase 10 へ退避\n.h API: enhanced_control.h\n.c: 実装ファイル無し\ncaller: 0 件" as C_STAB #LightGray
+    component "**Stability + Fallback** ✗ 撤回\n.h: OBSOLETE マーク済" as C_STAB #LightGray
   }
 }
 
@@ -83,16 +83,16 @@ note as NOTE_CTRL #LightYellow
     - Kp=0.15, Ki=0.02, setpoint=3.5 (キュー深度)
     - 出力 [5, 30] FPS → camera_set_fps_runtime() で V4L2 に作用
 
-  • **❌ Phase 11 (多変数+予測) は .h のみ、.c 実装ファイル不在**:
-    - `enhanced_control.h` に 25 個の関数プロトタイプ宣言
-    - `enhanced_control.c` ファイル自体が存在しない (`ls enhanced_control*`)
-    - Makefile の CSRCS にも未追加 (= ビルド対象でない)
-    - grep で `adaptive_pid_*` `predictive_controller_*` 等の caller 0 件
-    - **= リンクは通る (未参照シンボルは出ない) が、機能は何も動かない**
+  • **✗ Phase 11 (多変数+予測) は撤回 (Phase 12.4, 2026-05-08)**:
+    - 撤回理由: 新規ハード導入なし (Tier 1 維持) + 家庭用ターゲット
+       → Phase 10 PID 単独で十分、Phase 11 は過剰機能
+    - `enhanced_control.h` 冒頭に OBSOLETE マーク追記済
+    - 将来 Tier 移行時 (Phase 13 候補) に再評価
+    - FMEA B8 (RPN 225) は撤回判断で解消
 
-  • **frame_statistics は Phase 11 の入力源だが、現状は L2.A 側で動く**:
+  • **frame_statistics は引き続き Phase 10 で利用 (撤回対象外)**:
     - camera_thread_func から init/update を直接呼出 (camera_threads.c:475,481)
-    - 現行は LOG_INFO 出力のみ。Phase 11 が実装されれば消費される
+    - LOG_INFO で観測データを記録、X-6 計装と組合せて利用
 
   • **構造的天井との関係**:
     - Phase 10 が動かせるのは "FPS と queue depth" の 2 点のみ
@@ -107,8 +107,8 @@ note bottom
   • L1 で定義した provides/requires インタフェースを継承
     - queue_depth (required): control_thread が g_action_queue から読む
     - fps_runtime (provided): camera_set_fps_runtime() 経由で L2.A の Camera Wrapper へ
-  • **重要**: Phase 11 ブロックは将来計画の可視化目的で残しているが、
-    現時点では「動かない」ことを灰色 ❌ で明示
+  • **重要**: Phase 11 ブロックは Phase 12.4 で撤回 (Pink マーク)。
+    `enhanced_control.h` は OBSOLETE 注記つきで保持 (将来 Tier 移行時の再評価起点)
 end note
 
 @enduml

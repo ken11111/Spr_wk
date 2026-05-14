@@ -366,44 +366,44 @@
 
 ---
 
-### X-10. Spresense apps repo + NuttX upstream API drift 解消 (新規, 緊急度: 中-高)
+### ✅ X-10. Spresense apps repo + NuttX upstream API drift 解消 — **完了 (2026-05-14, 方針 A 採用)**
 
-**理由**: 2026-05-10 X-9 build 検証時に判明 — `examples/security_camera` defconfig は適用できるが、`make` 実行で **3 種類の API drift エラー**が発生:
+**実施結果 (phase12-firmware ブランチ)**:
+- ✅ 3 件の API drift を patch ファイル化 (`tools/spresense_patches/0001-Patch-upstream-API-drift-for-newer-NuttX-compatibili.patch`)
+- ✅ defconfig も含めた一括適用スクリプト整備 (`tools/spresense_patches/apply.sh`, 冪等性あり)
+- ✅ `nuttx.spk` (258 KB) ビルド成功、`nm` で perf_thread_cpu_* 3 シンボル (init/log/sample) 確認済
+- ✅ spresense submodule は **upstream クリーンミラー** (master = `e9a4f170`) を維持
 
+**改訂方針 (2026-05-14 ユーザー判断)**:
+spresense submodule は Sony 公式 fork のため、原則 **改変しない**。Phase 12 ビルドに必要な custom defconfig + apps repo patches は **本リポジトリの `tools/spresense_patches/` で管理** し、`apply.sh` で submodule の working tree にコピー/適用する (commit はしない)。
+
+**修正内容 (patch)**:
 1. **`struct file_struct.fs_fd` 不在** (NuttX 側で削除された)
-   - 影響箇所: `spresense/sdk/apps/system/readline/readline.c:53`, `spresense/sdk/apps/system/cle/cle.c:1126`
-   - 修正案: `instream->fs_fd` → `fileno(instream)` (POSIX 標準)
+   - 修正箇所: `spresense/sdk/apps/system/readline/readline.c`, `spresense/sdk/apps/system/cle/cle.c`
+   - 修正: `instream->fs_fd` → `fileno(instream)` (POSIX 標準)
+2. **`IFF_DOWN` マクロ未定義** (nuttx に `IFF_UP` のみ定義)
+   - 修正箇所: `spresense/sdk/apps/netutils/netlib/netlib_setifstatus.c`
+   - 修正: `req.ifr_flags |= IFF_DOWN;` → `req.ifr_flags &= ~IFF_UP;`
+3. **SPI5 DMAC 未有効化** (cxd56_gs2200m.c が要求)
+   - 追加: `CXD56_SPI5=y` / `CXD56_DMAC_SPI5_TX=y` / `CXD56_DMAC_SPI5_RX=y` を defconfig に明記
 
-2. **`IFF_DOWN` マクロ未定義**
-   - 影響箇所: `spresense/sdk/apps/netutils/netlib/netlib_setifstatus.c:121`
-   - 原因: `nuttx/include/net/if.h` には `IFF_UP` のみ定義
-   - 修正案: `req.ifr_flags |= IFF_DOWN;` → `req.ifr_flags &= ~IFF_UP;`
+**ビルド手順 (phase12-firmware ブランチ)**:
+```bash
+git checkout phase12-firmware
+./tools/spresense_patches/apply.sh   # defconfig コピー + patch 適用 (冪等)
+cd spresense/sdk
+./tools/config.py examples/security_camera
+make                                  # nuttx.spk が生成される
+```
 
-3. **その他 (連鎖的に発生する可能性大)**: NuttX 側 API 変更が apps repo に追従していない箇所が他にも存在する見込み
+**ブロック解消したタスク**:
+- ✅ Phase 12.1 X-6 (CPU 実測) — perf_thread_cpu_* シンボル組込済 nuttx.spk が用意できた
+- 🔵 Phase 12.1 X-5f ST-1 24h 連続稼働 — ビルド前提条件は解消、実機書込待ち
+- 🔵 Phase 12.3 Step B-2 (PSK 認証) — 同上
 
-**根本原因**: spresense submodule (Sony の repo) と nuttx upstream の同期遅れ
-
-**作業内容 (Phase 12 序盤推奨)**:
-1. **方針 A: 上記 3 件を patch として保持 + 局所修正** (最小コスト)
-   - 各 patch をリポジトリに保存し、build 前に `git apply` する Makefile target を追加
-   - Phase 12.1 X-6 実機計測の最低条件
-2. **方針 B: spresense submodule を upstream の最新版に追従** (中コスト)
-   - Sony 提供の最新 spresense (nuttx + apps) に切替
-   - 既存 .config / defconfig との互換性確認が必要
-3. **方針 C: build 対象から problematic モジュール除外** (短期しのぎ)
-   - cle / readline / netlib_setifstatus を defconfig で disable
-   - だが NSH や DHCPC が依存しているため難しい
-
-**規模**: 中 (方針 A) 〜 大 (方針 B)
-
-**ブロックする他タスク**:
-- Phase 12.1 X-6 (CPU 実測) 実機検証
-- Phase 12.1 X-5f ST-1 24h 連続稼働
-- Phase 12.3 Step B-2 (PSK 認証) 実機検証
-
-**現状回避策**:
-- `spresense_v3.0.0_backup/sdk/nuttx.spk` (旧版, X-6 計装なし) を使い続ける
-- ただし perf_thread_cpu_* は呼ばれないので CPU 実測不可
+**関連**:
+- `tools/spresense_patches/README.md` (phase12-firmware ブランチ): 詳細手順 + 検証コマンド
+- 旧記述 (方針 A/B/C 比較) は git log で参照可: `git show <prev-commit>:docs/.../PENDING_NFR_WORK.md`
 
 ---
 

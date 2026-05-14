@@ -1,0 +1,93 @@
+From c3757412138f8587b931e011ec0aadbf69114811 Mon Sep 17 00:00:00 2001
+From: ken11111 <kattobemagnum46@gmail.com>
+Date: Thu, 14 May 2026 21:49:46 +0900
+Subject: [PATCH] Patch upstream API drift for newer NuttX compatibility
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+X-10 (PENDING_NFR_WORK.md): 3 files in apps repo had API drift
+with newer NuttX upstream. Patched on phase12-firmware branch.
+
+Files changed:
+- system/readline/readline.c: instream->fs_fd → fileno(instream)
+  (struct file_struct.fs_fd was removed in newer NuttX, fileno() is
+  the POSIX standard accessor)
+- system/cle/cle.c: same fs_fd → fileno() replacement
+- netutils/netlib/netlib_setifstatus.c: |= IFF_DOWN → &= ~IFF_UP
+  (IFF_DOWN is not defined in nuttx/include/net/if.h; clearing IFF_UP
+  is the canonical NuttX upstream way to signal "down")
+
+Verified: make builds nuttx.spk successfully on Spresense SDK with
+security_camera example config (defconfig at
+spresense/sdk/configs/examples/security_camera/defconfig).
+
+X-6 perf_thread_cpu_* symbols verified present in resulting nuttx
+binary (`nm nuttx | grep perf_thread_cpu`).
+
+Branch: phase12-firmware (separate from master for upstream cleanliness)
+---
+ netutils/netlib/netlib_setifstatus.c | 11 ++++++++---
+ system/cle/cle.c                     |  5 ++++-
+ system/readline/readline.c           |  8 ++++++--
+ 3 files changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/netutils/netlib/netlib_setifstatus.c b/netutils/netlib/netlib_setifstatus.c
+index 0c54277df..465f8ed83 100644
+--- a/netutils/netlib/netlib_setifstatus.c
++++ b/netutils/netlib/netlib_setifstatus.c
+@@ -116,9 +116,14 @@ int netlib_ifdown(const char *ifname)
+ 
+           strlcpy(req.ifr_name, ifname, IFNAMSIZ);
+ 
+-          /* Perform the ioctl to ifup flag */
+-
+-          req.ifr_flags |= IFF_DOWN;
++          /* Perform the ioctl to ifup flag
++           * X-10 patch (phase12-firmware, 2026-05-11):
++           * IFF_DOWN macro is not defined in newer nuttx/include/net/if.h
++           * (only IFF_UP exists). Clearing IFF_UP is the canonical way to
++           * signal "down" (NuttX upstream pattern).
++           */
++
++          req.ifr_flags &= ~IFF_UP;
+ 
+           ret = ioctl(sockfd, SIOCSIFFLAGS, (unsigned long)&req);
+           close(sockfd);
+diff --git a/system/cle/cle.c b/system/cle/cle.c
+index 31e01396c..3ac911c3e 100644
+--- a/system/cle/cle.c
++++ b/system/cle/cle.c
+@@ -1123,6 +1123,9 @@ int cle_fd(FAR char *line, FAR const char *prompt, uint16_t linelen,
+ int cle(FAR char *line, FAR const char *prompt, uint16_t linelen,
+         FAR FILE *instream, FAR FILE *outstream)
+ {
+-  return cle_fd(line, prompt, linelen, instream->fs_fd, outstream->fs_fd);
++  /* X-10 patch (phase12-firmware, 2026-05-11):
++   * fs_fd field was removed from struct file_struct, use fileno() (POSIX).
++   */
++  return cle_fd(line, prompt, linelen, fileno(instream), fileno(outstream));
+ }
+ #endif
+diff --git a/system/readline/readline.c b/system/readline/readline.c
+index 8f263c2a0..15ae5caf0 100644
+--- a/system/readline/readline.c
++++ b/system/readline/readline.c
+@@ -48,8 +48,12 @@ ssize_t readline(FAR char *buf, int buflen, FILE *instream, FILE *outstream)
+ 
+   DEBUGASSERT(instream && outstream);
+ 
+-  /* Let readline_fd do the work */
++  /* Let readline_fd do the work
++   * X-10 patch (phase12-firmware, 2026-05-11):
++   * fs_fd field was removed from struct file_struct in newer NuttX upstream.
++   * Use fileno() (POSIX standard) for forward compatibility.
++   */
+ 
+-  return readline_fd(buf, buflen, instream->fs_fd, outstream->fs_fd);
++  return readline_fd(buf, buflen, fileno(instream), fileno(outstream));
+ }
+ #endif
+-- 
+2.25.1
+

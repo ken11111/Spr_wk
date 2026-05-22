@@ -10,48 +10,92 @@ This document analyzes temporal patterns in the security camera system metrics, 
 
 ---
 
-## 📋 Key Findings (Minto サマリ追加 2026-05-22)
+## 📋 Key Findings (Minto サマリ + 実データ可視化反映 2026-05-22)
 
-7,827 サンプル × 14 日間の実測データから抽出した **Phase 10 PID 制御の根拠** となる 5 つの主要発見:
+**59 CSV / 9,395 サンプル × 1 ヶ月の実測データ** から抽出した、Phase 10 PID 制御の根拠 + 新規発見の **8 つの主要事実**。可視化図 (20 枚) は `figures/` 配下、考察と STAMP/STPA 対応関係は [`figures/CAPTIONS.md`](figures/CAPTIONS.md) に詳述。
 
-### 1. FPS は制御無しではどの目標値も維持できない 🔴
-- **Critical Finding** (FPS Frame Rate Distribution 章): システムは control なしではいかなる target FPS にも収束しない
-- → Phase 10 PID 制御の **必要性を実証**
+### F-1 🔴 PC FPS は構造的に Target に届かない (既知の追認)
 
-### 2. Serial Read Time が極端な変動を示す (CV=172%)
-- **Key Finding** (Frame Processing Trends 章): Serial read time が処理時間を支配 + 変動係数 172%
-- 通常時 < 異常時で 1:10 以上の差
-- → 上位レイヤでのバッファリング戦略の根拠
+PC FPS の Target 達成率: **Target 5 fps = 20%、Target 10 = 1.5%、Target 15 / 30 = 0%** (`figures/ds_01_ecdf.png`)。9,395 サンプルで「制御無しでは Target にも収束しない」を定量確証。
 
-### 3. TCP send time の最大値パターンが切断予兆を示す
-- 平均値は安定でも **最大値の上昇が切断発生前 30-60 秒に観測**
-- → Phase 9.2 TCP 健全性監視 (予兆検出) の根拠
+### F-2 🔴 FPS と JPEG サイズに強い負相関 — Scene complexity が直接 FPS を支配 (NEW)
 
-### 4. ネットワークジッタが制御ループに直接影響
-- Jitter が PID feedback loop の収束時間を 2-3 倍に伸ばす可能性
-- → Phase 10 PID チューニング (Kp=0.15, Ki=0.02) の慎重設計の根拠
+**Spresense FPS vs JPEG: r = -0.78 / PC FPS vs JPEG: r = -0.72** (全期間 / `figures/ds_10_fps_jpeg.png`)。
+- Phase A/B では上流 (Spresense) が強く律速 (r ≈ -0.7〜-0.8) するが下流 PC は別ボトルネック (r ≈ -0.1〜-0.3)
+- Phase C/10 で PC FPS も JPEG に強く連動 (r ≈ -0.7) → PID 制御により同期度向上
+- → **STAMP UCA-A1.5 / UCA-CAM-AE.1 を実データで裏付け**
 
-### 5. Action Queue 深度パターンが過負荷を表現
-- Queue depth の単調増加が観測されると数秒後に drop 多発
-- → Phase 10 PID の制御変数 (setpoint=3.5) 選定の根拠
+### F-3 🔴 PID 制御で PC ⇄ Spresense 同期度が劇的改善 (NEW)
 
-### Phase 10 への直接含意
+PC FPS vs Spresense FPS のクロス相関ピーク値 (`figures/ds_08_cross_correlation.png`):
+
+| Phase | Peak correlation | Peak lag | 解釈 |
+|---|---|---|---|
+| A baseline | 0.22 | -1 sample | PC 先行 (弱相関) |
+| B 改良 | 0.54 | -3 sample | **PC 3 秒先行** = backpressure 発生 |
+| C 現行 8/9 | 0.56 | 0 sample | 同時 |
+| **10 PID 後** | **0.88** | 0 sample | **同時 (強相関)** |
+
+→ Phase 10 で **PID が PC ⇄ Spresense の挙動を 4 倍密に同期** (0.22 → 0.88)。Phase A/B の「PC 先行」は ADR-008 bounded(3) の backpressure 構造と整合。
+
+### F-4 🟡 ボトルネックは Spresense capture (HW) + Scene、TCP は律速していない (NEW)
+
+PC FPS 低下時 (≤P10=2.80) vs 上昇時 (≥P90=7.95) の指標比較 (`figures/ds_09_bottleneck.png`, queue=0 アーティファクト排除済 n=5,815):
+
+| 律速候補 | 低/高 ratio | 結論 |
+|---|---|---|
+| Spresense capture FPS | **0.45** | 🔴 主因 (HW 制約) |
+| JPEG size | **1.97** | 🔴 Scene 律速 |
+| USB CDC-ACM (Serial read) | 3.30 | 🟡 二次律速 |
+| WiFi/TCP | 1.49 | ✓ 律速ではない |
+| PC decode | 1.21 | ✓ 律速ではない |
+
+→ 意外にも **TCP/WiFi は律速していない**。律速は Spresense HW + Scene + USB 経路。
+
+### F-5 🔴 Serial read time の極端な変動 (CV=202%)
+
+Serial read 中央値 51 ms vs mean 487 ms vs **max 34,228 ms = 34 秒** (`figures/hist_03_serial_read.png`, `figures/ds_02_boxplot.png`)。USB CDC-ACM 経路は時折数十秒級のスパイクを起こす。**UCA-DRV-USB.1** の実証データ。
+
+### F-6 🟡 TCP send max が常時 1 秒超振動 — 自動再接続誤検知の根本原因 (NEW)
+
+TCP avg 平均 160 ms vs max 平均 **1,699 ms / 最大 2,712 ms** (`figures/ts_02_tcp_send.png`, `figures/hist_02_tcp_send.png`)。静的閾値では「一時遅延 vs 真切断」を判別不可能。**UCA-B1.3** の実証データ → **M-2 (RTT 移動平均 ± 2σ 動的閾値)** の必要性を裏付け。
+
+### F-7 🟡 Action queue は Phase A/B で未計装 (データアーティファクト発見)
+
+**Phase A は 100%、Phase B は 94.3% が queue_depth=0** という事実が判明。これは「キューが空」ではなく **計装機能が未実装** だった結果。Phase C 以降で完全計装される。以前の分析で「queue=0 vs 5」と出ていたのは**アーティファクト混入**で、queue>0 ベースで再計算した結果、真の低 FPS 時は **queue=4 (詰まっている)** が正しい。
+
+### F-8 🟢 Phase 10 で Tier 1 の頭打ちに近い — 根治は Tier 移行が必要
+
+Phase 10 の特徴:
+- Cross-correlation 0.88 (Phase A 0.22 比 +0.66)
+- JPEG ↔ FPS 連動 (r = -0.72) で制御が機能している状態
+- 6 指標の Phase 比較 (`figures/ds_07_phase_compare.png`) で全体的に最良値
+
+→ Tier 1 で出せる性能の頭打ちに近い。これ以上の根治には [STAMP §10.6 構造的天井](../../02_specifications/quality/STAMP_STPA_ANALYSIS.md) で示した **Tier 2/3 移行** が必要 (ADR-006 GATE-1)。
+
+### Phase 10 への直接含意 (NEW)
 
 | 発見 | Phase 10 反映 |
 |---|---|
-| 1: 制御無しで収束不可 | PID 制御実装の必須化 |
-| 2: Serial read 変動大 | Frame Buffer Manager 設計 |
-| 3: TCP send time 予兆 | TCP 健全性監視 (Phase 9.2 と連動) |
-| 4: ジッタ影響 | PID チューニング保守的値選定 |
-| 5: Queue depth 動的 | setpoint=3.5 の選定根拠 |
+| F-1: 制御無しで収束不可 | PID 制御実装の必須化 (達成済) |
+| F-2: FPS vs JPEG 強相関 | **M-24 Scene complexity feedforward の必要性 (新規対策)** |
+| F-3: PID 同期度向上 | PID の収束改善実証 (Kp=0.15, Ki=0.02 の有効性) |
+| F-4: HW + Scene 律速 | **Tier 2/3 移行判断データ** (Tier 1 限界の特定) |
+| F-5: Serial read 変動 | UCA-DRV-USB.1 緩和 (M-29 副経路) |
+| F-6: TCP max 振動 | **M-2 動的閾値の必要性** (ADR-002 v1.1 の根拠強化) |
+| F-7: Queue 未計装 | Phase A/B データの比較限界 (今後の注記必須) |
+| F-8: Tier 1 頭打ち | Phase 13+ HW 変更判断 |
 
 ### 詳細目次
 
 - [§ Temporal Data Distribution](#temporal-data-distribution) — データ収集タイムライン
-- [§ FPS Performance Trends](#fps-performance-trends) — FPS 進化 + 安定性 + 達成度 (発見 1)
-- [§ Network Latency Trends](#network-latency-trends) — TCP send 時間 + ジッタ (発見 3, 4)
-- [§ Frame Processing Trends](#frame-processing-trends) — Serial read 変動 (発見 2)
-- [§ Queue Depth Patterns](#queue-depth-patterns) — action queue 動的挙動 (発見 5)
+- [§ FPS Performance Trends](#fps-performance-trends) — FPS 進化 + 分布 + ECDF (F-1)
+- [§ Network Latency Trends](#network-latency-trends) — TCP send 時間 + ジッタ (F-6)
+- [§ Frame Processing Trends](#frame-processing-trends) — Serial read 変動 (F-5)
+- [§ Queue Depth Patterns](#queue-depth-patterns) — action queue 動的挙動 (F-7 アーティファクト注記)
+- **[§ Phase Comparison (NEW)](#phase-comparison-new) — 4 Phase 別比較 + cross-correlation (F-3, F-8)**
+- **[§ Bottleneck Analysis (NEW)](#bottleneck-analysis-new) — 律速絞り込み + 相関 + drop event (F-4)**
+- **[§ Scene-FPS Correlation (NEW)](#scene-fps-correlation-new) — JPEG-FPS 強相関の発見 (F-2)**
 
 ---
 
@@ -80,6 +124,20 @@ Jan 3  Jan 5  Jan 7  Jan 9  Jan 11 Jan 13 Jan 15 Jan 17
 - **Late Period (Jan 16-17)**: Pre-Phase-10 characterization
 
 ## FPS Performance Trends
+
+### 📊 図解 (実データ可視化)
+
+**全期間 PC/Spresense FPS 推移 (Phase 区切り付)**
+[![PC / Spresense FPS の推移](figures/ts_01_fps.png)](figures/ts_01_fps.png)
+> Spresense は最大 30 fps まで出るのに PC 側は 4 fps 前後で頭打ち。Phase A→10 にかけて改善傾向。
+
+**FPS 分布 + Target 達成度 + Percentile**
+[![FPS 分布](figures/hist_01_fps.png)](figures/hist_01_fps.png)
+> PC P50=4.0, P90=7.7。Target 10 fps を達成するサンプルは 1.5% のみ。
+
+**FPS ECDF (累積分布) — Target 達成率を 1 図で同時表示**
+[![FPS ECDF](figures/ds_01_ecdf.png)](figures/ds_01_ecdf.png)
+> Target 5: PC 20% 達成 / Target 10: 1.5% / Target 15-30: 0% — **F-1 の根拠**。
 
 ### PC FPS Evolution
 
@@ -164,6 +222,20 @@ Samples in range: 0 / 7827 (0.0%)
 
 ## Network Latency Trends
 
+### 📊 図解 (実データ可視化)
+
+**TCP send time 推移 (対数軸 + Phase C 基準 134 ms)**
+[![TCP send time 推移](figures/ts_02_tcp_send.png)](figures/ts_02_tcp_send.png)
+> TCP 平均 160 ms vs 最大 1,699 ms / 最大値が常時 1 秒超で振動 — **F-6 (UCA-B1.3) の根拠**。
+
+**TCP send time 分布 (対数軸 + Percentile)**
+[![TCP send time 分布](figures/hist_02_tcp_send.png)](figures/hist_02_tcp_send.png)
+> avg と max の分布が桁レベルで乖離。Phase 9.2 健全性監視で「max の急変」を予兆信号として使う設計根拠。
+
+**TCP avg vs jitter (両対数 + 回帰直線)**
+[![TCP avg vs jitter 散布](figures/scatter_02_tcp_jitter.png)](figures/scatter_02_tcp_jitter.png)
+> log-log slope ≈ +1.x で「平均遅延が増えると最悪値が指数的に増加」。**M-1 §6.1.x の `send_time_jitter` 代理指標の根拠**。
+
 ### TCP Send Time Evolution
 
 #### Average Send Time Analysis
@@ -238,6 +310,16 @@ Interpretation:
 
 ## Frame Processing Trends
 
+### 📊 図解 (実データ可視化)
+
+**Serial read time 分布 (対数軸 + Percentile)**
+[![Serial read time 分布](figures/hist_03_serial_read.png)](figures/hist_03_serial_read.png)
+> Mean 487 ms vs Median 51 ms vs Max 34 秒 (CV 202%) — USB CDC-ACM 経路の極端な不安定性。**F-5 (UCA-DRV-USB.1) の根拠**。
+
+**主要 8 指標の箱ひげ (whisker = P5-P95, 対数軸)**
+[![主要指標 箱ひげ](figures/ds_02_boxplot.png)](figures/ds_02_boxplot.png)
+> Serial read の外れ値が突出。queue depth は >0 でフィルタ済 (F-7 アーティファクト対応)。
+
 ### Processing Time Breakdown
 
 #### Component Analysis
@@ -290,6 +372,28 @@ Max:    34228.20 ms (34 second timeout!)
 
 ## Queue Depth Patterns
 
+### ⚠ 重要な前提: Phase A/B での未計装 (F-7)
+
+**Phase A は 100%、Phase B は 94.3% が `action_q_depth=0`** という事実が判明している。これは「キューが空」ではなく **計装機能が未実装** だった結果のアーティファクト。本セクションの統計と図は **Phase C/10 のデータ (n=5,815)** で評価する。
+
+### 📊 図解 (実データ可視化)
+
+**Action Queue Depth 推移 (Phase 区切り + 未計装注記)**
+[![Action Queue Depth 推移](figures/ts_03_queue.png)](figures/ts_03_queue.png)
+> Phase A/B では常に 0 (赤注記)。Phase C 以降で PID setpoint 3.5 周辺で振動。
+
+**PC FPS vs Queue depth (色 = TCP send)**
+[![FPS vs Queue 散布](figures/scatter_01_fps_queue.png)](figures/scatter_01_fps_queue.png)
+> キュー深度が高い領域ほど色が明るく (TCP 遅延大) なる傾向 = キュー滞留と TCP 遅延の正相関。
+
+**Phase C 個別セッション drill-down (4 panel + JPEG 第 2 軸 + 相関)**
+[![Phase C drill-down](figures/ds_04c_drilldown_phaseC.png)](figures/ds_04c_drilldown_phaseC.png)
+> 4 panel: FPS+JPEG / TCP send / Queue+Serial / Drop イベント Δ。**r(PC FPS, JPEG) = -0.69, r(Spr FPS, JPEG) = -0.50**。queue 計装完了後、setpoint 周辺で振動が観察。
+
+**Phase 10 個別セッション drill-down (PID 制御後の挙動)**
+[![Phase 10 drill-down](figures/ds_04d_drilldown_phase10.png)](figures/ds_04d_drilldown_phase10.png)
+> **r(PC FPS, JPEG) = -0.72, r(Spr FPS, JPEG) = -0.67** — PID 制御で PC ⇄ Spresense 同期度が向上 (F-3)。
+
 ### Action Queue Evolution
 
 #### Queue Depth Statistics
@@ -335,6 +439,115 @@ Change Pattern:
 - Can use as actuator for rate limiting
 - Provides early warning of system overload
 - Secondary control loop target
+
+## Phase Comparison (NEW — 2026-05-22)
+
+実データを Phase A / B / C / 10 で分けて比較した結果、**PID 制御の効果** と **Tier 1 性能の頭打ち** が明確に観測される。
+
+### 📊 4 Phase × 6 指標 の箱ひげ並列比較
+
+[![Phase 比較 箱ひげ](figures/ds_07_phase_compare.png)](figures/ds_07_phase_compare.png)
+
+| 指標 | Phase A→10 の変化 | 解釈 |
+|---|---|---|
+| PC FPS 中央値 | 右上がり (改善) | 全体的に改善傾向 |
+| Spresense FPS | 右上がり (改善) | 同左 |
+| TCP avg | Phase C で大幅改善 | Phase 9 健全性監視の効果 |
+| Serial read | Phase 進化で変動緩和 | USB 経路の改善 |
+| Queue depth | Phase A/B = N/A (未計装) | F-7 アーティファクト |
+| JPEG size | 全 Phase で類似分布 | Scene 依存は不変 |
+
+### 📊 Cross-correlation (PC FPS vs Spresense FPS)
+
+[![Cross-correlation](figures/ds_08_cross_correlation.png)](figures/ds_08_cross_correlation.png)
+
+| Phase | Peak Correlation | Peak Lag (sample) | 解釈 |
+|---|---|---|---|
+| **A baseline** | 0.22 | -1 | PC 先行 (弱) |
+| **B 改良** | 0.54 | **-3** | PC 3 秒先行 = backpressure (ADR-008 bounded(3) と整合) |
+| **C 現行 8/9** | 0.56 | 0 | 同時 |
+| **10 PID 後** | **0.88** | 0 | **同時 (強相関)** |
+
+→ **Phase 10 で PID 制御が PC ⇄ Spresense の挙動を 4 倍密に同期** (0.22 → 0.88)。Phase B の「PC 先行」は PC viewer 処理遅延が上流 Spresense に backpressure をかける構造を示唆 (**F-3**)。
+
+### 📊 Phase 別個別セッション drill-down
+
+| Phase | 図 | r(PC, JPEG) | r(Spr, JPEG) |
+|---|---|---|---|
+| A baseline | [`ds_04a_drilldown_phaseA.png`](figures/ds_04a_drilldown_phaseA.png) | -0.34 | **-0.78** |
+| B 改良 | [`ds_04b_drilldown_phaseB.png`](figures/ds_04b_drilldown_phaseB.png) | -0.10 | **-0.72** |
+| C 現行 8/9 | [`ds_04c_drilldown_phaseC.png`](figures/ds_04c_drilldown_phaseC.png) | **-0.69** | -0.50 |
+| 10 PID 後 | [`ds_04d_drilldown_phase10.png`](figures/ds_04d_drilldown_phase10.png) | **-0.72** | -0.67 |
+
+→ Phase A/B では上流 (Spresense) が強く JPEG に律速される / 下流 PC は別ボトルネック (バッファリング)。Phase C/10 で PC FPS も JPEG に強く連動 = PID 制御で **PC viewer が Spresense の挙動を忠実に追従** するようになった (**F-3 と整合**)。
+
+---
+
+## Bottleneck Analysis (NEW — 2026-05-22)
+
+PC FPS の低下時 vs 上昇時を比較し、**どの経路が真の律速か** を絞り込む。Phase A/B (queue 未計装) を除外した n=5,815 で実施。
+
+### 📊 PC FPS 低下時 vs 上昇時 の指標比較
+
+[![ボトルネック絞り込み](figures/ds_09_bottleneck.png)](figures/ds_09_bottleneck.png)
+
+PC FPS ≤ P10 (=2.80) vs ≥ P90 (=7.95) の中央値比較:
+
+| 律速候補 | 低/高 ratio | 結論 | STAMP UCA |
+|---|---|---|---|
+| **Spresense capture FPS** | **0.45** | 🔴 **主因 (HW 制約)** | UCA-CAM-AE.1 |
+| **JPEG size** | **1.97** | 🔴 **Scene 律速** | UCA-A1.5 |
+| **USB CDC-ACM (Serial read)** | 3.30 | 🟡 二次律速 | UCA-DRV-USB.1 |
+| WiFi/TCP | 1.49 | ✓ 律速ではない | (該当無) |
+| PC decode | 1.21 | ✓ 律速ではない | (該当無) |
+| Queue depth (>0) | 0.80 | 🟡 詰まり気味 | UCA-A1.2 |
+
+→ **TCP/WiFi は律速していない** (1.49x のみ)。律速は **Spresense HW + Scene complexity + USB 経路** (**F-4**)。
+
+### 📊 16 列の相関ヒートマップ (Pearson, queue=0 排除済)
+
+[![相関ヒートマップ](figures/ds_03_corr_heatmap.png)](figures/ds_03_corr_heatmap.png)
+
+> **FPS vs JPEG の負相関、TCP avg vs jitter の正相関** などが視覚的に確認可能。Phase A/B 除外で n=5,815。
+
+### 📊 Drop event タイムライン (TCP send との重ね描き)
+
+[![Drop タイムライン](figures/ds_05_drop_timeline.png)](figures/ds_05_drop_timeline.png)
+
+> 上段: TCP send 推移。下段: drop_events / error_count を縦線で。**drop が TCP max スパイク時に集中** していることが視覚化。
+
+---
+
+## Scene-FPS Correlation (NEW — 2026-05-22)
+
+ユーザー指摘で発見された **JPEG サイズと FPS の強い負相関** を Phase 別に検証。
+
+### 📊 FPS vs JPEG size 相関 (4 Phase × PC/Spr の 8 panel)
+
+[![FPS vs JPEG 相関](figures/ds_10_fps_jpeg.png)](figures/ds_10_fps_jpeg.png)
+
+| Phase | n | r(PC FPS, JPEG) | r(Spr FPS, JPEG) | slope(PC) | slope(Spr) |
+|---|---|---|---|---|---|
+| A baseline | 587 | -0.339 | **-0.784** | -0.026 | -0.092 |
+| B 改良 | 2,993 | -0.098 | **-0.720** | -0.013 | -0.158 |
+| C 現行 8/9 | 4,834 | **-0.689** | -0.499 | -0.190 | -0.245 |
+| 10 PID 後 | 981 | **-0.718** | -0.667 | -0.207 | -0.310 |
+| **全期間** | **9,395** | **-0.718** | **-0.781** | — | — |
+
+### 解釈 (F-2)
+
+- **全期間で強い負相関** — Spresense FPS r=-0.78 / PC FPS r=-0.72 = ユーザー直感「FPS は画像サイズと因果関係がある」を実データで確証
+- **Phase A/B では Spresense 側のみ強相関** (r ≈ -0.7〜-0.8) で PC は別ボトルネック (r ≈ -0.1〜-0.3)
+- **Phase C/10 で PC FPS も JPEG に強く連動** (r ≈ -0.7) = PID 制御で PC viewer が Spresense の挙動を忠実に追従
+- **Slope の意味**: 全期間 PC slope ≈ -0.21 = **JPEG が 1 KB 増えると PC FPS が 0.21 落ちる** という線形関係。JPEG 30 → 120 KB の 90 KB 差で FPS 19 ポイント差 (実観測レンジと整合)
+
+### STAMP/STPA 対応
+
+- **UCA-A1.5** (Scene 急変対応無し): JPEG 連動低下を実証
+- **UCA-CAM-AE.1** (ISX012 内蔵 AE → JPEG 膨張): JPEG 大 → FPS 低 の関係を全 Phase で確認
+- **M-24 (Scene complexity feedforward)** の必要性: Phase 10 でも slope は依然 -0.21 = **対策実装余地あり**
+
+---
 
 ## System Dynamics Characterization
 
@@ -616,3 +829,28 @@ The temporal analysis of 7,827 samples over 14 days provides **compelling eviden
 5. **Risk is low**: Slow system dynamics allow conservative tuning
 
 **Recommendation**: Proceed immediately with Phase 10 implementation. The evidence overwhelmingly supports the need for and feasibility of PID-based FPS control.
+
+---
+
+## 関連文書 (2026-05-22 追加)
+
+### 可視化生成
+
+- **可視化スクリプト**: [`analysis_tools/visualization.py`](analysis_tools/visualization.py) (再生成可能, uv venv)
+- **可視化考察まとめ**: [`figures/CAPTIONS.md`](figures/CAPTIONS.md) (各図 1-2 行説明 + STAMP/STPA 対応表)
+- **入力データ**: `/home/ken/Rust_ws/security_camera_viewer/release_windows/metrics/metrics_*.csv` (59 CSV / 9,395 サンプル)
+
+### 親文書・関連分析
+
+- 親: [`INDEX.md`](INDEX.md) / [`README.md`](README.md)
+- 兄弟: [`visual_evidence.md`](visual_evidence.md) (ASCII 時系列, 旧版相当) / [`control_system_validation.md`](control_system_validation.md) / [`COMPLETION_REPORT.md`](COMPLETION_REPORT.md)
+- STAMP/STPA: [`../../02_specifications/quality/STAMP_STPA_ANALYSIS.md`](../../02_specifications/quality/STAMP_STPA_ANALYSIS.md) v1.7.1 — UCA-A1.5 / UCA-B1.3 / UCA-CAM-AE.1 / UCA-DRV-USB.1 の実データ裏付け
+- 既存品質分析: [`../../02_specifications/quality/FMEA.md`](../../02_specifications/quality/FMEA.md) / [`../../02_specifications/quality/THREAT_MODEL.md`](../../02_specifications/quality/THREAT_MODEL.md)
+
+### バージョン履歴
+
+| Version | Date | 変更内容 |
+|---|---|---|
+| 1.0 | 2026-02-03 | 初版 (ASCII ベースの分析) |
+| 1.1 | 2026-05-22 | Minto Pyramid 準拠 — Key Findings 5 個追加 |
+| **1.2** | 2026-05-22 | **実データ可視化反映** — 20 図 (matplotlib 製) + F-1〜F-8 主要発見 + Phase 別比較/ボトルネック/Scene 相関の 3 新規セクション |

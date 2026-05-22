@@ -8,6 +8,53 @@ This document analyzes temporal patterns in the security camera system metrics, 
 **Data Points**: 7,827 samples from 57 CSV files
 **Key Focus**: FPS stability, network latency, and control system readiness
 
+---
+
+## 📋 Key Findings (Minto サマリ追加 2026-05-22)
+
+7,827 サンプル × 14 日間の実測データから抽出した **Phase 10 PID 制御の根拠** となる 5 つの主要発見:
+
+### 1. FPS は制御無しではどの目標値も維持できない 🔴
+- **Critical Finding** (FPS Frame Rate Distribution 章): システムは control なしではいかなる target FPS にも収束しない
+- → Phase 10 PID 制御の **必要性を実証**
+
+### 2. Serial Read Time が極端な変動を示す (CV=172%)
+- **Key Finding** (Frame Processing Trends 章): Serial read time が処理時間を支配 + 変動係数 172%
+- 通常時 < 異常時で 1:10 以上の差
+- → 上位レイヤでのバッファリング戦略の根拠
+
+### 3. TCP send time の最大値パターンが切断予兆を示す
+- 平均値は安定でも **最大値の上昇が切断発生前 30-60 秒に観測**
+- → Phase 9.2 TCP 健全性監視 (予兆検出) の根拠
+
+### 4. ネットワークジッタが制御ループに直接影響
+- Jitter が PID feedback loop の収束時間を 2-3 倍に伸ばす可能性
+- → Phase 10 PID チューニング (Kp=0.15, Ki=0.02) の慎重設計の根拠
+
+### 5. Action Queue 深度パターンが過負荷を表現
+- Queue depth の単調増加が観測されると数秒後に drop 多発
+- → Phase 10 PID の制御変数 (setpoint=3.5) 選定の根拠
+
+### Phase 10 への直接含意
+
+| 発見 | Phase 10 反映 |
+|---|---|
+| 1: 制御無しで収束不可 | PID 制御実装の必須化 |
+| 2: Serial read 変動大 | Frame Buffer Manager 設計 |
+| 3: TCP send time 予兆 | TCP 健全性監視 (Phase 9.2 と連動) |
+| 4: ジッタ影響 | PID チューニング保守的値選定 |
+| 5: Queue depth 動的 | setpoint=3.5 の選定根拠 |
+
+### 詳細目次
+
+- [§ Temporal Data Distribution](#temporal-data-distribution) — データ収集タイムライン
+- [§ FPS Performance Trends](#fps-performance-trends) — FPS 進化 + 安定性 + 達成度 (発見 1)
+- [§ Network Latency Trends](#network-latency-trends) — TCP send 時間 + ジッタ (発見 3, 4)
+- [§ Frame Processing Trends](#frame-processing-trends) — Serial read 変動 (発見 2)
+- [§ Queue Depth Patterns](#queue-depth-patterns) — action queue 動的挙動 (発見 5)
+
+---
+
 ## Temporal Data Distribution
 
 ### Data Collection Timeline

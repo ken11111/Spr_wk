@@ -43,3 +43,7 @@ docs/security_camera/06_evidence/raw_data/csv_metrics/
 # wifi_config.h contains real WIFI_SSID and WIFI_PASSWORD.
 # Use wifi_config.h.example as template (cp wifi_config.h.example wifi_config.h)
 apps/examples/security_camera/wifi_config.h
+
+# Python venv (analysis_tools 等)
+.venv/
+__pycache__/

@@ -1,0 +1,179 @@
+@startuml stamp_control_structure_spresense
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+top to bottom direction
+
+title STAMP 制御構造 — 詳細図 A: Spresense Edge 内部 (white-box)\n+ Scene → ISX012 AE/AWB 自律ループ (v1.5 追加)\n(全体像は stamp_control_structure / PC viewer は stamp_control_structure_pcviewer / 防御層は stamp_control_structure_defense)
+
+' ==============================================================
+' 周辺 (簡略)
+' ==============================================================
+actor "👤 **Operator**" as OP
+package "💻 PC Host (簡略)" as PC #LightCyan {
+  component "Health Analyzer / Recording / Viewer\n+ Motion Detector (詳細図 C)" as PC_BOX
+}
+
+' ==============================================================
+' Plant 入力源 (Scene) — v1.5 追加
+' ==============================================================
+package "🌐 Plant 入力源" as SCENE_PKG #LightGoldenRodYellow {
+  actor "📸 **Scene (被写体)**\n動き / 照度 / 色 / 複雑度" as SCENE
+  actor "🦹 ADV-PHYSICAL-SCENE" as ADV_SCENE #MistyRose
+}
+
+' ==============================================================
+' Spresense Edge white-box
+' ==============================================================
+package "🔧 Spresense Edge (white-box)" as SPR #LightYellow {
+  component "🧵 **Lifecycle Orchestrator** (CTRL-E)\n責務: spawn / monitor threads\n実装: camera_app_main.c\n      camera_threads.c" as CTRL_LIFE
+  component "🎛️ **Adaptive Controller** (CTRL-A)\nPID Phase 10 (実装済)\nKp=0.15, Ki=0.02\nsetpoint=3.5\nFPS [5, 30] / 10 Hz\n実装: fps_controller.c\n      frame_statistics.c" as CTRL_PID
+  component "🚚 **Transport Manager** (CTRL-B)\nTCP/USB 切替 +\nAuto-Reconnect FSM\n(max=5, exp backoff)\n実装: tcp_server.c\n      usb_transport.c\n      wifi_manager.c" as CTRL_TX
+  component "📦 **Streaming Engine**\nMJPEG batch + CRC-16\n実装: mjpeg_protocol.c\n      protocol_handler.c" as CTRL_STREAM
+  component "📊 **Health Monitor** (CTRL-D)\n58 B metrics 収集\n実装: perf_logger.c" as CTRL_HEALTH
+  component "🗂️ **Frame Buffer Manager**\ng_empty / g_action queue\n実装: frame_queue.c" as CTRL_FBM
+}
+
+' ==============================================================
+' Hardware (詳細)
+' ==============================================================
+' ==============================================================
+' OS / Driver 層 (v1.6 追加)
+' ==============================================================
+package "🛠️ NuttX OS + Drivers (v1.6 追加)" as OS_DRV #LightSteelBlue {
+  component "**CTRL-OS**: NuttX kernel\n• scheduler (priority [1-255])\n• pthread / mutex\n• IOB プール (1568 B, `IOB_THROTTLE=0`)\n• watchdog ⚠ 不在" as CTRL_OS
+  component "**CTRL-DRV-V4L2**: V4L2 driver\n• buffer count 固定 3\n• VIDIOC_S_PARM / VIDIOC_S_FMT" as CTRL_DRV_V4L2
+  component "**CTRL-DRV-GS2200M**: GS2200M driver\n• `HAL_TIMEOUT=5,000,000 µs`\n• `WR_MAX_RETRY=100`\n• `SPI_MAXFREQ=4 MHz`" as CTRL_DRV_GS
+  component "**CTRL-DRV-USB**: USB CDC-ACM driver" as CTRL_DRV_USB
+}
+
+package "⚙️ Hardware / Plant" as HW #LightGray {
+  component "📷 **ISX012 + V4L2**\n• JPEG ハード encode\n• **内蔵 AE/AWB 自律ループ** (アプリは観測のみ)\n• Scene 入力に応じてゲイン/シャッター/WB を自動調整\n• 出力 JPEG サイズ 65-120 KB (Scene 依存)" as HW_CAM
+  component "📡 **GS2200M**\ntx_buff[1] シリアライズ\nSPI 4 MHz / 500 KB/s peak\nTCP send avg 134 ms ±50 ms" as HW_WIFI
+  component "🔌 **USB CDC-ACM**" as HW_USB
+}
+
+' ==============================================================
+' 電源層 (v1.6 追加)
+' ==============================================================
+package "⚡ Power Supply (v1.6 追加)" as PWR #MistyRose {
+  component "**CTRL-PMIC**: CXD5247 PMIC\n• 各 IC への電圧供給\n• ブラウンアウト検出: 有無 **未確認** ⚠\n• HW BB (アプリ層から制御不可)" as CTRL_PMIC
+  actor "📥 **電源源**\nUSB 5V / LiPo / AC アダプタ" as PWR_SRC
+  actor "🦹 **ADV-PHYSICAL-POWER**\n物理電源切断攻撃" as ADV_PWR #Pink
+}
+
+' ==============================================================
+' Scene → Plant (外乱入力)
+' ==============================================================
+SCENE -down-> HW_CAM : "**Scene 入力 (CF-4)**\n光・動き・色 → AE/AWB が応答\n→ JPEG サイズ確定 (65-120 KB)"
+ADV_SCENE -down-> HW_CAM : "**CA-ADV.14** 強光\n**CA-ADV.15** 高速動き DoS\n**CA-ADV.16** 偽動き再生"
+
+' ==============================================================
+' Control Actions (CA) — 実線
+' ==============================================================
+OP -down-> CTRL_LIFE : "CA-O1\n起動/停止"
+CTRL_LIFE -down-> CTRL_PID : "spawn\ncontrol_thread"
+CTRL_LIFE -down-> CTRL_TX : "spawn tx threads"
+
+CTRL_PID -down-> CTRL_DRV_V4L2 : "ioctl VIDIOC_S_PARM"
+CTRL_DRV_V4L2 -down-> HW_CAM : "**CA-A1**\nfps_runtime\n(HW 抽象化)"
+CTRL_TX -down-> CTRL_DRV_GS : "send() syscall"
+CTRL_DRV_GS -down-> HW_WIFI : "**CA-B1** reconnect\n**CA-B2** send (SPI)"
+CTRL_TX -down-> CTRL_DRV_USB : "write() syscall"
+CTRL_DRV_USB -down-> HW_USB : "**CA-B3** USB send"
+CTRL_LIFE ..down.> CTRL_OS : "pthread_create\nsched_setparam"
+
+' 電源供給線
+PWR_SRC -down-> CTRL_PMIC : "5V (USB / バッテリ)"
+CTRL_PMIC -up-> SPR : "**電源供給** 3.3V/1.2V\n(全 Controller の動作前提)"
+CTRL_PMIC -up-> OS_DRV : "電源供給"
+CTRL_PMIC -up-> HW : "電源供給"
+ADV_PWR ..up.> PWR_SRC : "**CA-ADV.17** ケーブル抜去 (DoS)\n**CA-ADV.18** ノイズ注入 (TEMPEST, 将来)"
+CTRL_STREAM -down-> CTRL_TX : "batch packet"
+CTRL_FBM -down-> CTRL_STREAM : "frame pop"
+HW_CAM -up-> CTRL_FBM : "frame produce"
+
+CTRL_HEALTH -right-> CTRL_TX : "**CA-D1**\n58B metrics emit"
+CTRL_TX -right-> PC_BOX : "TCP/8888\n(MJPEG + metrics)"
+
+' ==============================================================
+' Feedback (F) — 点線、上向き
+' ==============================================================
+CTRL_FBM .up.> CTRL_PID : "**F-1** queue_depth\n(唯一の制御入力)"
+HW_WIFI .up.> CTRL_TX : "**F-3** send_result\n(success / EPIPE)"
+HW_WIFI .up.> CTRL_HEALTH : "**F-4** TCP RTT\nretrans"
+HW_CAM .up.> CTRL_HEALTH : "**F-5** frame interval\nJPEG quality"
+
+' ==============================================================
+' Process Model 注記 (Controller が抱える内部モデル)
+' ==============================================================
+note right of CTRL_PID #LightPink
+  **🧠 Process Model (CTRL-A)**:
+  • 抱えるモデル: キュー深度 = 負荷代理 / FPS↓ で queue↓
+  • **盲点**: フレームサイズ実値 (65-120 KB) / tx_buff[1] 占有 /
+    WiFi RSSI / RTT 急変
+  • **解消策 (§6.1.x)**: 代理指標 (tcp_send_time EMA / ジッタ /
+    queue 成長率) を feedforward 加算で導入
+end note
+
+note right of CTRL_TX #LightPink
+  **🧠 Process Model (CTRL-B)**:
+  • 抱えるモデル: 切断 = 物理障害, 5 回 exp backoff で復旧
+  • **盲点**: 一時的遅延 vs 真切断の判別 /
+    再接続中の累積品質劣化
+  • ADR-002 v1.1 で逆効果判明 (FMEA B3 RPN 300)
+  • **解消策**: M-2 (RTT 移動平均 ± 2σ で動的閾値化)
+end note
+
+note bottom of HW_WIFI #LightYellow
+  **🚫 構造的天井 (制御不可)**:
+  ① tx_buff[1] = 1 個のみ → 完全シリアライズ
+  ⑤ 内部バッファ非公開 (Sony ベンダー BB)
+  ⑥ TCP send 134 ms ±50 ms
+
+  → CTRL-A/B の Process Model 改善でも
+    上限値そのものは下がらない (Tier 移行待ち)
+end note
+
+note left of HW_CAM #LightGoldenRodYellow
+  **🌐 Scene → AE/AWB → JPEG size の連鎖 (v1.5)**:
+  • Scene が暗い → AE がゲイン↑ → ノイズ多 → JPEG ↑
+  • Scene が複雑 (高密度パターン) → JPEG ↑
+  • Scene 急変 (照明 ON/OFF) → 一瞬で 120 KB 超
+  • 強光 (フラッシュ) → センサー saturate → 真っ白
+  → これら全てが **CTRL-A の制御入力に間接的に伝わる**
+    が、現状 PID は queue_depth のみ反応
+  → 対策: M-24 (frame_statistics の complexity を
+    PID feedforward に追加 = M-1 と統合可)
+end note
+
+note bottom of CTRL_HEALTH #LightCyan
+  **CTRL-D の弱点 (UCA-D1.1)**:
+  metrics 出力経路が TCP/8888 一本
+  → WiFi 切断時に運用者盲目
+  → **解消策 M-7**: USB CDC-ACM 副経路 + LED ステータス
+end note
+
+note bottom of CTRL_OS #LightSteelBlue
+  **🛠️ OS/Driver 層の STAMP 上の論点 (v1.6)**:
+  • UCA-OS.1: pthread priority inversion 検出無し
+  • UCA-OS.2: watchdog 不在 → kernel panic 時自動復旧無し
+  • UCA-DRV-GS2200M.1: HAL_TIMEOUT=5s 固定 → 真切断検出が最大 5 秒遅延
+  • UCA-DRV-GS2200M.2: WR_MAX_RETRY=100 → SPI 書込みが永久ループ風挙動
+  • UCA-DRV-V4L2.1: buffer count 固定 3 → 動的調整不可
+  • → 対策 M-28 (watchdog) / M-29 (HAL_TIMEOUT 動的化)
+end note
+
+note bottom of CTRL_PMIC #MistyRose
+  **⚡ 電源層の STAMP 上の論点 (v1.6)**:
+  • 電源喪失そのものは FMEA 領域 (制御以前の問題)
+  • **STAMP 価値ある論点** (制御連鎖):
+    - UCA-PWR.1: ブラウンアウト検出 + Safe shutdown 無し
+      → MP4 moov atom 破損 → 録画ファイル消失 (L-1)
+    - UCA-PWR.2: バッテリ運用時の残量通知無し
+    - UCA-PWR.3: 電源復帰後 auto-restart + state リストア無し
+    - UCA-O.5: Operator が運用中に物理電源切断 (CA-O)
+  • → 対策 M-30 (録画 flush) / M-31 (バッテリ metrics) / M-32 (auto-restart)
+end note
+
+@enduml

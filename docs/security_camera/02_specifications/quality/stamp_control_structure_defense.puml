@@ -1,0 +1,104 @@
+@startuml stamp_control_structure_defense
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+top to bottom direction
+
+title STAMP 制御構造 — 詳細図 B: STPA-Sec 防御 Controller 配置\n9 種を 3 カテゴリで分類 / 詳細マッピングは stpa_sec_defense_mapping
+
+' ==============================================================
+' 敵対者 (簡略)
+' ==============================================================
+package "🦹 Adversaries (Lv4 — 簡略)" as ADV #MistyRose {
+  actor "**ADV-LAN** TCP接続/盗聴/MITM/DoS" as ADV_LAN
+  actor "**ADV-RF** Evil Twin / Jamming" as ADV_RF
+  actor "**ADV-LOCAL** PC ローカル" as ADV_LOCAL
+  actor "**ADV-REPO** リポジトリ閲覧" as ADV_REPO
+  actor "**ADV-PHYS** Spresense 物理" as ADV_PHYS
+  actor "**ADV-PHYSICAL-SCENE** (v1.5)\n敵対的被写体" as ADV_SCENE #Pink
+  actor "**ADV-PHYSICAL-POWER** (v1.6)\n物理電源切断攻撃" as ADV_POWER #Pink
+}
+
+' ==============================================================
+' 防御 Controllers (3 カテゴリ × 縦積み)
+' ==============================================================
+package "🛡️ Defensive Controllers (本来あるべき 9 種)" as DEF {
+
+  package "I. 認証・接続制御" as DEF_ACCESS #FFE4E1 {
+    component "**AUTH** 接続認証\n(CA-AUTH.1 / JWT)\n❌ 不在" as D_AUTH #Pink
+    component "**APV** AP MAC 検証\n(CA-APV.1)\n❌ 不在" as D_APV #Pink
+    component "**RL** Rate Limit + slow client\n(CA-RL.1/.2)\n🟡 BACKLOG=1 のみ" as D_RL #LightYellow
+  }
+
+  package "II. データ保護" as DEF_DATA #FFE4E1 {
+    component "**CRYPTO** 暗号化\n(CA-CRYPTO.1/.2/.3 / AES-256-GCM)\n❌ 不在" as D_CRYPTO #Pink
+    component "**INT** 完全性\n(CA-INT.1 HMAC / CA-INT.2 ハッシュチェーン)\n🟡 CRC-16 のみ" as D_INT #LightYellow
+  }
+
+  package "III. 監視・物理・可用性" as DEF_OPS #FFE4E1 {
+    component "**AUDIT** 監査ログ\n(CA-AUDIT.1 操作 / CA-AUDIT.2 永続)\n❌ 不在" as D_AUDIT #Pink
+    component "**FB** USB Tier C 自動切替\n(CA-FB.1)\n❌ 不在" as D_FB #Pink
+    component "**MEMSAFE** メモリ安全\n(CA-MEMSAFE.1)\n✅ Rust + bounded(3)" as D_MS #LightGreen
+    component "**PHYSSEC** 物理境界\n(CA-PHYS.1)\n🟡 暗黙の運用前提" as D_PHYS #LightYellow
+  }
+
+  DEF_ACCESS -[hidden]down- DEF_DATA
+  DEF_DATA -[hidden]down- DEF_OPS
+}
+
+' ==============================================================
+' 適用先 (Spresense / PC / 物理 で分類)
+' ==============================================================
+package "🎯 適用先 (システム側)" as APP {
+  component "🔧 **Spresense Edge 各 Controller**\n(Transport / Streaming / Health)" as APP_SPR #LightYellow
+  component "💻 **PC Host** (Recording / Viewer)" as APP_PC #LightCyan
+  component "📡📷 **Hardware / 物理境界**" as APP_HW #LightGray
+
+  APP_SPR -[hidden]down- APP_PC
+  APP_PC -[hidden]down- APP_HW
+}
+
+' ==============================================================
+' カテゴリ単位の集約矢印 (CA-Def 詳細は stpa_sec_defense_mapping)
+' ==============================================================
+ADV -down-> DEF : "**攻撃 (CA-ADV.* 13 件)**\n防御不在を突く"
+
+DEF_ACCESS ..down.> APP_SPR : "**Spresense 側に実装**\n(AUTH, APV, RL は Transport Manager 拡張)"
+DEF_DATA ..down.> APP_SPR : "**両側**\n(CRYPTO.1, INT.1 は Streaming で適用)"
+DEF_DATA ..down.> APP_PC : "(CRYPTO.2, INT.2 は\nRecording で適用)"
+DEF_OPS ..down.> APP_PC : "**PC 側中心**\n(AUDIT.1, MEMSAFE)"
+DEF_OPS ..down.> APP_SPR : "(AUDIT.2 は SD カード\nFB は USB 経路)"
+DEF_OPS ..down.> APP_HW : "(PHYSSEC は\n運用文書化)"
+
+' ==============================================================
+' 観察ノート
+' ==============================================================
+note right of DEF #Pink
+  **🛡 STPA-Sec 観察**:
+  ❌ 完全不在 = **6** (AUTH, CRYPTO×3, AUDIT×2, APV, FB)
+  🟡 部分実装 = **2** (INT は CRC のみ, RL は BACKLOG=1)
+  ✅ 達成 = **1** (MEMSAFE — Rust + bounded(3))
+
+  → THREAT_MODEL 14 件中 **12 件** が
+    UCA-Def(NP) として一様に説明可能
+  → 詳細マッピング: stpa_sec_defense_mapping
+end note
+
+note right of APP #LightCyan
+  **📋 Phase 12 セキュリティ判断 (§8.7)**:
+  • **A** PHYS のみ運用文書化 → 1/9 達成
+  • **B** AUTH + RL 追加 → 3/9 達成 (推奨)
+  • **C** + INT → 5/9 達成
+  • **D** + CRYPTO 全面 → 8/9 達成 (要 RAM 検証)
+  • **Phase 13+** + AUDIT/APV/FB → 9/9 達成
+end note
+
+note left of D_MS #LightGreen
+  **既達成 (✅)**:
+  MEMSAFE は Rust 言語特性 + bounded(3) で
+  TE-1 (PC viewer 権限昇格 DREAD 30) を緩和済。
+  ※ bounded 境界 unit test は要確認
+    (TEST_PLAN §4.4 PT-MEMSAFE.1)
+end note
+
+@enduml

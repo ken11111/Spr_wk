@@ -1,0 +1,116 @@
+@startuml stamp_control_structure_pcviewer
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+top to bottom direction
+
+title STAMP 制御構造 — 詳細図 C: PC viewer 内部 (white-box)\n+ Scene (被写体) を Plant 入力源として明示\n(全体像は stamp_control_structure / Spresense 内部は stamp_control_structure_spresense)
+
+' ==============================================================
+' Scene = Plant の入力源 (外乱)
+' ==============================================================
+package "🌐 Plant 入力源 (外部)" as SCENE_PKG #LightGoldenRodYellow {
+  actor "📸 **Scene (被写体)**\n人 / モノ / 光環境\n• 動き有無\n• 明暗 (照度)\n• 色 / コントラスト\n• 複雑度 (高密度パターン)" as SCENE
+  actor "🦹 **ADV-PHYSICAL-SCENE**\n敵対的被写体\n(強光 / 高速動き / 敵対パターン)" as ADV_SCENE #MistyRose
+}
+
+' ==============================================================
+' Spresense 側 (簡略 — 詳細は別図)
+' ==============================================================
+package "🔧 Spresense (簡略)" as SPR #LightYellow {
+  component "📷 **ISX012 + V4L2**\n内蔵 AE / AWB (自律ループ)\nJPEG エンコード (HW)" as HW_CAM
+  component "🎛️ **CTRL-A** (PID)\n+ frame_statistics" as CTRL_PID
+  component "🚚 Transport (TCP)" as SPR_TX
+}
+
+' ==============================================================
+' PC viewer white-box
+' ==============================================================
+package "💻 PC Viewer (white-box) — Rust" as PC #LightCyan {
+
+  component "🖥️ **GUI Main** (CTRL-GUI)\n責務: 表示 + 操作受付\n実装: gui_main.rs (1815 行)" as PC_GUI
+  component "🔌 **TCP Connection**\n受信 + bounded(3) ring buffer\n実装: tcp_connection.rs" as PC_TCP
+  component "🔍 **Motion Detector** (CTRL-MD)\n責務: フレーム差分検知 → 録画 trigger\n実装: motion_detector.rs (235 行)\n• sensitivity = 0.5\n• min_motion_area = 1.0%\n• pre = 10s, post = 30s\n• detect() → bool" as CTRL_MD
+  component "🎬 **Recording State Machine**\nIdle / ManualRecording / MotionRecording\n実装: gui_main.rs:100-204" as CTRL_REC_SM
+  component "💾 **MP4 Recorder**\n責務: 録画ファイル書込み\n実装: mp4_recorder.rs" as PC_REC
+  component "📊 **Metrics Parser**\n責務: 58B metrics + dashboard\n実装: metrics.rs + protocol.rs" as PC_METRICS
+}
+
+' ==============================================================
+' Storage
+' ==============================================================
+component "💽 **PC Storage**\n(ローテーション未実装 ⚠)" as HW_STORAGE #LightGray
+
+' ==============================================================
+' Operator
+' ==============================================================
+actor "👤 **Operator**" as OP
+
+' ==============================================================
+' Scene → Plant (Spresense)
+' ==============================================================
+SCENE -down-> HW_CAM : "**光・動き・色** (CF-4 外乱)\nJPEG サイズ 65-120 KB を決定\n→ tx_buff 飽和 (天井 #5) を誘発"
+ADV_SCENE -down-> HW_CAM : "**CA-ADV.14** 強光 / saturate\n**CA-ADV.15** 動き DoS\n**CA-ADV.16** 偽の動き再生"
+
+' ==============================================================
+' Spresense → PC (MJPEG + metrics)
+' ==============================================================
+HW_CAM -down-> CTRL_PID : "frame (size, complexity)"
+CTRL_PID -down-> HW_CAM : "fps_runtime"
+SPR_TX -down-> PC_TCP : "TCP/8888\nMJPEG + 58B metrics"
+
+' ==============================================================
+' PC 内部 制御フロー
+' ==============================================================
+PC_TCP -down-> PC_GUI : "RGBA frame\n(bounded(3))"
+PC_TCP -down-> PC_METRICS : "58B metrics packet"
+PC_GUI -right-> CTRL_MD : "**F-MD.in** RGBA frame"
+CTRL_MD -down-> CTRL_REC_SM : "**CA-MD.1** motion_detected: bool\n→ MotionRecording 開始/維持"
+PC_GUI -down-> CTRL_REC_SM : "**CA-GUI.1** 手動録画 start/stop\n(ManualRecording)"
+CTRL_REC_SM -down-> PC_REC : "frame 書込み\n(post 30s カウントダウン後 stop)"
+PC_REC -down-> HW_STORAGE : "**CA-C1** write MP4\n(⚠ ローテ無)"
+PC_METRICS -right-> OP : "**F-7** dashboard 表示"
+OP -down-> PC_GUI : "**CA-O5** 手動録画操作 /\nsensitivity 設定変更"
+
+' ==============================================================
+' Process Model 注記
+' ==============================================================
+note right of CTRL_MD #LightPink
+  **🧠 Process Model (CTRL-MD)**:
+  • 抱えるモデル: 「フレーム差分の閾値超過 = 侵入動き」
+  • **盲点**:
+    - 揺れる木の葉 / 光の変化 / 影の移動 (誤検知要因)
+    - 低照度・被写体色が背景と近い (見逃し要因)
+    - シーン全体が急変 (照明 ON/OFF) は全画面差分 → 誤検知
+  • **対策案 M-25**: false-positive/negative 回帰テスト
+end note
+
+note right of HW_CAM #LightYellow
+  **🚫 ISX012 内蔵 AE/AWB は自律ループ**:
+  • アプリ層 (Spresense) から **観測のみ可能、制御不可**
+  • 低照度時にゲイン↑ → ノイズ多 → JPEG サイズ膨張
+  • 強光時に saturate → 真っ白画像 (差分検知も無効化)
+  • 構造的に CTRL-A の盲点と直結 (Scene → AE → JPEG size)
+  → UCA-CAM-AE.1 / H-13 として §3 で扱う
+end note
+
+note bottom of SCENE #LightGoldenRodYellow
+  **STAMP 上の位置付け (v1.5 追加)**:
+  Scene は Plant の外部入力源 = CF-4 (外乱) の主要源。
+  従来モデルでは「JPEG サイズ変動 65-120 KB」と
+  数値のみ示していたが、根本原因 = Scene。
+  • 通常運用: 自然な動き / 照度変化 → CF-4
+  • 悪意: ADV-PHYSICAL-SCENE が能動的に攻撃可能
+end note
+
+note right of CTRL_REC_SM #LightCyan
+  **Recording SM の状態**:
+  • Idle
+  • ManualRecording { filepath, start_time, ... }
+  • MotionRecording { ..., motion_active: bool,
+                      countdown_frames: u32 }
+  post_record_seconds × 11 fps = カウントダウン
+  → motion 終了後 30s 録画継続
+end note
+
+@enduml

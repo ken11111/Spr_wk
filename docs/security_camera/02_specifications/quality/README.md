@@ -20,6 +20,8 @@ ISO/IEC 25010 品質属性体系で散在 NFR を整理し、文書間の用語�
 | [`CROSS_CUTTING_CONCERNS.md`](CROSS_CUTTING_CONCERNS.md) | ロギング / エラー処理 / 設定管理 / 国際化 の横断方針 (IS → TO-BE) | §8 |
 | [`FMEA.md`](FMEA.md) | 28 失敗モードの S/O/D/RPN 採点 + 対策状況 | §11 |
 | [`THREAT_MODEL.md`](THREAT_MODEL.md) | STRIDE × DREAD 14 脅威シナリオ + Phase 12 軽減策優先度 | §10 |
+| [`STAMP_STPA_ANALYSIS.md`](STAMP_STPA_ANALYSIS.md) | STAMP/STPA + **STPA-Sec** 制御構造起点の安全分析 (UCA **67 件** / Hazard **16** / SC **15** / FMEA・THREAT_MODEL 完全突合 / 対策 **M-1〜M-33** 工数/担当付き) + 図 **6 枚** (全体抽象 + 詳細 Spresense + 詳細 PC viewer + 詳細防御 + 影響 + Sec マッピング) — v1.5 で Scene/Motion/AE、v1.6 で **OS/Driver + 電源** を制御構造に統合 | §10/§11 |
+| [`STAMP_STPA_TEST_PLAN.md`](STAMP_STPA_TEST_PLAN.md) | UCA 再現テスト (TC-MD.* / TC-Scene.* / TC-CAM-AE.* / **TC-OS.* / TC-DRV.* / TC-PWR.* / TC-ADV-POWER.*** 含む) / SC 受け入れ基準 / Pentest / カバレッジ KPI / Phase 別段階導入計画 | §11 |
 | [`FUNCTIONAL_SPEC_AUDIT.md`](FUNCTIONAL_SPEC_AUDIT.md) | functional/ 7 SPEC の整合性監査 + 推奨アクション | §11 |
 | [`TEST_COVERAGE_BASELINE.md`](TEST_COVERAGE_BASELINE.md) | テスト棚卸し (PC 31 件 / Spresense 0 件) + 改善計画 | §11 |
 | [`PENDING_NFR_WORK.md`](PENDING_NFR_WORK.md) | 未着手 NFR タスク台帳 (P1 / P2 / 計画外, 全 12 件) | — |

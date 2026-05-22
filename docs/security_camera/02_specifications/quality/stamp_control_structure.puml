@@ -1,0 +1,135 @@
+@startuml stamp_control_structure
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+top to bottom direction
+
+title STAMP 階層制御構造図 (全体像 / 抽象レベル)\nSpresense + PC 防犯カメラシステム\n→ 詳細: [Spresense 内部] stamp_control_structure_spresense / [PC viewer 内部] stamp_control_structure_pcviewer / [防御] stamp_control_structure_defense
+
+' ==============================================================
+' Lv4: 人間 + 敵対者 (STPA-Sec)
+' ==============================================================
+package "Lv4: 制御主体 (人間 + 敵対者)" as L4 {
+  actor "👤 **Operator**\n(設置者/運用者)" as OP
+  rectangle "🦹 **Adversary Controllers** (STPA-Sec, 7 種)\nADV-LAN / ADV-RF / ADV-LOCAL / ADV-REPO\nADV-PHYS-SPR / **ADV-PHYSICAL-SCENE** (v1.5) / **ADV-PHYSICAL-POWER** (v1.6)\n→ CA-ADV.* 18 件 (詳細は stpa_sec_defense_mapping)" as ADV #MistyRose
+}
+
+' ==============================================================
+' Plant 入力源 (Scene = 外乱) — v1.5 追加
+' ==============================================================
+package "🌐 Plant 入力源 (外部, v1.5 追加)" as SCENE_PKG #LightGoldenRodYellow {
+  actor "📸 **Scene (被写体)**\n動き / 照度 / 色 / 複雑度\n→ JPEG サイズ 65-120 KB を決定\n(CF-4 外乱の主要源)" as SCENE
+}
+
+' ==============================================================
+' Lv3: PC Host (集約)
+' ==============================================================
+rectangle "Lv3: 💻 **PC Host**\nHealth Analyzer / Recording Engine / Viewer Client / **🔍 Motion Detector (CTRL-MD)**\n→ 詳細図: stamp_control_structure_pcviewer" as L3 #LightCyan
+
+' ==============================================================
+' Lv2: Spresense Edge (集約) + 防御 Controllers (集約)
+' ==============================================================
+package "Lv2: 制御プレーン" as L2_PLANE {
+  rectangle "🔧 **Spresense Edge** (6 controllers)\n🧵 Lifecycle / 🎛️ PID (Phase 10) / 🚚 Transport (Auto-Reconnect)\n📦 Streaming / 📊 Health Monitor / 🗂️ Frame Buffer Manager\n→ 詳細図: stamp_control_structure_spresense" as L2_SPR #LightYellow
+  rectangle "🛡️ **Defensive Controllers** (STPA-Sec, 9 種)\nAUTH / CRYPTO×3 / INT / AUDIT×2 / RL / APV / FB / MEMSAFE / PHYSSEC\n**現状: ❌6 / 🟡2 / ✅1**\n→ 詳細図: stamp_control_structure_defense" as L2_DEF #Pink
+}
+
+' ==============================================================
+' Lv2.5: OS / Driver 層 (v1.6 追加)
+' ==============================================================
+rectangle "Lv2.5: 🛠️ **NuttX OS + Drivers** (v1.6 追加)\n• **scheduler / pthread** (priority [1-255], `WL_GS2200M_PRIORITY=50`)\n• **IOB プール** (8 buffer × 196 B = 1568 B, `IOB_THROTTLE=0`)\n• **V4L2 driver** (buffer count 固定 3)\n• **GS2200M driver** (`HAL_TIMEOUT=5s`, `WR_MAX_RETRY=100`)\n• **USB CDC-ACM driver**  /  **watchdog 不在 ⚠**" as L2_5 #LightSteelBlue
+
+' ==============================================================
+' Lv1: Hardware / Plant
+' ==============================================================
+rectangle "Lv1: ⚙️ **Hardware / Controlled Process**\n📷 ISX012 + V4L2  /  📡 GS2200M (tx_buff[1])  /  🔌 USB CDC-ACM  /  💾 PC Storage" as L1 #LightGray
+
+' ==============================================================
+' Lv0: 電源 (v1.6 追加)
+' ==============================================================
+rectangle "Lv0: ⚡ **Power Supply** (v1.6 追加)\n• **CXD5247 PMIC** (Spresense ボード搭載, HW BB)\n• 電源源: USB バスパワー (5V) / 外部 LiPo バッテリ / AC アダプタ\n• ブラウンアウト検出: 有無 **未確認** ⚠\n• PC Host 電源: AC 系 (本書スコープ外、注記のみ)" as L0 #MistyRose
+
+' ==============================================================
+' 主要制御フロー (抽象)
+' ==============================================================
+OP -down-> L3 : "GUI 操作 (CA-O5 録画/sensitivity)"
+OP -down-> L2_SPR : "CA-O1〜O4 (起動/設定/cred)"
+SCENE -down-> L1 : "**Scene 入力** (CF-4 外乱)\n光・動き・色 → JPEG size"
+ADV ..down.> L1 : "**CA-ADV.* (16 件)**\n防御不在の隙を突く"
+ADV ..down.> L3 : "CA-ADV.8/.9/.12\n(PC ローカル攻撃)"
+ADV ..down.> SCENE : "**CA-ADV.14〜16** (v1.5)\n強光/動き DoS/偽動き再生"
+ADV ..down.> L0 : "**CA-ADV.17〜18** (v1.6)\n電源ケーブル抜去 (DoS) / 電源ノイズ注入 (TEMPEST)"
+L2_DEF ..down.> L2_SPR : "**CA-Def.* (本来あるべき)**\n大半は ❌ 不在"
+L2_DEF ..down.> L3 : "CA-CRYPTO.2 / AUDIT.1 / INT.2\n(PC 側適用)"
+
+L2_SPR -down-> L2_5 : "syscall / ioctl\n(VIDIOC_S_PARM, pthread API, send)"
+L2_5 -down-> L1 : "ハード抽象化\nfps_runtime / TCP send / etc"
+L1 ..up.> L2_5 : "割込み / DMA / SPI 応答"
+L2_5 ..up.> L2_SPR : "**F-1〜F-5** queue_depth / send_result\nRTT / frame interval (driver 経由)"
+
+L0 -up-> L1 : "**電源供給** (5V / 3.3V / 1.2V)\nブラウンアウト時は全 IC 停止 → 即サービス停止"
+L0 -up-> L2_5 : "電源供給"
+L1 -right-> L3 : "TCP/8888 (MJPEG + 58B metrics)"
+L3 ..up.> OP : "F-7 dashboard\n(ランブック未整備 X-4)"
+
+' ==============================================================
+' 構造的天井 (Plant 側制約)
+' ==============================================================
+note right of L1 #LightYellow
+  **構造的天井 (制御不可)**:
+  ① tx_buff[1] = 1 個のみ → 送信完全シリアライズ
+  ② IOB プール 1568 B (`IOB_THROTTLE=0`)
+  ④ RAM 1.5 MB (TLS 全面実装の制約)
+  ⑤ GS2200M 内部バッファ非公開 (ベンダー BB)
+  ⑥ TCP send avg = 134 ms ± 50 ms
+  ⑦ ISX012 内蔵 AE/AWB (HW BB, v1.5)
+  ⑧ CXD5247 PMIC (HW BB, v1.6)
+  詳細: [`../architecture/SPRESENSE_TCP_CONSTRAINTS.md`](../architecture/SPRESENSE_TCP_CONSTRAINTS.md)
+end note
+
+note left of L0 #MistyRose
+  **⚡ 電源層の特徴 (v1.6)**:
+  • 電源喪失 = 全 Controller 一斉停止 (制御以前の問題)
+  • ブラウンアウト時の挙動:
+    - ファイル書込み中なら **MP4 moov atom 破損** リスク
+    - GS2200M / ISX012 が中途状態で復旧時に再初期化必要
+  • watchdog 不在のため、電源復帰後の自動再起動も未保証
+  → SC-13/SC-14 で対応 (M-30/M-32)
+end note
+
+note left of L2_5 #LightSteelBlue
+  **🛠️ OS/Driver 層の特徴 (v1.6)**:
+  • アプリ Controller (Lv2) の **暗黙のサブストレート**
+  • 「正常動作する前提」が STAMP の Process Model に内包される
+  → 独立 UCA は最小限 (priority inversion / watchdog 不在 / HAL_TIMEOUT 固定)
+  • コンポーネント故障そのものは FMEA 領域 (役割分担)
+end note
+
+' ==============================================================
+' 防御 Controller 観察ノート
+' ==============================================================
+note right of L2_DEF #Pink
+  **STPA-Sec 観察**:
+  9 防御 Controller のうち
+  • ❌ 完全不在 = 6
+  • 🟡 部分実装 = 2 (INT / RL)
+  • ✅ 達成 = 1 (MEMSAFE)
+  → THREAT_MODEL 14 件中 12 件が
+    UCA-Def(NP) として一様に説明可能
+end note
+
+' ==============================================================
+' Process Model 盲点ノート (抽象)
+' ==============================================================
+note left of L2_SPR #LightPink
+  **Process Model 盲点 (主要 3 つ)**:
+  • CTRL-A (PID): queue_depth のみ観測
+    → tx_buff/RTT を代理指標で間接推定 (§6.1.x)
+  • CTRL-B (Reconnect): 一時遅延 ≠ 真切断 を区別不能
+    → 動的閾値化 M-2
+  • CTRL-D (Health): TCP 一本に依存
+    → USB 副経路 M-7
+end note
+
+@enduml

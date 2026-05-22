@@ -1,0 +1,174 @@
+@startuml stpa_sec_defense_mapping
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+left to right direction
+
+title STPA-Sec 完全突合図 — CA-ADV ↔ UCA-Def ↔ THREAT_MODEL\n(THREAT_MODEL 14 件を制御理論的に再構成)
+
+' ==============================================================
+' 左: 敵対者 Controller + CA-ADV (敵対者の制御アクション)
+' ==============================================================
+package "🦹 Adversary Controllers & CA-ADV" as ADVS #MistyRose {
+  card "**CA-ADV.1**\nTCP/8888 接続" as A1
+  card "**CA-ADV.2**\nWireshark capture" as A2
+  card "**CA-ADV.3**\nARP spoof → MITM" as A3
+  card "**CA-ADV.4**\nEvil Twin AP" as A4
+  card "**CA-ADV.5**\nTCP DoS spam" as A5
+  card "**CA-ADV.6**\nTCP slow read" as A6
+  card "**CA-ADV.7**\n2.4GHz Jamming" as A7
+  card "**CA-ADV.8**\nMP4 ファイル編集" as A8
+  card "**CA-ADV.9**\nプロセスメモリ侵入" as A9
+  card "**CA-ADV.10**\ngit clone → cred 取得" as A10
+  card "**CA-ADV.11**\nSPI bus → FW 書換" as A11
+  card "**CA-ADV.12**\n録画停止操作 (否認)" as A12
+  card "**CA-ADV.13**\nmetrics 経由運用情報分析" as A13
+}
+
+' ==============================================================
+' 中央: UCA-Def (防御 Controller の不在)
+' ==============================================================
+package "🛡️ UCA-Def (防御 Controller の Not Provided 状態)" as DEFS #LightCyan {
+  rectangle "**UCA-AUTH.1**\nクライアント認証 不在\n❌" as U_AUTH #Pink
+  rectangle "**UCA-CRYPTO.1**\n転送暗号化 不在\n❌" as U_C1 #Pink
+  rectangle "**UCA-CRYPTO.2**\n保存暗号化 不在\n❌" as U_C2 #Pink
+  rectangle "**UCA-CRYPTO.3**\nmetrics 暗号化 不在\n❌" as U_C3 #Pink
+  rectangle "**UCA-INT.1**\n転送 HMAC 不在 (CRC のみ)\n🟡" as U_I1 #LightYellow
+  rectangle "**UCA-INT.2**\n録画ハッシュチェーン 不在\n❌" as U_I2 #Pink
+  rectangle "**UCA-AUDIT.1**\n操作監査ログ 不在\n❌" as U_AU1 #Pink
+  rectangle "**UCA-AUDIT.2**\n永続障害ログ 不在\n❌" as U_AU2 #Pink
+  rectangle "**UCA-RL.1**\naccept rate limit 不在\n🟡 BACKLOG=1 のみ" as U_RL1 #LightYellow
+  rectangle "**UCA-RL.2**\nslow client 検知 不在\n❌" as U_RL2 #Pink
+  rectangle "**UCA-APV.1**\nAP MAC 検証 不在\n❌" as U_APV #Pink
+  rectangle "**UCA-FB.1**\nUSB Tier C 自動切替 不在\n❌" as U_FB #Pink
+  rectangle "**UCA-MEMSAFE.1**\n(満たされている)\n✅" as U_MS #LightGreen
+  rectangle "**UCA-PHYS.1**\n物理境界 文書化なし\n🟡 暗黙" as U_PH #LightYellow
+  rectangle "**UCA-O.2** (運用側)\nWiFi cred を VCS push\n🟡 X-7 計画中" as U_O2 #LightYellow
+}
+
+' ==============================================================
+' 右: THREAT_MODEL ID + DREAD + STRIDE カテゴリ
+' ==============================================================
+package "🎯 THREAT_MODEL (DREAD)" as THREATS #LightYellow {
+  card "**TS-1** PC viewer なりすまし\nDREAD **46** 🔴" as T_TS1
+  card "**TS-2** Evil Twin AP\nDREAD 30 🟡" as T_TS2
+  card "**TT-1** MJPEG 中間者改ざん\nDREAD 32 🟡" as T_TT1
+  card "**TT-2** MP4 改ざん\nDREAD 34 🟡" as T_TT2
+  card "**TR-1** 運用者アクション否認\nDREAD 33 🟡" as T_TR1
+  card "**TR-2** 障害発生時否認\nDREAD 33 🟡" as T_TR2
+  card "**TI-1** MJPEG 盗聴\nDREAD **48** 🔴" as T_TI1
+  card "**TI-2** WiFi cred 漏洩\nDREAD **45** 🔴" as T_TI2
+  card "**TI-3** metrics 運用情報漏洩\nDREAD 32 🟡" as T_TI3
+  card "**TD-1** TCP DoS spam\nDREAD **42** 🔴" as T_TD1
+  card "**TD-2** tx_buff 枯渇 DoS\nDREAD **35** 🔴" as T_TD2
+  card "**TD-3** WiFi Jamming\nDREAD 32 🟡" as T_TD3
+  card "**TE-1** PC viewer 権限昇格\nDREAD 30 🟡" as T_TE1
+  card "**TE-2** Spresense root 化\nDREAD 24 🟢" as T_TE2
+}
+
+' ==============================================================
+' 推奨対策 M-* (右端)
+' ==============================================================
+package "💊 推奨対策 (本書 §6, §8.7)" as MIT #LightGreen {
+  card "**M-8** TLS-PSK / アプリ層認証\n(Phase 12 Option B/D)" as M8
+  card "**M-10** AP MAC 固定" as M10
+  card "**M-11** MJPEG HMAC-SHA256" as M11
+  card "**M-12** MP4 ハッシュチェーン" as M12
+  card "**M-13** GUI 操作監査ログ+署名" as M13
+  card "**M-14** 永続ログ (SD) + 署名" as M14
+  card "**M-15** rate limit + slow client 検知" as M15
+  card "**M-16** USB Tier C 自動切替" as M16
+  card "**M-17** 物理境界 運用文書化" as M17
+  card "**M-5** pre-commit hook + .example 化\n(X-7)" as M5
+}
+
+' ==============================================================
+' CA-ADV → UCA-Def (敵対者の CA が成立する条件 = 防御 Def が不在)
+' ==============================================================
+A1 --> U_AUTH
+A2 --> U_C1
+A3 --> U_I1
+A4 --> U_APV
+A5 --> U_RL1
+A6 --> U_RL2
+A7 --> U_FB
+A8 --> U_I2
+A8 --> U_C2 : "(盗み見)"
+A9 --> U_MS : "(防御済)"
+A10 --> U_O2
+A11 --> U_PH
+A12 --> U_AU1
+A13 --> U_C3
+
+' ==============================================================
+' UCA-Def → THREAT_MODEL (どの脅威が成立するか)
+' ==============================================================
+U_AUTH --> T_TS1
+U_C1 --> T_TI1
+U_C2 --> T_TT2 : "(間接)"
+U_C3 --> T_TI3
+U_I1 --> T_TT1
+U_I2 --> T_TT2
+U_AU1 --> T_TR1
+U_AU2 --> T_TR2
+U_RL1 --> T_TD1
+U_RL2 --> T_TD2
+U_APV --> T_TS2
+U_FB --> T_TD3
+U_MS --> T_TE1 : "(✅ Rust で緩和)"
+U_PH --> T_TE2
+U_O2 --> T_TI2
+
+' TR-2 は内部障害否認のため CA-ADV.12 不要 (CA-AUDIT.2 不在のみで成立)
+U_AU2 -[hidden]- T_TR2
+
+' ==============================================================
+' THREAT → 推奨対策
+' ==============================================================
+T_TS1 ..> M8
+T_TI1 ..> M8
+T_TI3 ..> M8
+T_TS2 ..> M10
+T_TT1 ..> M11
+T_TT2 ..> M12
+T_TR1 ..> M13
+T_TR2 ..> M14
+T_TD1 ..> M15
+T_TD2 ..> M15
+T_TD3 ..> M16
+T_TE2 ..> M17
+T_TI2 ..> M5
+
+' ==============================================================
+' 観察ノート
+' ==============================================================
+note bottom of DEFS #LightCyan
+  **🛡 STPA-Sec 中核観察**:
+  • 防御 Controller 9 種のうち **❌ 完全不在 = 6 (AUTH/CRYPTO×3/INT.2/AUDIT×2/APV/FB)** + **🟡 部分 = 2** + **✅ 達成 = 1 (MEMSAFE)**
+  • THREAT_MODEL 14 件中 **12 件が UCA-Def(NP) として一様に説明できる**
+  • 残 2 件 (TE-1 / TI-2) は MEMSAFE で防御済 / Operator UCA-O.2 へ委譲
+  • SECURITY_GAP_ANALYSIS の「完全乖離」項目 = 防御 Controller が制御構造に物理的に欠落している状態の言い換え
+end note
+
+note bottom of MIT #LightGreen
+  **📋 Phase 12 セキュリティ判断との対応 (§8.7)**:
+  • **Option A** 現状維持 → PHYS のみ実装 (M-17 のみ)
+  • **Option B** アプリ層認証 → AUTH + RL (M-8 + M-15)  ← 推奨
+  • **Option C** + 完全性 → + INT (M-11, M-12)
+  • **Option D** TLS 全面 → + CRYPTO (M-8 拡張)
+  • **将来 Phase 13+** → + AUDIT + APV + FB (M-13, M-14, M-10, M-16)
+end note
+
+note top of ADVS #MistyRose
+  **想定敵対者**:
+  • ADV-LAN: WiFi 突破 or LAN 物理侵入後
+  • ADV-RF: 2.4GHz 近接
+  • ADV-LOCAL: PC 物理ローカル
+  • ADV-REPO: リポジトリ閲覧者
+  • ADV-PHYS-SPR: Spresense 物理近接
+
+  ※ THREAT_MODEL §1 で「同一 LAN 内」を想定。
+  公開インターネット経由は要求書 v1.0 Q24 でスコープ外
+end note
+
+@enduml

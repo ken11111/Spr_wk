@@ -1,0 +1,166 @@
+@startuml stpa_impact_traceability
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+left to right direction
+
+title STPA 影響トレーサビリティ図\nUCA → Hazard → Loss と現対策 (FMEA / THREAT_MODEL 参照)
+
+' ==============================================================
+' Losses (right side, red)
+' ==============================================================
+package "🔴 Losses" as LOSSES #Pink {
+  card "**L-1**\n防犯映像\nの喪失" as L1
+  card "**L-2**\n機密漏洩\n(映像/cred)" as L2
+  card "**L-3**\n完全性侵害\n(改ざん)" as L3
+  card "**L-4**\nサービス\n長時間停止" as L4
+  card "**L-5**\nPC ストレージ\n枯渇 / 過去録画消失" as L5
+  card "**L-6**\n機材損傷\n(環境起因)" as L6
+}
+
+' ==============================================================
+' Hazards (middle, yellow)
+' ==============================================================
+package "🟡 Hazards" as HAZARDS #LightYellow {
+  rectangle "**H-1**\nデータパス\n連続停止" as H1
+  rectangle "**H-2**\nPID 誤指令\nfps↔送信能力 乖離" as H2
+  rectangle "**H-3**\n再接続発振\n(reconnect storm)" as H3
+  rectangle "**H-4**\n未認証クライアント\n接続状態" as H4
+  rectangle "**H-5**\nWiFi cred\nVCS 漏洩状態" as H5
+  rectangle "**H-6**\nストレージ\n枯渇状態" as H6
+  rectangle "**H-7**\ntx_buff[1] 飽和\nフレーム破棄" as H7
+  rectangle "**H-8**\n環境外動作\n(温度/屋外)" as H8
+  rectangle "**H-9**\nFW/設定\n改ざん状態" as H9
+  rectangle "**H-10**\nヘルス欠落\n運用者盲目" as H10
+}
+
+' ==============================================================
+' UCAs (left side, blue)  4 types per controller
+' ==============================================================
+package "🔵 Unsafe Control Actions" as UCAS #LightBlue {
+
+  package "CTRL-A: PID (CA-A1 fps_runtime)" as G_A #AliceBlue {
+    card "**UCA-A1.1** [Not Provided]\nqueue 滞留時に FPS 低減\n指令を出さない" as UA11
+    card "**UCA-A1.2** [Provided]\ntx_buff 飽和中に\n高 FPS を維持/上げる" as UA12
+    card "**UCA-A1.3** [Too Late]\nFPS 低減が遅れる\n(>100 ms 周期未満で破棄発生)" as UA13
+    card "**UCA-A1.4** [Stopped Soon]\nFPS 下げすぎ後\n回復タイミングを逃す" as UA14
+  }
+
+  package "CTRL-B: Auto-Reconnect (CA-B1)" as G_B #AliceBlue {
+    card "**UCA-B1.1** [Not Provided]\n真の切断時に\n再接続を発行しない" as UB11
+    card "**UCA-B1.2** [Provided]\n健全な状態で再接続\n発火 (誤検知)" as UB12
+    card "**UCA-B1.3** [Too Early]\n一時的遅延を\n切断と誤判定" as UB13
+    card "**UCA-B1.4** [Applied Long]\n5 回失敗後 FAILED\n固着 (停止継続)" as UB14
+  }
+
+  package "CTRL-C: Recording (CA-C1)" as G_C #AliceBlue {
+    card "**UCA-C1.2** [Provided]\nローテーション無しで\n書き込み継続" as UC12
+    card "**UCA-C1.1** [Not Provided]\n録画開始失敗\n(初期化エラー)" as UC11
+  }
+
+  package "CTRL-D: Health Emit (CA-D1)" as G_D #AliceBlue {
+    card "**UCA-D1.1** [Not Provided]\nWiFi 切断中に\nヘルス送信できない\n(代替経路なし)" as UD11
+    card "**UCA-D1.2** [Provided wrong]\n改ざん/誤値を\nメトリクスに混入" as UD12
+  }
+
+  package "CTRL-O: Operator (CA-O)" as G_O #AliceBlue {
+    card "**UCA-O.2** [Provided]\nWiFi cred を VCS に\nplaintext で push" as UO2
+    card "**UCA-O.1** [Not Provided]\n異常通知を見ても\n対応しない (ランブック未整備)" as UO1
+  }
+}
+
+' ==============================================================
+' UCA → Hazard
+' ==============================================================
+UA11 --> H2
+UA11 --> H7
+UA12 --> H2
+UA12 --> H7
+UA12 --> H3 : "送信遅延蓄積\n→ broken pipe"
+UA13 --> H2
+UA13 --> H1
+UA14 --> H2
+
+UB11 --> H1
+UB12 --> H3
+UB12 --> H1
+UB13 --> H3
+UB14 --> H1
+
+UC11 --> H1
+UC12 --> H6
+
+UD11 --> H10
+UD12 --> H10
+UD12 --> H9 : "(if exploited)"
+
+UO2 --> H5
+UO2 --> H4 : "WiFi 突破後 LAN 内\nに認証なし TCP"
+UO1 --> H1
+UO1 --> H6
+
+' 既存ハザード (環境/改ざん) は外部ドライバから
+rectangle "**外部要因**\n屋外/高温\n物理改ざん\n攻撃者" as EXT #LightGray
+EXT --> H8
+EXT --> H9
+EXT --> H4 : "TS-1 (DREAD 46)\nLAN 内攻撃者"
+
+' ==============================================================
+' Hazard → Loss
+' ==============================================================
+H1 --> L1
+H1 --> L4
+H2 --> L1
+H3 --> L1
+H3 --> L4
+H4 --> L2
+H4 --> L3
+H5 --> L2
+H6 --> L1
+H6 --> L5
+H7 --> L1
+H8 --> L1
+H8 --> L6
+H9 --> L3
+H9 --> L1
+H10 --> L4
+
+' ==============================================================
+' 既存対策ノート (FMEA / THREAT_MODEL / SECURITY_GAP_ANALYSIS 参照)
+' ==============================================================
+note bottom of UA12 #LightGreen
+  **既存緩和**: なし (PID は queue_depth のみ観測)
+  **推奨**: tx_buff 利用率を制御入力に追加
+  **関連**: FMEA A1 (RPN 150)
+end note
+
+note bottom of UB12 #LightGreen
+  **既存緩和**: 部分的 (auto-reconnect 自体)
+  **問題**: ADR-002 v1.1 で逆効果と判明
+  **関連**: FMEA B3 (RPN 300) 🔴
+end note
+
+note bottom of UB14 #LightGreen
+  **既存緩和**: TCP Health Monitor 検知のみ
+  **欠落**: 運用ランブック未整備 (X-4)
+  **関連**: FMEA B2 (RPN 108)
+end note
+
+note bottom of UC12 #LightGreen
+  **既存緩和**: なし
+  **欠落**: 1GB 自動ローテーション未実装
+  **関連**: FMEA C6 (RPN 140)
+end note
+
+note bottom of UO2 #LightGreen
+  **既存緩和**: 発見済、未対応
+  **欠落**: .gitignore + .example 化 (X-7)
+  **関連**: FMEA D1 (RPN 144)
+end note
+
+note bottom of EXT #LightGreen
+  **TS-1 (THREAT_MODEL)**: DREAD 46 🔴
+  認証なし TCP/8888 → 誰でも接続可
+end note
+
+@enduml

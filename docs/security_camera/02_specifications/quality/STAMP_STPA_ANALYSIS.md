@@ -1,6 +1,6 @@
 # STAMP / STPA Analysis (System-Theoretic Process Analysis)
 
-**バージョン**: 1.8 (Minto Pyramid 準拠でエグゼクティブサマリを冒頭に追加)
+**バージョン**: 1.9 (M-35 Observability 拡張ファミリを §6.5e として追加 — M-7/M-19/M-23/M-31 を統合再構成)
 **作成日**: 2026-05-19 (最終更新: 2026-05-22)
 **準拠**: Leveson, *Engineering a Safer World* (2011) / *STPA Handbook* (2018, Leveson & Thomas) / Young & Leveson, "Inside Risks: An Integrated Approach to Safety and Security Based on Systems Theory" (2014, CACM)
 
@@ -66,7 +66,23 @@
 **目的**: `02_specifications/architecture/` の構造図・仕様をベースに、本システムの **制御構造起点** の安全分析を実施する。FMEA (故障モード起点) / THREAT_MODEL (攻撃者起点) を完全に取り込み、コンポーネント間相互作用・不適切な制御アクションに起因する損失を体系的に抽出する。
 
 <details>
-<summary>📜 改訂履歴 (v1.1 〜 v1.8) — クリックで展開</summary>
+<summary>📜 改訂履歴 (v1.1 〜 v1.9) — クリックで展開</summary>
+
+> **v1.9 改訂内容** (Observability 拡張ファミリの導入):
+> - 実データ駆動のレビューで「下流ボトルネック特定が現行計装では困難」が判明 → **M-35 (Observability 拡張) を §6.5e として新規追加**
+> - **既存の散発的計装対策 (M-7 / M-19 / M-23 / M-31) を M-35 ファミリに統合再構成** (各行に統合参照を追記、廃止はせず)
+> - M-35 を 3 段階に分解: **M-35a (Spresense 計装拡張) / M-35b (PC viewer 計装拡張) / M-35c (E2E frame trace)** — 計 13-19 人日
+> - §2.3 CTRL-D の Process Model に「58 B で計装十分」の旧前提を訂正
+> - Phase 12.2 工数: 12 人日 → **20-23 人日** (M-35a/b 追加), Phase 12.3: 63-77 → **68-85 人日** (M-35c 追加)
+> - 解決される論点: F-9 下流ボトルネック特定 / UCA-OS.1 priority inversion 実証 / UCA-DRV-USB.1 root cause / M-29 動的閾値の前提検証 / M-1/M-24/M-34 効果検証
+> - 前提検証 (3 人日) を §6.5e.7 で明示
+>
+> **v1.8.1 改訂内容** (実データ駆動の対策追加):
+> - 実データシミュレーション (performance_trends.md §Image Size Control Simulation) に基づき **M-34 (画像サイズ上限制御)** を §6.5d として新規追加
+> - 4 実装案 (再 JPEG / QVGA 切替 / AE 最適化 / drop) の比較表 + 推奨案 (再 JPEG + 30 KB cap)
+> - **M-24 (Scene complexity feedforward) と M-34 を補完関係** として位置付け
+> - Phase 12.3 工数: 55-65 → **63-77 人日** (M-34 8-12 人日追加)
+> - 前提検証 (CXD5602 で JPEG decode + resize + encode 100ms 達成 / libjpeg-turbo NuttX ポーティング状況) を §6.5d.x 末尾に追加
 
 > **v1.1 改訂内容**:
 > - 純粋 STPA 漏れ 8 件 (FMEA A2/B4/B5/B6/B7/C1/C3/C4) を §3.7 として UCA 化
@@ -284,7 +300,7 @@ STPA で重要なのは **「コントローラが世界をどうモデル化し
 | **CTRL-A (PID)** | キュー深度 = 負荷代理指標 / FPS↓ で queue↓ | フレームサイズ実値 (65-120 KB の幅, **根本原因 = Scene**) / `tx_buff[1]` 占有 / WiFi RSSI / RTT 急変 / **Scene 急変による瞬間負荷スパイク** | **代理指標** で間接推定 (§6.1.x): `tcp_send_time` EMA / send 完了ジッタ / queue 成長率 + **Scene complexity を feedforward に追加 (M-24)** |
 | **CTRL-B (Auto-Reconnect)** | 切断 = 物理障害, 5 回 exp backoff で復旧 | 一時的遅延 vs 真切断の判別 / 再接続中の累積品質劣化 (ADR-002 v1.1 で逆効果判明) | M-2: RTT 移動平均 ± 2σ で「正常変動帯」を学習し、帯内のジッタを切断と誤判定しない |
 | **CTRL-C (Recording)** | 書き込み = 常に成功 | ストレージ残量 / 書き込みエラー継続 / ローテーション必要性 | M-3 + M-4: `df` 残量を Recording Engine の入力に追加 (新規 F-6) |
-| **CTRL-D (Health Monitor)** | metrics 送信 = TCP 路で常に届く | 切断中の代替経路欠如 | M-7: USB CDC-ACM + LED の副経路を CA-D1b として追加 |
+| **CTRL-D (Health Monitor)** | metrics 送信 = TCP 路で常に届く / **58 B 18 列で計装は十分** (v1.9 で訂正: 不十分と判明) | 切断中の代替経路欠如 / **下流ボトルネック特定に必要な計測項目 16+ 個が不足** (CPU per thread / SPI util / decode breakdown / drop 原因タグ / E2E latency etc.) | M-7: USB CDC-ACM + LED の副経路 → **M-35 (Observability 拡張ファミリ, §6.5e) として再構成。M-35a/b/c で計装系を統合実装** |
 | **CTRL-MD (Motion Detector)** (v1.5 追加) | フレーム差分閾値超過 = 侵入動き | 揺れる木の葉/光の変化/影 (誤検知) / 低照度や被写体色が背景と近い (見逃し) / 全画面急変 (照明 ON/OFF) | M-25: false-positive/negative 回帰テスト + sensitivity 自動調整候補 |
 | **CTRL-CAM-AE/AWB (ISX012 内蔵)** (v1.5 追加) | Scene の輝度・色温度に応じて自律的にゲイン/シャッター/WB 調整 | アプリ層は **観測のみ可能、制御不可** (ハード BB) / 強光時 saturate / 低照度時 過剰ゲインでノイズ | M-26: 起動時セルフテスト + Safe Range 検証 (本書スコープ外、将来 Tier 移行時) |
 | **Operator** | dashboard を見れば異常が分かる | 運用ランブック未整備 → 異常を見ても対応方法不明 (X-4) / sensitivity 設定変更の判断材料無し (v1.5) / **電源運用 (バッテリ寿命 / UPS 必要性) の判断材料無し (v1.6)** | M-6: ランブック整備 + M-31 バッテリ metrics |
@@ -796,7 +812,7 @@ v1.5 で **Scene (被写体) を Plant 入力源として明示** し、JPEG サ
 
 | ID | 対策 | 対応 UCA | 工数 | 担当 | Phase | 既存タスク | 採用条件 (KPI) |
 |---|---|---|---|---|---|---|---|
-| **M-7** | WiFi 切断時に USB CDC-ACM 経由で metrics 副経路発火 + LED ステータス併用 | UCA-D1.1 | **3** | Spresense | 12.2 | (新規) | TC-D1.1 で副経路到達確認 |
+| **M-7** ✏️ v1.9 統合 | WiFi 切断時に USB CDC-ACM 経由で metrics 副経路発火 + LED ステータス併用 — **M-35c (E2E frame trace) ファミリへ統合** | UCA-D1.1 | **3** | Spresense | 12.2 | **M-35c へ統合** (§6.5e) | TC-D1.1 で副経路到達確認 |
 | **M-8** | TCP/8888 に最低限の PSK or アプリ層トークン認証 (Phase 12 Option B / D の段階適用) | UCA-AUTH.1 (経路上 H-4) | **10-20** ※ | Spresense + PC | 12.2-12.3 | Phase 12 Option B/D | PT-AUTH.1 で nc 接続が拒否される + CPU/RAM オーバーヘッド ≤ 10% |
 
 > ※ M-8 の幅: PSK のみ = 10 人日 / TLS-PSK 全面 = 20 人日 (RAM 制約 §10-7 と合わせて Option 選択次第)
@@ -812,11 +828,11 @@ v1.5 で **Scene (被写体) を Plant 入力源として明示** し、JPEG サ
 | ID | 対策 | 対応 UCA | 工数 | 担当 | Phase | 既存タスク | 採用条件 (KPI) |
 |---|---|---|---|---|---|---|---|
 | **M-18** | `action_queue` 上限到達時に最古フレーム明示破棄 + drop reason metrics 出力 | UCA-FBM.1, FBM.2 | **1** | Spresense | 12.2 | (新規) | TC-FBM.1 で drop reason 出力確認 |
-| **M-19** | JPEG サイズ超過検知時に metrics packet で `OVERSIZE_FRAME` フラグ | UCA-STREAM.2 | **0.5** | Spresense | 12.2 | (新規) | TC-STREAM.1 でフラグ立ち上がり |
+| **M-19** ✏️ v1.9 統合 | JPEG サイズ超過検知時に metrics packet で `OVERSIZE_FRAME` フラグ — **M-35a (Spresense 計装拡張) へ統合** | UCA-STREAM.2 | **0.5** | Spresense | 12.2 | **M-35a へ統合** (§6.5e) | TC-STREAM.1 でフラグ立ち上がり |
 | **M-20** | PC viewer を systemd ユニット化 (`Restart=on-failure`) + クラッシュ時 metrics | UCA-VIEW.2 | **0.5** | PC + 運用 | **12.1 (即着手)** | (新規) | TC-VIEW.2 で 5 秒以内再起動 |
 | **M-21** | 起動時 WiFi AP 接続失敗時に LED ステータス + USB 経由でエラー emit | UCA-B1.5 | **2** | Spresense | 12.2 | (新規) | M-7 と統合可 (副経路共有) |
 | **M-22** | USB 抜去 3 回リトライ枯渇後に TCP 経路自動フォールバック | UCA-B3.1 | **2** | Spresense | 12.2 | (新規) | TC で切替成功 |
-| **M-23** | IOB プール使用率を metrics packet 58 B 拡張に含め、しきい値超過で警告 | UCA-MEM.1 | **3** | Spresense | 12.3 | (新規) | metrics packet ABI 変更レビュー通過 + TC-MEM.1 で警告発火 |
+| **M-23** ✏️ v1.9 統合 | IOB プール使用率を metrics packet 58 B 拡張に含め、しきい値超過で警告 — **M-35a (Spresense 計装拡張) へ統合**。ABI 変更を一括化することで効率改善 | UCA-MEM.1 | **3** | Spresense | 12.3 | **M-35a へ統合** (§6.5e) | metrics packet ABI 変更レビュー通過 + TC-MEM.1 で警告発火 |
 
 ### 6.5b Scene / Motion Detector / AE 関連 対策 (v1.5 追加)
 
@@ -827,6 +843,44 @@ v1.5 で **Scene (被写体) を Plant 入力源として明示** し、JPEG サ
 | **M-26** | ISX012 起動時セルフテスト (テストパターン投影で AE/AWB の Safe Range 確認) + 強光検知時警告 metrics | UCA-CAM-AE.1, AE.2 | **5** (HW 治具込み) | Spresense + HW | **13+** | (新規) | 起動時セルフテスト pass / Safe Range 内動作確認 |
 | **M-27** | motion sensitivity の運用ランブック追記 (M-6 に統合) + 環境別プリセット (屋内/夜間/屋外) | UCA-MD.4 | **1** | 運用 (docs) | 12.1 | M-6 統合 | ランブックに sensitivity チューニング手順記載 |
 
+### 6.5d 画像サイズ上限制御 (v1.8 追加 — 実データ駆動)
+
+[`../../06_evidence/metrics_analysis/performance_trends.md`](../../06_evidence/metrics_analysis/performance_trends.md) §Image Size Control Simulation の検証結果に基づく新規対策。**HW 移行不要で SPI 帯域天井に近づける** 戦略。
+
+| ID | 対策 | 対応 UCA | 工数 | 担当 | Phase | 既存タスク | 採用条件 (KPI) |
+|---|---|---|---|---|---|---|---|
+| **M-34** | 画像サイズ上限制御 (例: **30 KB cap** で再 JPEG エンコード or 解像度切替) を Spresense Streaming Engine に組込み — M-24 と組合せて Scene complexity に応じた上限を動的決定 | UCA-A1.2, UCA-A1.5, UCA-CAM-AE.1, UCA-FBM.1 | **8-12** | Spresense (CXD5602 再 JPEG 実装) | 12.3 | M-24 と統合 (Phase 12.3) | TC-Scene.1 で 30 KB cap 後の SPI 帯域達成 fps が理論値 (10-16.7) の 80% 以上 + 画質基準 (motion 検知率 ≥ 90%) を維持 |
+
+#### 6.5d.x M-34 の設計詳細
+
+**狙い**: STAMP §10.6 の構造的天井 (#1 tx_buff[1] + #5 GS2200M ベンダー BB + SPI 4 MHz 500 KB/s) に対し、HW 移行 (Tier 2/3) なしで **理論帯域天井に近づける** こと。
+
+**実装アプローチ** (実データから絞り込んだ推奨案):
+
+| 案 | 概要 | 効果 | 副作用 | 推奨度 |
+|---|---|---|---|---|
+| **(a) 再 JPEG エンコード** ★推奨 | Spresense CXD5602 で ISX012 出力を decode → 縮小 → 再 encode (30 KB target) | 大 (任意 size 指定可能) | CPU 負荷大、レイテンシ +N ms | 🟢 |
+| (b) V4L2 QVGA 切替 | VIDIOC_S_FMT で 320×240 へ動的切替 | 中 (実測 65 KB → 縮小) | 解像度低下 → motion 検知性能影響 | 🟡 |
+| (c) ISX012 AE/AWB 最適化 | 露出/ゲインで JPEG size 抑制 | 小〜中 | ISX012 制御範囲内のみ | 🟡 (UCA-CAM-AE.3 制約) |
+| (d) サイズ超過時 frame drop | 一定 size 超過の frame を強制 drop | 大 (帯域確保) | drop による情報損失 | 🔴 (FMEA B4 強化) |
+
+**選択基準**: case (a) 再 JPEG エンコードは画質を能動的に制御できる唯一の選択肢だが、**CXD5602 の CPU 余裕 + JPEG codec ライブラリの存在** が前提検証必要 ([`CPU_BANDWIDTH_BUDGET.md`](CPU_BANDWIDTH_BUDGET.md) §5)。
+
+**シミュレーション結果 (performance_trends.md §Image Size Control Simulation 抜粋)**:
+- **15 KB cap**: SPI 30 fps / tx_buff 19.9 fps 達成可能 — ただし clip 影響 99.2%、画質 Q30 相当でリスク大
+- **30 KB cap** (推奨): SPI 16.7 fps / tx_buff 10 fps 達成可能 — clip 影響 70.7%、画質 Q70 標準、現状 4 fps の 2.5-4 倍
+- **60 KB cap** (現状相当): 効果ゼロ — clip 影響 0%
+
+**M-24 との関係**: M-24 (Scene complexity feedforward) は PID の **制御入力に complexity を追加** する事後対応。M-34 は **能動的な上流制御** で SPI 帯域天井に合わせて image を事前に縮小する。両者は **補完関係** で組合せ実装が望ましい:
+- M-24 単独: fps を下げて帯域に合わせる (情報量 ↓)
+- M-34 単独: 画質を下げて帯域に合わせる (画質 ↓)
+- **M-24 + M-34**: complexity に応じて画質と fps の trade-off を動的最適化 (PID の出力空間が拡張)
+
+**前提検証** (M-34 実装着手前に確認, [§10.9](#109-即座に必要な前提検証-実装着手前) 拡張):
+- CXD5602 で JPEG decode + resize + encode を 100 ms 以内に完了できるか (PoC 1-2 日)
+- libjpeg-turbo or 類似ライブラリの NuttX ポーティング状況確認 (0.5 日)
+- motion_detector 性能を Q70 / Q50 / Q30 別に評価 (TC-MD.* 拡張, 1-2 日)
+
 ### 6.5c OS/Driver + 電源 関連 対策 (v1.6 追加)
 
 | ID | 対策 | 対応 UCA | 工数 | 担当 | Phase | 既存タスク | 採用条件 (KPI) |
@@ -834,9 +888,93 @@ v1.5 で **Scene (被写体) を Plant 入力源として明示** し、JPEG サ
 | **M-28** | NuttX watchdog タイマー導入 + アプリ層への通知 + 自動再起動 | UCA-OS.1, OS.2, OS.3 | **5** | Spresense (NuttX 設定 + アプリ) | 12.3 | (新規) | TC-OS.1 で kernel panic 注入後 watchdog 復旧確認 |
 | **M-29** | GS2200M `HAL_TIMEOUT` を動的調整 (RTT 移動平均ベース、M-2 と統合可) | UCA-DRV-GS2200M.1, UCA-DRV-GS2200M.2 | **3** (M-2 統合時 +1 日) | Spresense (driver patch or wrapper) | 12.3 | M-2 と統合 | TC-DRV.1 で 真切断検出時間 ≤ 1 秒 |
 | **M-30** | ブラウンアウト検出 (CXD5247 仕様確認 or 外部 ADC) + 録画 flush + LED 警告 + Safe shutdown 100 ms 以内 | UCA-PWR.1, PWR.4 | **8** | Spresense + HW | 12.3 | (新規) | TC-PWR.1 で 電源 OFF 直前に MP4 が再生可能な状態で flush 完了 |
-| **M-31** | バッテリ運用時の残量 metrics + 閾値通知 (PMIC 残量取得が可能な場合) | UCA-PWR.2 | **3** | Spresense | 12.2 | (新規) | TC-PWR.2 で バッテリ < 20% 時通知 |
+| **M-31** ✏️ v1.9 統合 | バッテリ運用時の残量 metrics + 閾値通知 — **M-35a (Spresense 計装拡張) へ統合** | UCA-PWR.2 | **3** | Spresense | 12.2 | **M-35a へ統合** (§6.5e) | TC-PWR.2 で バッテリ < 20% 時通知 |
 | **M-32** | 電源復帰後 5 秒以内 auto-restart + state リストア (前回 recording state を SD カードに記録) | UCA-PWR.3 | **5** | Spresense | 12.3 | (新規) | TC-PWR.3 で 電源 OFF → ON 後 5 秒以内に metrics 再開 |
 | **M-33** | 運用ランブックに「電源運用ガイド」を追加 (バッテリ寿命, UPS 推奨, ブレーカー操作時の手順) — M-6 統合 | UCA-O.5 | **1** | 運用 (docs) | 12.1 | M-6 統合 | ランブックに電源章追記 |
+
+### 6.5e Observability 拡張 — 計測拡張ファミリ (v1.9 追加, M-19/M-23/M-7/M-31 統合)
+
+[`../../06_evidence/metrics_analysis/performance_trends.md`](../../06_evidence/metrics_analysis/performance_trends.md) §Image Size Control Simulation の検証で発見された **「下流ボトルネック特定が現行計装では困難」** という観測性不足に対する系統的対策。**既存の散発的計装対策 (M-7 / M-19 / M-23 / M-31) を M-35 ファミリとして再構成** する。
+
+#### 6.5e.1 動機 (実データ駆動の根拠)
+
+現行 metrics packet (58 B, 18 列) で見えるのは「どこで詰まったか」のみ。**「なぜ詰まったか」「どの frame がどこで失われたか」** が不可視で、以下の UCA を実測で検証できない:
+
+| 不可視な UCA | 何が見えないか |
+|---|---|
+| UCA-A1.2 (tx_buff 飽和) | SPI 帯域利用率、GS2200M tx_buff 占有 |
+| UCA-OS.1 (priority inversion) | per-thread CPU 使用率、blocking time |
+| UCA-DRV-USB.1 (USB CDC-ACM 不安定) | USB stage 別タイミング (open/read/close 内訳) |
+| UCA-VIEW.1 (CRC 破棄通知欠落) | CRC 失敗カウンタが metrics 未配信 |
+| UCA-MEM.1 (IOB 枯渇無音化) | IOB プール使用率 (M-23 で既提案だが個別) |
+
+#### 6.5e.2 M-35 ファミリ構造 (3 段階)
+
+| ID | 段階 | 内容 | 工数 | 担当 | Phase | 統合される既存対策 |
+|---|---|---|---|---|---|---|
+| **M-35a** | Spresense 計装拡張 | metrics packet を 58 B → 拡張: **CPU per thread 使用率 / SPI bus util / V4L2 buffer 占有 / frame_statistics.complexity / IOB プール使用率 / OVERSIZE フラグ / バッテリ残量 / CRC 失敗カウンタ** | **5-7** | Spresense | 12.2 | **M-19, M-23, M-31** を統合 |
+| **M-35b** | PC viewer 計装拡張 | bounded(3) channel pending / decode breakdown (JPEG→RGB→texture→display) / drop 原因タグ (queue / decode / display) / per-thread CPU | **3-4** | PC | 12.2 | (新規) |
+| **M-35c** | E2E frame trace | sequence_number に基づく capture → display latency 計測 + drop traceability。protocol 拡張 (各 frame に capture timestamp と stage 別 timestamp を埋め込み) | **5-8** | Spresense + PC | 12.3 | **M-7** (副経路統合) を内包 |
+
+**合計工数**: 13-19 人日
+
+#### 6.5e.3 既存対策との関係 (統合ファミリ図)
+
+```
+M-35 Observability 拡張 (ファミリ)
+├─ M-35a Spresense 計装拡張
+│   ├─ M-19 (JPEG OVERSIZE フラグ)            ← 統合
+│   ├─ M-23 (IOB プール使用率 metrics)         ← 統合
+│   ├─ M-31 (バッテリ残量 metrics)             ← 統合
+│   └─ NEW: CPU per thread / SPI util / V4L2 buffer / complexity / CRC 失敗
+├─ M-35b PC viewer 計装拡張 (完全新規)
+│   ├─ bounded(3) channel pending
+│   ├─ decode breakdown (4 stage)
+│   ├─ drop 原因タグ (queue / decode / display)
+│   └─ per-thread CPU
+└─ M-35c E2E frame trace (新規 + 既存 M-7 統合)
+    ├─ frame sequence_number trace
+    ├─ capture → display latency 計測
+    └─ M-7 (副経路ヘルス) を E2E 観測の一部に統合
+```
+
+#### 6.5e.4 M-35 が解決する論点
+
+| 論点 | M-35 で解決 |
+|---|---|
+| **F-9 (performance_trends.md)**: 画像サイズ cap だけでは PC FPS 改善限界 | 下流ボトルネック (USB / decode / scheduler) を実測で特定可能に |
+| **UCA-OS.1** (priority inversion 仮説) | per-thread CPU で実データ検証可能 |
+| **UCA-DRV-USB.1** (Serial read 34 秒スパイク) | USB stage 別 timing で root cause 特定 |
+| **M-29** (HAL_TIMEOUT 動的化) の前提検証 | SPI util + tx_buff 推定で動的閾値の根拠データ |
+| **M-1 / M-24** 統合最適化 | complexity を metrics 配信 → PID feedforward の精度向上 |
+| **M-34** (画像サイズ上限制御) の効果検証 | 30 KB cap 実装後の下流効果を観測可能 |
+
+#### 6.5e.5 対応 UCA と SC
+
+| 統合される UCA | M-35 段階 |
+|---|---|
+| UCA-A1.2 / UCA-A1.5 / UCA-MEM.1 / UCA-OS.* / UCA-DRV-* | M-35a で部分カバー (実測で検証可能化) |
+| UCA-VIEW.1 (通知欠落) / UCA-FBM.1/2 | M-35b でカバー (drop 原因タグ) |
+| UCA-D1.1 (副経路ヘルス) / UCA-PWR.2 (バッテリ) | M-35c (副経路) + M-35a (バッテリ) でカバー |
+
+対応 SC: **SC-1 (回復 ≤ 3 秒)**, **SC-10 (副経路通知)**, **SC-12 (motion 誤検知率回帰)**, **SC-15 (OS watchdog)** — 観測可能化により SC 達成判定が可能になる。
+
+#### 6.5e.6 採用条件 (KPI)
+
+- M-35a: 拡張 metrics packet が 100 ms 周期で配信され続ける (overhead ≤ 10%)
+- M-35b: drop 原因タグの分類精度 ≥ 95% (手動検証で確認)
+- M-35c: E2E latency 計測の誤差 ≤ 50 ms (UTC 時刻同期前提)
+
+#### 6.5e.7 前提検証 ([§10.9](#109-即座に必要な前提検証-実装着手前) と整合)
+
+| 確認項目 | 工数 |
+|---|---|
+| metrics packet ABI 変更 (58 B → 拡張) で既存 PC viewer 互換性確認 | 0.5 日 |
+| Spresense CXD5602 で per-thread CPU 計測 API (`clock_gettime + sched_getparam`) 動作確認 | 1 日 |
+| GS2200M SPI util 計測の妥当性検証 (driver patch 範囲確認) | 1 日 |
+| PC viewer Rust 側に metrics 拡張を入れた時の overhead 実測 | 0.5 日 |
+
+→ M-35 着手前に **3 人日の前提検証** が必要。
 
 ### 6.6 STPA-Sec 追加分の対策 (v1.1, §8 で詳述)
 
@@ -867,6 +1005,8 @@ v1.5 で **Scene (被写体) を Plant 入力源として明示** し、JPEG サ
 | M-18〜M-23 | SC-1, SC-7, SC-10 |
 | **M-24, M-26** (v1.5) | SC-2, SC-7, **SC-11** |
 | **M-25, M-27** (v1.5) | **SC-12** |
+| **M-34** (v1.8) | SC-2, SC-7, SC-11 (M-24 と統合的) |
+| **M-35a/b/c** (v1.9) | **SC-1, SC-10, SC-12, SC-15 (観測可能化により判定可能に)** |
 | **M-28** (v1.6) | **SC-15**, SC-1 |
 | **M-29** (v1.6) | SC-3 |
 | **M-30, M-33** (v1.6) | **SC-13** |
@@ -878,8 +1018,8 @@ v1.5 で **Scene (被写体) を Plant 入力源として明示** し、JPEG サ
 | Phase | 期間目安 | 含まれる対策 | 工数合計 | 緩和される UCA 数 |
 |---|---|---|---|---|
 | **12.1** (即着手) | 1-2 週間 | M-3, M-5, M-6, M-17, M-20, M-25, M-27, **M-33** | **11 人日** | UCA-C1.2, O.1, O.2, B1.4, PHYS.1, VIEW.2, MD.1〜4, **O.5** |
-| **12.2** (主要対策) | 4-6 週間 | M-7, M-18〜M-22, **M-31** | **12 人日** | UCA-D1.1, FBM.*, STREAM.2, VIEW.2 ※, B1.5, B3.1, **PWR.2** |
-| **12.3** (制御 + Sec 中核 + OS/PWR 中核) | 4-8 週間 | M-1, M-2, M-8, M-10, M-11, M-15, M-23, M-24, **M-28, M-29, M-30, M-32** | **55-65 人日** | UCA-A1.2, B1.2/B1.3, AUTH.1, APV.1, INT.1, RL.*, MEM.1, A1.5, CAM-AE.1, **OS.1〜3, DRV-GS2200M.1〜2, PWR.1, PWR.3, PWR.4** |
+| **12.2** (主要対策 + Observability) | 4-6 週間 | M-7, M-18〜M-22, M-31, **M-35a (Spresense 計装拡張), M-35b (PC viewer 計装拡張)** | **20-23 人日** (M-7/M-19/M-23/M-31 統合効果で実質 +8〜+11) | UCA-D1.1, FBM.*, STREAM.2, VIEW.2, B1.5, B3.1, PWR.2, **+ 下流ボトルネック特定可能化** |
+| **12.3** (制御 + Sec 中核 + OS/PWR 中核 + 画像 size 制御 + E2E trace) | 4-8 週間 | M-1, M-2, M-8, M-10, M-11, M-15, M-23, M-24, M-28, M-29, M-30, M-32, M-34, **M-35c (E2E frame trace, v1.9)** | **68-85 人日** | UCA-A1.2, B1.2/B1.3, AUTH.1, APV.1, INT.1, RL.*, MEM.1, A1.5, CAM-AE.1, OS.1〜3, DRV-GS2200M.1〜2, PWR.1, PWR.3, PWR.4, M-24/M-34 統合での FPS 改善目標, **+ E2E frame trace で UCA root cause 特定** |
 | **13+** (HW/構造変更要) | 別計画 | M-4, M-9, M-12〜M-14, M-16, M-26 | **36 人日** | UCA-O.3, INT.2, AUDIT.*, FB.1, CAM-AE.2 |
 | **未対応 (Tier 2/3/C 移行待)** | — | (構造的天井 #1/#2/#5 + ISX012 BB + PMIC BB) | — | UCA-A1.2 完全解消, UCA-MEM.1 根治, UCA-CAM-AE.* 根治, **UCA-PWR.4 根治 (要 PMIC 仕様公開)** |
 

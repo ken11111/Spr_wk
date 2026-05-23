@@ -797,6 +797,134 @@ def fps_jpeg_correlation(df: pd.DataFrame) -> None:
     plt.close()
 
 
+# ============================================================
+# D-11: 画像サイズ上限制御シミュレーション
+#   SPI 帯域天井 (500 KB/s) と tx_buff[1] シリアライズ (134 ms/frame の 1500B chunk)
+#   を考慮し、JPEG size を 15/20/30 KB に clip した時の理論最大 fps を推定
+# ============================================================
+def simulate_size_cap(df: pd.DataFrame) -> None:
+    """画像サイズ上限制御の理論効果シミュレーション
+
+    SPI 帯域天井: 4 MHz / 8 bit = 500 KB/s (peak)
+    tx_buff[1]:  シリアライズで 134 ms / 40 KB frame ⇒ ~7.5 fps base
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+
+    SPI_PEAK_KBS = 500.0  # KB/s
+    TCP_BASE_MS = 134.0  # ms / 40 KB frame (Phase C baseline)
+
+    # ─── Left: 各サイズキャップでの理論 fps ───
+    sub = df[df["jpeg_size_kb"] > 0].copy()
+    caps = [15, 20, 25, 30, 40, 50, 60, 80, 100, 120]
+    bandwidth_fps = []  # SPI 帯域天井からの fps
+    tx_buff_fps = []  # tx_buff シリアライズ天井からの fps
+    n_clipped = []  # clip 影響を受けるサンプル数 (%)
+
+    for cap in caps:
+        # SPI 帯域天井: 500 KB/s ÷ cap KB/frame
+        bw_fps = SPI_PEAK_KBS / cap
+        bandwidth_fps.append(min(bw_fps, 30))  # ISX012 物理上限 30 fps
+        # tx_buff シリアライズ: 134 ms × (cap/40)
+        tcp_per_frame_ms = TCP_BASE_MS * (cap / 40.0)
+        tx_fps = 1000.0 / tcp_per_frame_ms
+        tx_buff_fps.append(min(tx_fps, 30))
+        # clip 影響を受けるサンプル数
+        n_clipped.append((sub["jpeg_size_kb"] > cap).sum() / len(sub) * 100)
+
+    ax = axes[0]
+    ax.plot(caps, bandwidth_fps, marker="o", color="#1f77b4", linewidth=2,
+            label="SPI 500 KB/s 天井")
+    ax.plot(caps, tx_buff_fps, marker="s", color="#d62728", linewidth=2,
+            label="tx_buff[1] シリアライズ天井 (134ms baseline)")
+    ax.axhline(y=30, color="green", linestyle=":", linewidth=1,
+               label="ISX012 物理上限 30 fps")
+    # 現状実測値
+    actual_pc_max = df["pc_fps"].max()
+    actual_spr_median = df["spresense_fps"].median()
+    ax.axhline(y=actual_spr_median, color="#ff7f0e", linestyle="--", linewidth=1,
+               label=f"現状 Spr FPS 中央値 {actual_spr_median:.1f}")
+    # 15 KB ハイライト
+    ax.axvline(x=15, color="purple", linestyle=":", linewidth=1.5, alpha=0.7,
+               label="ユーザー提案 15 KB")
+    ax.text(15, 2, "15 KB", color="purple", fontsize=9, ha="left")
+    ax.set_xlabel("JPEG size cap (KB)")
+    ax.set_ylabel("Theoretical max FPS")
+    ax.set_title("D-11①: サイズキャップ別の理論最大 FPS\n(SPI 帯域 + tx_buff シリアライズ天井)")
+    ax.legend(loc="upper right", fontsize=9)
+    ax.grid(alpha=0.3)
+    ax.set_xlim(10, 125)
+    ax.set_ylim(0, 35)
+
+    # ─── Right: 影響を受けるサンプル数の割合 ───
+    ax = axes[1]
+    ax.plot(caps, n_clipped, marker="o", color="#9467bd", linewidth=2)
+    ax.axvline(x=15, color="purple", linestyle=":", linewidth=1.5, alpha=0.7,
+               label="15 KB")
+    # 15 KB 時の影響数
+    n_15 = (sub["jpeg_size_kb"] > 15).sum() / len(sub) * 100
+    ax.text(15, n_15, f"  {n_15:.1f}%", color="purple", fontsize=10, va="center")
+    # 30 KB 時
+    n_30 = (sub["jpeg_size_kb"] > 30).sum() / len(sub) * 100
+    ax.text(30, n_30, f"  {n_30:.1f}%", color="black", fontsize=9, va="center")
+    ax.set_xlabel("JPEG size cap (KB)")
+    ax.set_ylabel("Clip 影響サンプル数 (%)")
+    ax.set_title(f"D-11②: 各キャップで強制縮小される割合 (n={len(sub):,})")
+    ax.legend(loc="upper right", fontsize=9)
+    ax.grid(alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(OUT_DIR / "ds_11_size_cap_simulation.png")
+    plt.close()
+
+
+# ============================================================
+# D-12: 実測 JPEG size 別の達成 fps 散布図 + 帯域天井ライン
+# ============================================================
+def size_vs_fps_with_cap(df: pd.DataFrame) -> None:
+    """JPEG size を X 軸、fps を Y 軸に取り、SPI 帯域天井 + tx_buff 天井を重ね描き"""
+    sub = df[(df["jpeg_size_kb"] > 0) & (df["pc_fps"] > 0)].copy()
+    d_sample = sub.sample(min(3000, len(sub)), random_state=42)
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    # 散布: PC FPS と Spresense FPS
+    ax.scatter(d_sample["jpeg_size_kb"], d_sample["pc_fps"],
+               s=10, alpha=0.3, color="#1f77b4", label="PC FPS")
+    ax.scatter(d_sample["jpeg_size_kb"], d_sample["spresense_fps"],
+               s=10, alpha=0.3, color="#ff7f0e", label="Spresense FPS")
+
+    # 天井ライン: SPI 帯域 (500 KB/s)
+    x_line = np.linspace(5, 200, 300)
+    y_spi = np.minimum(500.0 / x_line, 30)
+    ax.plot(x_line, y_spi, color="red", linewidth=2,
+            label="SPI 帯域天井 (500 KB/s)")
+    # tx_buff[1] シリアライズ天井
+    y_tx = np.minimum(1000.0 / (134.0 * x_line / 40.0), 30)
+    ax.plot(x_line, y_tx, color="darkorange", linewidth=2, linestyle="--",
+            label="tx_buff[1] シリアライズ天井 (134ms/40KB)")
+
+    # 15 KB / 30 KB ハイライト
+    for cap, color in [(15, "purple"), (30, "gray")]:
+        ax.axvline(x=cap, color=color, linestyle=":", linewidth=1.5, alpha=0.7)
+        spi_at = min(500.0 / cap, 30)
+        tx_at = min(1000.0 / (134.0 * cap / 40.0), 30)
+        ax.text(cap + 1, 28, f"{cap}KB\nSPI={spi_at:.0f}fps\ntx={tx_at:.0f}fps",
+                fontsize=9, color=color, va="top",
+                bbox=dict(boxstyle="round", facecolor="white", alpha=0.7))
+
+    ax.set_xlabel("JPEG size (KB)")
+    ax.set_ylabel("FPS")
+    ax.set_title("D-12: 実測 JPEG size vs FPS + 帯域天井ライン\n"
+                 "(下: PC FPS / 上: Spresense FPS / 線: 物理上限)")
+    ax.set_xlim(5, 200)
+    ax.set_ylim(0, 32)
+    ax.legend(loc="upper right", fontsize=9)
+    ax.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(OUT_DIR / "ds_12_size_vs_fps.png")
+    plt.close()
+
+
 def main() -> None:
     setup_style()
     df = load_all()
@@ -822,11 +950,13 @@ def main() -> None:
     drilldown_phases(df)  # ← 4 ファイル化
     drop_timeline(df)
 
-    print("[5/5] Generating Phase comparison + causal analysis (D-7〜D-10)...")
+    print("[5/5] Generating Phase comparison + causal analysis (D-7〜D-12)...")
     phase_compare(df)
     cross_correlation(df)
     bottleneck_breakdown(df)
     fps_jpeg_correlation(df)
+    simulate_size_cap(df)
+    size_vs_fps_with_cap(df)
 
     pngs = sorted(OUT_DIR.glob("*.png"))
     print(f"\nGenerated {len(pngs)} figures in {OUT_DIR}:")

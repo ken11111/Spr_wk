@@ -64,6 +64,20 @@ TCP avg 平均 160 ms vs max 平均 **1,699 ms / 最大 2,712 ms** (`figures/ts_
 
 **Phase A は 100%、Phase B は 94.3% が queue_depth=0** という事実が判明。これは「キューが空」ではなく **計装機能が未実装** だった結果。Phase C 以降で完全計装される。以前の分析で「queue=0 vs 5」と出ていたのは**アーティファクト混入**で、queue>0 ベースで再計算した結果、真の低 FPS 時は **queue=4 (詰まっている)** が正しい。
 
+### F-9 🔵 FPS 変動と FPS 上限の主因切り分け (NEW — 2026-05-23)
+
+「PC の FPS 性能」は **2 種類の問題が混在** している。ユーザー仮説 (PC パイプライン制御 vs Spresense HW 制約) を実データで切り分けると:
+
+| 観点 | 主因 | 根拠 (図) | STAMP 対応 UCA |
+|---|---|---|---|
+| **FPS の変動 (悪化のばらつき)** | **Scene complexity (JPEG size)** が支配 — r=-0.78 (Spr) / r=-0.72 (PC) | ds_10, ds_09 | UCA-A1.5, CAM-AE.1 |
+| (二次) | PC パイプライン制御の進化 (Phase A/B → C/10) | ds_08 (Cross-correlation 0.22 → 0.88) | (Phase 10 効果) |
+| (三次) | USB CDC-ACM 経路の不安定性 (Serial read CV 202%) | hist_03, ds_02 | UCA-DRV-USB.1 |
+| **FPS の上限 (最大値が低い)** | **Spresense HW + 経路の複合天井** — SPI 4 MHz/500 KB/s + tx_buff[1] シリアライズ + ISX012 30 fps 上限 | ds_11, ds_12 | 構造的天井 #1, #5, #6 |
+| (補正) | WiFi/TCP は律速していない (ratio 1.49x のみ) | ds_09 | (該当無) |
+
+→ **「変動」と「上限」は独立の問題**。Phase 10 PID は変動の同期度を改善したが、上限を引き上げてはいない。**上限改善には Tier 移行 (HW 変更) または画像サイズ上限制御 (M-34 候補, Image Size Control 章参照)** が必要。
+
 ### F-8 🟢 Phase 10 で Tier 1 の頭打ちに近い — 根治は Tier 移行が必要
 
 Phase 10 の特徴:
@@ -549,6 +563,76 @@ PC FPS ≤ P10 (=2.80) vs ≥ P90 (=7.95) の中央値比較:
 
 ---
 
+## Image Size Control Simulation (NEW — 2026-05-23)
+
+「FPS の上限が低い」の主因 (F-9) に対し、**HW 移行不要で画像サイズを上限制御することで SPI 帯域天井に届く** 可能性を検証。ユーザー提案「15 KB 以下に圧縮する処理を間に入れる」のシミュレーション。
+
+### 📊 サイズキャップ別の理論最大 FPS
+
+[![サイズキャップ シミュレーション](figures/ds_11_size_cap_simulation.png)](figures/ds_11_size_cap_simulation.png)
+
+| size cap (KB) | SPI 帯域天井 fps | tx_buff[1] シリアライズ天井 fps | clip 影響サンプル% | 画質想定 |
+|---|---|---|---|---|
+| **15** | **30.0** ★ ISX012 上限 | **19.9** | **99.2%** | Q30 低品質 |
+| 20 | 25.0 | 14.9 | 98.5% | Q50 中品質 |
+| 25 | 20.0 | 11.9 | 96.1% | Q50 中品質 |
+| **30** | **16.7** | **10.0** | **70.7%** | Q70 標準 |
+| 40 | 12.5 | 7.5 | 37.9% | Q70 標準 |
+| 50 | 10.0 | 6.0 | 23.7% | Q70 標準 |
+| 60 | 8.3 | 5.0 | 0.0% (現状 max) | Q80+ 高品質 |
+
+### 📊 実測 JPEG size vs FPS + 帯域天井ライン
+
+[![Size vs FPS](figures/ds_12_size_vs_fps.png)](figures/ds_12_size_vs_fps.png)
+
+> 現実の JPEG size 分布 (中央値 34.8 KB / P90 56.7 KB / max 60 KB) と、SPI 帯域天井 / tx_buff[1] シリアライズ天井を重ね描き。現状は **天井よりはるか下** で動作しており、画像サイズ制御で大幅な FPS 向上余地がある。
+
+### シミュレーション結果の解釈
+
+**1. 15 KB cap は理論的に最高だが画質犠牲が大きい**
+- SPI 30 fps / tx_buff 19.9 fps 達成可能 = **現状 4 fps の 5 倍**
+- ただし **99.2% のフレームが強制縮小対象** = ほぼ全フレームが Q30 相当
+- → 防犯目的での顔・ナンバープレート識別性能の大幅低下リスク
+
+**2. 30 KB cap がバランス点として有望**
+- SPI 16.7 fps / tx_buff 10 fps 達成可能 = **現状の 2.5 〜 4 倍**
+- clip 影響 70.7% = 中央値以上のフレームのみ縮小 = **画質 vs FPS の trade-off** が許容可能
+- 画質 Q70 標準で motion 検知性能を維持
+
+**3. 60 KB cap は意味なし**
+- 現状の実測 max が 60 KB ⇒ clip 影響 0%
+
+### 重要な観察: 現状は天井に達していない
+
+実測 PC FPS 中央値 = **4.12 fps**、Spresense FPS 中央値 = **9.83 fps** に対し:
+- 現状 (cap 60 KB) の理論最大 = SPI **8.3 fps** / tx_buff **5.0 fps**
+- **PC 側はそもそも tx_buff 天井 (5 fps) に届いていない**
+- これは画像サイズ以外のボトルネック (USB CDC-ACM, PC decode, scheduler 等) が **更に下流で律速** していることを示す
+
+→ 画像サイズ上限制御だけで FPS を 5 倍にできるわけではない。**M-24 (Scene feedforward) + 画像サイズキャップ + USB/PC 側改善** を組合せる必要がある。
+
+> ⚠ **下流ボトルネックの特定は現行計装では困難**: 現 metrics packet (58 B / 18 列) では「どこで詰まったか」しか見えず、「なぜ詰まったか」(USB CDC-ACM の stage 別タイミング, PC viewer の bounded(3) pending, per-thread CPU 等) は不可視。これに対し STAMP/STPA v1.9 で **M-35 (Observability 拡張ファミリ)** を新規対策として提案している ([§6.5e](../../02_specifications/quality/STAMP_STPA_ANALYSIS.md#65e-observability-拡張--計測拡張ファミリ-v19-追加-m-19m-23m-7m-31-統合))。M-35a (Spresense 計装拡張) で metrics packet を拡張し、M-35b (PC viewer 計装拡張) で bounded(3) pending と decode breakdown と drop 原因タグを追加、M-35c (E2E frame trace) で capture→display latency を計測することで、本セクションで言及した「下流ボトルネック」を実測で特定可能になる。
+
+### 実装アプローチの選択肢
+
+| 案 | 場所 | 手段 | 効果 | 副作用 |
+|---|---|---|---|---|
+| **a)** Spresense 側で再 JPEG | CXD5602 | decode → 縮小 → 再 encode | 大 (15-30 KB 任意指定可能) | CPU 負荷大、レイテンシ追加 |
+| **b)** V4L2 で QVGA 切替 | Spresense HW | VIDIOC_S_FMT 320×240 | 中 (実測 65 KB → 縮小可能性) | 解像度低下、motion 検知性能低下 |
+| **c)** ISX012 AE 制御の最適化 | Spresense HW | 露出/ゲインで JPEG size 抑制 | 小〜中 | ISX012 制御範囲内のみ |
+| **d)** 画質固定で fps 低下を許容 | Spresense | M-1/M-24 の延長 | (帯域天井に届かず) | 既存対策と重複 |
+
+**推奨**: **案 a) Spresense 再 JPEG + 30 KB cap** が画質・効果バランスで最良。CPU 負荷の検証が前提検証必要。
+
+### STAMP/STPA 反映 (v1.3 → v1.4)
+
+新規対策 **M-34 (画像サイズ上限制御)** + **M-35 (Observability 拡張ファミリ)** を STAMP_STPA_ANALYSIS.md §6 に追加 (v1.8/v1.9)。
+- **M-24** (Scene complexity feedforward) + **M-34** (image size cap) で **SPI 帯域天井に近づける戦略**
+- **M-35a/b/c** (Observability 拡張) で **下流ボトルネックを実測で特定可能化** し、対策の効果検証を可能にする
+- 三者を組合せることで Tier 1 のまま現状の 4 fps から理論帯域天井近傍 (10-16 fps) まで段階的に近づける道筋を提示
+
+---
+
 ## System Dynamics Characterization
 
 ### Step Response Analysis
@@ -854,3 +938,5 @@ The temporal analysis of 7,827 samples over 14 days provides **compelling eviden
 | 1.0 | 2026-02-03 | 初版 (ASCII ベースの分析) |
 | 1.1 | 2026-05-22 | Minto Pyramid 準拠 — Key Findings 5 個追加 |
 | **1.2** | 2026-05-22 | **実データ可視化反映** — 20 図 (matplotlib 製) + F-1〜F-8 主要発見 + Phase 別比較/ボトルネック/Scene 相関の 3 新規セクション |
+| **1.3** | 2026-05-23 | **F-9 (FPS 変動 vs 上限 主因切り分け) + Image Size Control Simulation セクション** 追加 (図 ds_11, ds_12) + M-34 対策候補提示 |
+| **1.4** | 2026-05-23 | **Image Size Control § の下流ボトルネック段落から STAMP/STPA M-35 (Observability 拡張ファミリ) への参照を追加** (STAMP/STPA v1.9 と連動) |

@@ -1,6 +1,6 @@
 # CPU & 帯域 予算表 (Performance Budget)
 
-**バージョン**: 1.2 (Minto Pyramid 準拠でサマリ追加)
+**バージョン**: 1.3 (CPU 100% 超推定への対策として STAMP M-36 への参照を追加)
 **作成日**: 2026-05-01
 **最終更新**: 2026-05-22
 
@@ -82,6 +82,8 @@
 **Phase 11 拡張時の懸念**:
 - `STABILITY_HISTORY_SIZE=5` の分散計算 + `prediction_window` の trend 分析 = 推定 < 5 ms / 100 ms 周期 → 余裕あり
 - ただし frame_statistics_update が camera_thread で動いているため、Phase 11 拡張で更に重くなる可能性あり (要計測)
+
+> ⚠ **Phase 12 拡張時の CPU 100% 超リスク (v1.3 追加)**: Phase 12.3 で予定する **M-1 多変数 PID + M-11 HMAC + M-34 再 JPEG** で **+10-20% CPU 追加** = 上記推定値と合わせ **確実に 100% 超過**。これに対し STAMP/STPA v1.10 で **新規 Hazard H-17** + **新規対策 M-36 (Sub-Core オフロード)** を提案。詳細は [`STAMP_STPA_ANALYSIS.md §6.5f`](STAMP_STPA_ANALYSIS.md#65f-multi-core-オフロード-v110-追加--cpu-100-超推定に対する対策) 参照。Spresense Sub-Core API (AMP) で JPEG 再エンコ + complexity 計算をサブコアに切り出し、メインコア負荷を 70% 以下に維持する戦略。Phase 13+ → Phase 12.3 に前倒し配置。
 
 ---
 

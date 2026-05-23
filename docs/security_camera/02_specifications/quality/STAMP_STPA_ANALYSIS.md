@@ -1,6 +1,6 @@
 # STAMP / STPA Analysis (System-Theoretic Process Analysis)
 
-**バージョン**: 1.9 (M-35 Observability 拡張ファミリを §6.5e として追加 — M-7/M-19/M-23/M-31 を統合再構成)
+**バージョン**: 1.10 (M-36 Multi-Core オフロードを §6.5f として追加 — CPU 100%+ 超対策, H-17/UCA-MC.* 追加)
 **作成日**: 2026-05-19 (最終更新: 2026-05-22)
 **準拠**: Leveson, *Engineering a Safer World* (2011) / *STPA Handbook* (2018, Leveson & Thomas) / Young & Leveson, "Inside Risks: An Integrated Approach to Safety and Security Based on Systems Theory" (2014, CACM)
 
@@ -66,8 +66,21 @@
 **目的**: `02_specifications/architecture/` の構造図・仕様をベースに、本システムの **制御構造起点** の安全分析を実施する。FMEA (故障モード起点) / THREAT_MODEL (攻撃者起点) を完全に取り込み、コンポーネント間相互作用・不適切な制御アクションに起因する損失を体系的に抽出する。
 
 <details>
-<summary>📜 改訂履歴 (v1.1 〜 v1.9) — クリックで展開</summary>
+<summary>📜 改訂履歴 (v1.1 〜 v1.10) — クリックで展開</summary>
 
+> **v1.10 改訂内容** (Multi-Core オフロード対策 + CPU 100% 超推定への対応):
+> - `CPU_BANDWIDTH_BUDGET.md §2` の **「合計 70-100%+ 推定」** + Phase 12.3 で +10-20% 追加 = **確実に CPU 100% 超** の論点を新規対策として体系化
+> - 新規 Hazard **H-17 (CXD5602 単一コア CPU 100% 超過)** + 新規 SC **SC-16 (Sub-Core オフロードで制御周期維持)**
+> - 新規 Controller **CTRL-MC (Multi-Core Coordinator)** + UCA-MC.1〜4 (コア間通信失敗 / 共有メモリ race / レイテンシ超過 / Sub-Core クラッシュ)
+> - **M-36 (Sub-Core オフロード)** を §6.5f として新規追加 — Spresense SDK Sub-Core API (AMP) 利用
+>   * オフロード対象: JPEG 再エンコ (M-34 統合) + complexity 計算 (M-35a 統合) + 将来 HMAC/TLS
+>   * **Phase 13+ → Phase 12.3 に前倒し** (CPU 超過が確実なため)
+>   * 工数 15-25 人日 / 前提検証 4-6 人日
+> - 設計判断: NuttX SMP 化 (案 α) ではなく Spresense Sub-Core API (案 β) を採用、SMP は Tier 移行と一括検討
+> - 受容するトレードオフ: H-17 (確実発生) を回避するため UCA-MC.* (発生条件付き) を受容
+> - 副次効果: UCA-OS.1 (priority inversion) の発生条件も部分解消、Phase 12.3 Option D の RAM 制約も部分緩和の可能性
+> - Phase 12.3 工数: 68-85 → **83-110 人日** (M-36 追加)
+>
 > **v1.9 改訂内容** (Observability 拡張ファミリの導入):
 > - 実データ駆動のレビューで「下流ボトルネック特定が現行計装では困難」が判明 → **M-35 (Observability 拡張) を §6.5e として新規追加**
 > - **既存の散発的計装対策 (M-7 / M-19 / M-23 / M-31) を M-35 ファミリに統合再構成** (各行に統合参照を追記、廃止はせず)
@@ -210,6 +223,7 @@
 | **H-14** | 電源喪失 / ブラウンアウト / 電圧変動でシステムが停止 or HW 誤動作する状態 (v1.6 追加) | L-1, L-4, L-5 |
 | **H-15** | 突然断時に書込み中の MP4 ファイルが破損し、moov atom 欠落で再生不能になる状態 (v1.6 追加) | L-1, L-3, L-5 |
 | **H-16** | OS/Driver の異常 (kernel panic / pthread deadlock / SPI HAL_TIMEOUT 中) で観測されないままサービス低下する状態 (v1.6 追加) | L-1, L-4 |
+| **H-17** | CXD5602 単一コアが CPU 100% 超過し、リアルタイム制御 (PID 10 Hz) や副経路が間に合わない状態 (v1.10 追加) | L-1, L-4 |
 
 ### 1.4 System-Level Safety Constraints (SC)
 
@@ -232,6 +246,7 @@
 | **SC-13** | 電源喪失検知時に Safe shutdown (録画 flush + moov atom 確定 + クリーン断) を 100 ms 以内に完了 (v1.6) | H-14, H-15 |
 | **SC-14** | 電源復帰後 5 秒以内に自動再起動 + state リストア + LED で復旧状態を通知 (v1.6) | H-14 |
 | **SC-15** | OS 異常 (panic / deadlock) を watchdog で検知し、再起動 + 異常 metrics を発火 (v1.6) | H-16 |
+| **SC-16** | CPU 100% 超過時に高負荷処理を Sub-Core にオフロードし、メインコアでリアルタイム制御周期 (10 Hz) を維持 (v1.10) | H-17 |
 
 ---
 
@@ -490,12 +505,25 @@ v1.5 で **Scene (被写体) を Plant 入力源として明示** し、JPEG サ
 
 > ⚠ UCA-PWR.* は STAMP の本来スコープ (「制御連鎖が断たれる」「Safe shutdown CA-Def の不在」) と FMEA 領域 (「電源コンポーネント故障」) の境界。本書では **制御連鎖が損失に直結する論点のみ** を UCA 化し、「電源コンポーネント故障」自体の詳細 (バッテリ劣化、過電圧、PMIC 故障モード) は **FMEA の C 系列拡張** で扱うべき (§10 残課題)。
 
+#### 3.7.11 CTRL-MC: Multi-Core Coordinator (v1.10 追加, M-36 前提)
+
+> **背景**: CXD5602 は物理 Cortex-M4F × 6 コアだが `CONFIG_SMP=n` で 1 コアのみ動作 (AMP モード)。**`CPU_BANDWIDTH_BUDGET.md` §2 で合計 70-100%+ 推定 = 100% 超過の懸念があり**、M-36 (Sub-Core オフロード) で対策を講じる方針。Sub-Core 利用に伴う **新規制御リスク** を UCA として明示する。
+
+| UCA ID | タイプ | 不適切な制御アクション | 結果ハザード | 関連 |
+|---|---|---|---|---|
+| **UCA-MC.1** | NP | コア間メッセージ送信失敗を検知する仕組みがない → Sub-Core がサイレント停止しても気付かない | **H-17**, H-1, H-10 | M-36 前提 |
+| **UCA-MC.2** | P | 共有メモリ (frame buffer 等) の race condition で破損データが下流に伝播 | H-1, H-9 | M-36 前提 |
+| **UCA-MC.3** | TL | コア間通信レイテンシが制御周期 (10 Hz / 100 ms) を超え、PID が間に合わない | H-17, H-2 | M-36 前提 |
+| **UCA-MC.4** | NP | Sub-Core クラッシュ後の自動再起動なし → メインコアは継続するが Sub-Core 機能だけ無音停止 | H-17, H-16 | M-36 前提 |
+
+> ⚠ これらの UCA は **M-36 実装後に顕在化する新規リスク**。M-36 を導入しなければ発生しないが、CPU 100% 超リスク (H-17) を放置する方が損失が大きいため、トレードオフとして M-36 実装 + UCA-MC.* 対策セット で受容する設計判断。
+
 ### 3.8 UCA × Hazard 集計マトリクス (拡張版)
 
 > ●: 直接寄与 / △: 間接寄与
 
-| UCA \ Hazard | H-1 | H-2 | H-3 | H-4 | H-5 | H-6 | H-7 | H-8 | H-9 | H-10 | H-11 | H-12 | H-13 | H-14 | H-15 | H-16 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| UCA \ Hazard | H-1 | H-2 | H-3 | H-4 | H-5 | H-6 | H-7 | H-8 | H-9 | H-10 | H-11 | H-12 | H-13 | H-14 | H-15 | H-16 | H-17 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | UCA-A1.1 |   | ● |   |   |   |   | ● |   |   |   |   |   |   |
 | UCA-A1.2 |   | ● | △ |   |   |   | ● |   |   |   |   |   |   |
 | UCA-A1.3 | ● | ● |   |   |   |   |   |   |   |   |   |   |   |
@@ -546,7 +574,11 @@ v1.5 で **Scene (被写体) を Plant 入力源として明示** し、JPEG サ
 | **UCA-PWR.2** (v1.6) |   |   |   |   |   |   |   |   |   |   |   |   |   | ● |   |   |
 | **UCA-PWR.3** (v1.6) |   |   |   |   |   |   |   |   |   |   |   |   |   | ● |   |   |
 | **UCA-PWR.4** (v1.6) |   | △ |   |   |   |   |   |   |   |   |   |   |   | ● |   |   |
-| **UCA-O.5** (v1.6) |   |   |   |   |   |   |   |   |   |   |   |   |   | ● | ● |   |
+| **UCA-O.5** (v1.6) |   |   |   |   |   |   |   |   |   |   |   |   |   | ● | ● |   |   |
+| **UCA-MC.1** (v1.10) | ● |   |   |   |   |   |   |   |   | ● |   |   |   |   |   |   | ● |
+| **UCA-MC.2** (v1.10) | ● |   |   |   |   |   |   |   | △ |   |   |   |   |   |   |   |   |
+| **UCA-MC.3** (v1.10) |   | ● |   |   |   |   |   |   |   |   |   |   |   |   |   |   | ● |
+| **UCA-MC.4** (v1.10) | △ |   |   |   |   |   |   |   |   |   |   |   |   |   |   | △ | ● |
 
 ---
 
@@ -976,6 +1008,102 @@ M-35 Observability 拡張 (ファミリ)
 
 → M-35 着手前に **3 人日の前提検証** が必要。
 
+### 6.5f Multi-Core オフロード (v1.10 追加 — CPU 100% 超推定に対する対策)
+
+#### 6.5f.1 動機 (実データ駆動の根拠)
+
+[`CPU_BANDWIDTH_BUDGET.md §2`](CPU_BANDWIDTH_BUDGET.md#2-アプリスレッド-cpu-予算-1-コア共有) の推定で **5 スレッド合計 70-100%+ = 100% 超の懸念**:
+
+| スレッド | 推定 CPU% |
+|---|---|
+| camera_thread | 30-50% |
+| usb_thread | 20-30% |
+| gs2200m driver task | 20-40% |
+| control_thread (PID) | < 1% |
+| **合計** | **70-100%+** ← H-17 顕在化 |
+
+さらに Phase 12.3 で予定する対策 (M-1 多変数 PID + M-11 HMAC + M-34 再 JPEG) で **+10-20% CPU 追加** = 確実に 100% 超過。
+
+**現状の制約**:
+- CXD5602 物理: Cortex-M4F × 6 コア
+- 設定: `CONFIG_SMP=n` (`spresense/nuttx/.config:636`) → 1 コアのみ AMP モード動作
+- 残り 5 コアは **未活用 (将来余地)**
+
+#### 6.5f.2 M-36 対策
+
+| ID | 対策 | 対応 UCA / Hazard | 工数 | 担当 | Phase | 採用条件 (KPI) |
+|---|---|---|---|---|---|---|
+| **M-36** | **Sub-Core オフロード** (Spresense SDK の Sub-Core API 利用 — AMP) — 高負荷処理 (JPEG 再エンコ M-34 / frame_statistics complexity 計算 M-35a / HMAC M-11) をサブコアに切り出し、メインコア負荷を 70% 以下に維持 | UCA-A1.2, UCA-MC.1〜4, **H-17** | **15-25** (PoC + 3 機能オフロード + リグレッション) | Spresense | **12.3 (前倒し)** | TC-MC.1 で メインコア CPU < 70% かつ Sub-Core 機能の応答 ≤ 50ms |
+
+#### 6.5f.3 設計判断 — 3 アプローチ比較
+
+| 案 | 概要 | コスト | リスク | Sony 検証 | 推奨度 |
+|---|---|---|---|---|---|
+| **(α) NuttX SMP 化** | `CONFIG_SMP=y` で対称マルチプロセッシング化 | 🔴 大 (全 mutex/spinlock 監査) | 🔴 大 (cache coherency / race condition) | ❓ CXD5602 での Sony 公式検証は不明 | 🔴 Phase 13+ HW 移行とセット |
+| **(β) Spresense Sub-Core API (AMP)** ★推奨 | Sub-Core API で特定タスクをサブコアにオフロード | 🟡 中 (メッセージパッシング設計) | 🟡 中 (コア間通信失敗時の検知 = UCA-MC.1) | ✅ Spresense SDK 公式機能 | **🟢 M-36 として採用** |
+| **(γ) 単一コア最適化** | 計装で CPU 負荷可視化 (M-35a) → リファクタ | 🟢 小 | 🟢 小 | ✅ 現行 | 🟡 部分緩和のみ、根治不可 |
+
+→ **案 (β) Sub-Core API を M-36 として採用**。SMP 化は HW 移行 (Tier 2/3) と一括検討。
+
+#### 6.5f.4 オフロード候補タスクの優先順位
+
+| 候補タスク | メインコア負荷削減 | M-* との関係 | 実装難易度 |
+|---|---|---|---|
+| **JPEG 再エンコード** (M-34 統合) | **+10-15%** 削減 | M-34 必須前提 | 🟡 中 (libjpeg-turbo Sub-Core 化) |
+| **frame_statistics complexity 計算** (M-35a 統合) | +3-5% | M-35a の重い計算を移動 | 🟢 小 |
+| **将来 HMAC-SHA256** (M-11) | +5-10% | Phase 12.3 Option C/D | 🟡 中 |
+| **将来 TLS-PSK** (M-8 Option D) | +10-20% | Phase 12.3 Option D / RAM 制約緩和も期待 | 🔴 大 |
+
+→ **JPEG 再エンコ (M-34) + complexity (M-35a) の 2 機能で最初の Sub-Core を構築**。HMAC/TLS は次段階。
+
+#### 6.5f.5 M-36 と既存対策の依存関係
+
+```
+[Step 1] M-35a (per-thread CPU 計測, Phase 12.2)
+      │
+      ▼ 実データで CPU 余裕を可視化
+[Step 2] M-36 PoC: Sub-Core API 動作確認 (Phase 12.3 初期, 2-3 日)
+      │
+      ├─ JPEG 再エンコ オフロード (M-34 統合, 5-7 日)
+      ├─ complexity 計算 オフロード (M-35a 統合, 2-3 日)
+      └─ メッセージパッシング設計 + 死活監視 (5-10 日)
+      │
+      ▼ UCA-MC.* 対策セット
+[Step 3] Sub-Core クラッシュ自動再起動 (UCA-MC.4 対策, 2-3 日)
+[Step 4] リグレッションテスト (3-5 日)
+```
+
+#### 6.5f.6 解決される論点
+
+| 論点 | M-36 で解決 |
+|---|---|
+| **H-17 (CPU 100% 超)** | メインコア 70% 以下に維持 |
+| **M-34 (再 JPEG)** の実装可能性 | Sub-Core で実装すればメインコア負荷 +0% |
+| **M-11 (HMAC)** の CPU 余裕 | 将来 Sub-Core 統合で対応 |
+| Phase 12.3 Option D (TLS 全面) の RAM 制約 | Sub-Core 分散で **A3 (RAM 1.5MB) 制約も部分緩和** 可能性 |
+| **UCA-OS.1 (priority inversion)** | 高優先度 task が別コアで動けば inversion 発生条件が消える (副次効果) |
+
+#### 6.5f.7 受容する新規リスク (UCA-MC.* と一体)
+
+M-36 実装に伴い [§3.7.11 CTRL-MC](#3711-ctrl-mc-multi-core-coordinator-v110-追加-m-36-前提) で示した UCA-MC.1〜4 が新規発生:
+- UCA-MC.1 (コア間メッセージ送信失敗) → 死活監視 metrics で対策
+- UCA-MC.2 (共有メモリ race) → メッセージパッシング設計で共有メモリ最小化
+- UCA-MC.3 (レイテンシ超過) → Sub-Core 処理時間 SLA を 50 ms 以下に設定
+- UCA-MC.4 (Sub-Core クラッシュ) → 自動再起動 + メインコア継続戦略
+
+→ **トレードオフ**: H-17 (確実) を回避するために UCA-MC.* (発生条件付き) を受容する設計判断。M-35a の計測結果次第で更に判断を強化。
+
+#### 6.5f.8 前提検証
+
+| 確認項目 | 工数 |
+|---|---|
+| Spresense SDK Sub-Core API の動作確認 (`/sdk/apps/examples/asmp` 等の sample 動作) | 2-3 日 (PoC) |
+| Sub-Core で libjpeg-turbo or 類似ライブラリのポーティング状況 | 1-2 日 |
+| Sub-Core ↔ メインコア の MessageQueue / SharedMemory レイテンシ実測 | 1 日 |
+| M-35a 計測 (前提) で実 CPU 負荷が 100% 超を確証 | M-35a 含む |
+
+→ 合計 **4-6 人日の前提検証** が M-36 着手前に必要 ([§10.9](#109-即座に必要な前提検証-実装着手前) に追記)。
+
 ### 6.6 STPA-Sec 追加分の対策 (v1.1, §8 で詳述)
 
 | ID | 対策 | 対応 UCA-Def | 工数 | 担当 | Phase | 既存タスク | 採用条件 (KPI) |
@@ -1007,6 +1135,7 @@ M-35 Observability 拡張 (ファミリ)
 | **M-25, M-27** (v1.5) | **SC-12** |
 | **M-34** (v1.8) | SC-2, SC-7, SC-11 (M-24 と統合的) |
 | **M-35a/b/c** (v1.9) | **SC-1, SC-10, SC-12, SC-15 (観測可能化により判定可能に)** |
+| **M-36** (v1.10) | **SC-16 (CPU 100% 超に対する Sub-Core オフロード)**, SC-1 (制御周期維持) |
 | **M-28** (v1.6) | **SC-15**, SC-1 |
 | **M-29** (v1.6) | SC-3 |
 | **M-30, M-33** (v1.6) | **SC-13** |
@@ -1019,7 +1148,7 @@ M-35 Observability 拡張 (ファミリ)
 |---|---|---|---|---|
 | **12.1** (即着手) | 1-2 週間 | M-3, M-5, M-6, M-17, M-20, M-25, M-27, **M-33** | **11 人日** | UCA-C1.2, O.1, O.2, B1.4, PHYS.1, VIEW.2, MD.1〜4, **O.5** |
 | **12.2** (主要対策 + Observability) | 4-6 週間 | M-7, M-18〜M-22, M-31, **M-35a (Spresense 計装拡張), M-35b (PC viewer 計装拡張)** | **20-23 人日** (M-7/M-19/M-23/M-31 統合効果で実質 +8〜+11) | UCA-D1.1, FBM.*, STREAM.2, VIEW.2, B1.5, B3.1, PWR.2, **+ 下流ボトルネック特定可能化** |
-| **12.3** (制御 + Sec 中核 + OS/PWR 中核 + 画像 size 制御 + E2E trace) | 4-8 週間 | M-1, M-2, M-8, M-10, M-11, M-15, M-23, M-24, M-28, M-29, M-30, M-32, M-34, **M-35c (E2E frame trace, v1.9)** | **68-85 人日** | UCA-A1.2, B1.2/B1.3, AUTH.1, APV.1, INT.1, RL.*, MEM.1, A1.5, CAM-AE.1, OS.1〜3, DRV-GS2200M.1〜2, PWR.1, PWR.3, PWR.4, M-24/M-34 統合での FPS 改善目標, **+ E2E frame trace で UCA root cause 特定** |
+| **12.3** (制御 + Sec 中核 + OS/PWR 中核 + 画像 size 制御 + E2E trace + Sub-Core) | 4-8 週間 | M-1, M-2, M-8, M-10, M-11, M-15, M-23, M-24, M-28, M-29, M-30, M-32, M-34, M-35c, **M-36 (Sub-Core オフロード, v1.10 前倒し)** | **83-110 人日** | UCA-A1.2, B1.2/B1.3, AUTH.1, APV.1, INT.1, RL.*, MEM.1, A1.5, CAM-AE.1, OS.1〜3, DRV-GS2200M.1〜2, PWR.1, PWR.3, PWR.4, M-24/M-34 統合での FPS 改善, E2E frame trace, **+ H-17 CPU 100% 超回避 + UCA-MC.* 新規リスク受容** |
 | **13+** (HW/構造変更要) | 別計画 | M-4, M-9, M-12〜M-14, M-16, M-26 | **36 人日** | UCA-O.3, INT.2, AUDIT.*, FB.1, CAM-AE.2 |
 | **未対応 (Tier 2/3/C 移行待)** | — | (構造的天井 #1/#2/#5 + ISX012 BB + PMIC BB) | — | UCA-A1.2 完全解消, UCA-MEM.1 根治, UCA-CAM-AE.* 根治, **UCA-PWR.4 根治 (要 PMIC 仕様公開)** |
 

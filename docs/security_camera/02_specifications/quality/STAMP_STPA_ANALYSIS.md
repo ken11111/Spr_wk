@@ -1,6 +1,6 @@
 # STAMP / STPA Analysis (System-Theoretic Process Analysis)
 
-**バージョン**: 1.10 (M-36 Multi-Core オフロードを §6.5f として追加 — CPU 100%+ 超対策, H-17/UCA-MC.* 追加)
+**バージョン**: 1.10.1 (M-36 の現実的オフロード範囲を訂正 + M-37 候補 NuttX SMP 化を §10.6b に追加)
 **作成日**: 2026-05-19 (最終更新: 2026-05-22)
 **準拠**: Leveson, *Engineering a Safer World* (2011) / *STPA Handbook* (2018, Leveson & Thomas) / Young & Leveson, "Inside Risks: An Integrated Approach to Safety and Security Based on Systems Theory" (2014, CACM)
 
@@ -66,8 +66,19 @@
 **目的**: `02_specifications/architecture/` の構造図・仕様をベースに、本システムの **制御構造起点** の安全分析を実施する。FMEA (故障モード起点) / THREAT_MODEL (攻撃者起点) を完全に取り込み、コンポーネント間相互作用・不適切な制御アクションに起因する損失を体系的に抽出する。
 
 <details>
-<summary>📜 改訂履歴 (v1.1 〜 v1.10) — クリックで展開</summary>
+<summary>📜 改訂履歴 (v1.1 〜 v1.10.1) — クリックで展開</summary>
 
+> **v1.10.1 改訂内容** (M-36 の現実的範囲訂正 + M-37 候補追加):
+> - ユーザーレビュー指摘「既存の高負荷処理を Sub-Core にオフロードできるか」を受け、**M-36 (Spresense Sub-Core API) は kernel driver を移動できない構造的制約** を §6.5f.4 に明示
+> - **既存処理の分解**: V4L2 dequeue / gs2200m driver task / send 系 kernel は **構造的にオフロード不可** (合計 40-70%)。MJPEG packetize (10-20%) + batch 組み立て (5-10%) のみ可能
+> - **M-36 効果見積もり訂正**: 70-100% → **55-80%** (15-25% 削減) 程度。「100% 未満を保証する対策」ではなく **「Phase 12.3 の +10-20% を吸収して悪化を防ぐ対策」**
+> - **M-36a/M-36b に分解**:
+>   - **M-36a**: 既存処理オフロード (MJPEG packetize / batch 組み立て)
+>   - **M-36b**: 将来処理オフロード (M-34 再 JPEG / M-35a complexity / M-11 HMAC / M-8 TLS)
+> - **新規候補 M-37 (NuttX SMP 化)** を §10.6b に追加。kernel driver を含めて全体分散するには SMP が必要だが Phase 13+ または Tier 移行候補 (工数 40-80 人日)
+> - 構造的天井に **⑨ CXD5602 単一コア制約** を追加
+> - M-37 採用判断は **M-35a 計測 + ADR-006 GATE-1 と一括** で行うべきと明示
+>
 > **v1.10 改訂内容** (Multi-Core オフロード対策 + CPU 100% 超推定への対応):
 > - `CPU_BANDWIDTH_BUDGET.md §2` の **「合計 70-100%+ 推定」** + Phase 12.3 で +10-20% 追加 = **確実に CPU 100% 超** の論点を新規対策として体系化
 > - 新規 Hazard **H-17 (CXD5602 単一コア CPU 100% 超過)** + 新規 SC **SC-16 (Sub-Core オフロードで制御周期維持)**
@@ -1045,16 +1056,51 @@ M-35 Observability 拡張 (ファミリ)
 
 → **案 (β) Sub-Core API を M-36 として採用**。SMP 化は HW 移行 (Tier 2/3) と一括検討。
 
-#### 6.5f.4 オフロード候補タスクの優先順位
+#### 6.5f.4 オフロード候補タスクの優先順位 (v1.10.1 訂正: 既存処理の構造的制約を反映)
 
-| 候補タスク | メインコア負荷削減 | M-* との関係 | 実装難易度 |
+> ⚠ **重要な制約** (v1.10.1 訂正): Spresense Sub-Core API は **アプリケーション層のオフロード機構** で、**NuttX kernel driver (V4L2, USB CDC-ACM, gs2200m) はメインコア kernel space 必須**。既存高負荷処理の **大半 (40-70%) はオフロード不可能**。
+
+##### 既存高負荷処理の分解と可否評価
+
+| 既存処理 | 推定 CPU% | オフロード可否 | 理由 |
 |---|---|---|---|
-| **JPEG 再エンコード** (M-34 統合) | **+10-15%** 削減 | M-34 必須前提 | 🟡 中 (libjpeg-turbo Sub-Core 化) |
-| **frame_statistics complexity 計算** (M-35a 統合) | +3-5% | M-35a の重い計算を移動 | 🟢 小 |
-| **将来 HMAC-SHA256** (M-11) | +5-10% | Phase 12.3 Option C/D | 🟡 中 |
-| **将来 TLS-PSK** (M-8 Option D) | +10-20% | Phase 12.3 Option D / RAM 制約緩和も期待 | 🔴 大 |
+| **camera_thread (全体)** | 30-50% | ⚠ 部分のみ | V4L2 dequeue は kernel driver |
+| └─ V4L2 `VIDIOC_DQBUF` (capture 核) | 15-30% | ❌ **不可** | NuttX kernel driver = メインコア kernel space 必須 |
+| └─ **MJPEG packetize** (`mjpeg_protocol.c`) | **10-20%** | 🟢 **可能** | アプリ層 CPU バウンド処理 (header + CRC + batch 組立) |
+| **usb_thread (全体)** | 20-30% | ⚠ 部分のみ | send は kernel driver |
+| └─ **batch 組み立て** (`protocol_handler.c`) | 5-10% | 🟡 **可能だが ROI 低** | アプリ層だが send 直前 → コア間通信 overhead で相殺懸念 |
+| └─ 実際の send (USB write / TCP) | 10-25% | ❌ **不可** | kernel driver |
+| **gs2200m driver task** | **20-40%** | ❌ **構造的に不可** | NuttX kernel driver。Sub-Core API では別コアに動かせない (要 SMP 化 = M-37 候補) |
 
-→ **JPEG 再エンコ (M-34) + complexity (M-35a) の 2 機能で最初の Sub-Core を構築**。HMAC/TLS は次段階。
+→ **既存処理からオフロード可能なのは MJPEG packetize (10-20%) + batch 組み立て (5-10%, ROI 要検証) = 最大 15-25%**。
+→ **40-70% は構造的にオフロード不可能** で、Sub-Core API では解消できない (NuttX SMP 化 = M-37 候補 or Tier 移行が必要)。
+
+##### 既存処理のオフロード対象 (M-36a で対応)
+
+| ID | 候補タスク | メインコア負荷削減 | 実装難易度 | 備考 |
+|---|---|---|---|---|
+| **M-36a-1** | **MJPEG packetize** (`mjpeg_protocol.c`) を Sub-Core へ | **+10-20%** 削減 | 🟢 小 | 既存 アプリ層、入出力明確 (raw JPEG → packed frame) |
+| **M-36a-2** | batch 組み立て (`protocol_handler.c`) を Sub-Core へ | +5-10% | 🟡 中 | ROI 要検証 (コア間通信オーバーヘッド) |
+
+##### 将来追加処理のオフロード対象 (M-36b で対応 — 元の M-36 提案)
+
+| ID | 候補タスク | メインコア負荷削減 | M-* との関係 | 備考 |
+|---|---|---|---|---|
+| **M-36b-1** | **JPEG 再エンコード** (M-34 統合) | **+10-15%** | M-34 の実装場所 (必須前提) | libjpeg-turbo Sub-Core 化 |
+| **M-36b-2** | **frame_statistics complexity 計算** (M-35a 統合) | +3-5% | M-35a の重い計算を移動 | 🟢 小 |
+| **M-36b-3** | 将来 HMAC-SHA256 (M-11) | +5-10% | Phase 12.3 Option C/D | 🟡 中 |
+| **M-36b-4** | 将来 TLS-PSK (M-8 Option D) | +10-20% | Phase 12.3 Option D / RAM 制約緩和も期待 | 🔴 大 |
+
+##### M-36 実装での効果見積もり (現実的)
+
+| シナリオ | メインコア負荷 | 効果 |
+|---|---|---|
+| **現状 (推定)** | **70-100%+** | — |
+| **M-36 単独** (M-36a + M-36b 適用) | **55-80%** | 既存からは 15-25% 削減、Phase 12.3 の +10-20% を Sub-Core 化で吸収 |
+| **+ M-37 (将来 NuttX SMP 化)** | **30-50%** | 既存 kernel driver も別コアに分散可能 |
+| **Tier 2/3 移行 (HW 変更)** | (HW 変更) | 物理的に根治 |
+
+→ **M-36 単独では完全に 100% 未満を保証できない** (構造的天井 #1 tx_buff[1] と gs2200m driver の負荷が残る)。Phase 12.3 の追加負荷 (+10-20%) を吸収し **「悪化を防ぐ」のが主目的**。根治には M-37 (Phase 13+) か Tier 移行が必要。
 
 #### 6.5f.5 M-36 と既存対策の依存関係
 
@@ -1073,15 +1119,19 @@ M-35 Observability 拡張 (ファミリ)
 [Step 4] リグレッションテスト (3-5 日)
 ```
 
-#### 6.5f.6 解決される論点
+#### 6.5f.6 解決される論点 (v1.10.1 訂正: 完全解消はしない)
 
-| 論点 | M-36 で解決 |
+| 論点 | M-36 単独での解決度 |
 |---|---|
-| **H-17 (CPU 100% 超)** | メインコア 70% 以下に維持 |
-| **M-34 (再 JPEG)** の実装可能性 | Sub-Core で実装すればメインコア負荷 +0% |
-| **M-11 (HMAC)** の CPU 余裕 | 将来 Sub-Core 統合で対応 |
-| Phase 12.3 Option D (TLS 全面) の RAM 制約 | Sub-Core 分散で **A3 (RAM 1.5MB) 制約も部分緩和** 可能性 |
-| **UCA-OS.1 (priority inversion)** | 高優先度 task が別コアで動けば inversion 発生条件が消える (副次効果) |
+| **H-17 (CPU 100% 超)** | 🟡 **部分緩和** — メインコア 70-100% → 55-80% に低下 (15-25% 削減)。完全解消には **M-37 (NuttX SMP 化) または Tier 移行** が必要 |
+| **M-34 (再 JPEG)** の実装可能性 | ✅ Sub-Core (M-36b-1) で実装すればメインコア負荷 +0% で M-34 を導入可能 |
+| **M-11 (HMAC)** の CPU 余裕 | ✅ 将来 Sub-Core (M-36b-3) 統合で対応 |
+| Phase 12.3 Option D (TLS 全面) の RAM 制約 | 🟡 Sub-Core 分散で **A3 (RAM 1.5MB) 制約も部分緩和** 可能性 (HMAC/TLS のメモリを Sub-Core ヒープへ) |
+| **UCA-OS.1 (priority inversion)** | 🟡 高優先度 task が別コアで動けば inversion 発生条件が消える (副次効果, アプリ層のみ) |
+| **構造的天井 #1 (tx_buff[1] シリアライズ)** | ❌ **解決しない** (gs2200m driver は kernel driver でメインコア固定) |
+| **gs2200m driver task の CPU 占有 (20-40%)** | ❌ **解決しない** (M-37 SMP 化必須) |
+
+→ **M-36 は「悪化を防ぐ」対策** であり「100% 未満を保証する」対策ではない。Phase 12.3 で追加される +10-20% の負荷を Sub-Core 化で吸収するのが主目的。**完全解消には Phase 13+ で M-37 か Tier 移行が必要**。
 
 #### 6.5f.7 受容する新規リスク (UCA-MC.* と一体)
 
@@ -1475,7 +1525,24 @@ STPA-Sec の対策コストはまちまち。`PENDING_NFR_WORK.md` の Phase 12 
     - ④ RAM 1.5 MB → STPA-Sec Option D (TLS 全面) と衝突。Tier 移行とセット
     - ⑦ ISX012 AE/AWB BB → ISP 制御可能センサーへの移行
     - ⑧ CXD5247 PMIC BB → PMIC 仕様公開 or 外部監視回路追加
+    - **⑨ CXD5602 単一コア (v1.10.1 追加)** → `CONFIG_SMP=n` で 1 コアのみ動作。**M-36 (Sub-Core API) では既存 kernel driver の負荷 (gs2200m 20-40%, V4L2 dequeue 15-30%) は移動不可** = NuttX SMP 化 (M-37 候補) or Tier 移行が必要
 16. **Tier 移行は本書 STAMP の管轄外** — ADR-006 (GATE-1) と本書 §10 の連携で意思決定すべき
+
+### 10.6b M-37 候補 (NuttX SMP 化) — v1.10.1 追加
+
+**動機**: M-36 (Sub-Core API) では既存 kernel driver の高負荷を移動できない (構造的天井 ⑨)。**完全に CPU 100% 未満を保証する** には NuttX SMP 化が必要。
+
+| 項目 | 内容 |
+|---|---|
+| **対策内容** | NuttX `CONFIG_SMP=y` 有効化 + 全 kernel driver (V4L2, USB CDC-ACM, gs2200m) の SMP 対応 |
+| **メリット** | 既存高負荷 (camera_thread + gs2200m driver + send 系 = 40-70%) を別コアに分散可能 → メインコア 30-50% まで低下 |
+| **デメリット** | 🔴 巨大: 全 mutex/spinlock 監査 / cache coherency / race condition / NuttX SMP の CXD5602 検証状況不明 |
+| **工数推定** | 40-80 人日 (PoC + SMP 化 + リグレッションテスト) |
+| **適切な Phase** | **Phase 13+** (Tier 移行候補と一括判断) |
+| **採用判断条件** | M-35a の実測で本当に既存負荷が 100% 超なら検討。M-36 で 80% 程度に収まれば M-37 不要 |
+| **代替案** | Tier 2/3 移行 (HW 変更) で根治 |
+
+→ **M-37 は本書 v1.10.1 では「候補」段階**。実装着手の判断は **M-35a 計測結果 + ADR-006 GATE-1 (Tier 判断) と一括検討** すべき。
 
 ### 10.7 本書の方法論的限界
 

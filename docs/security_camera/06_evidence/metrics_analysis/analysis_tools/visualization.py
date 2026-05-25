@@ -925,6 +925,100 @@ def size_vs_fps_with_cap(df: pd.DataFrame) -> None:
     plt.close()
 
 
+# ============================================================
+# D-13: 要求達成度 (Q16/Q17/Q19) Phase 別バー
+# ============================================================
+def requirement_achievement(df: pd.DataFrame) -> None:
+    """要求書 FUNCTIONAL_REQUIREMENTS.md の Q16/Q17 達成度を Phase 別に可視化"""
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+    phase_order = [
+        "Phase A (baseline)", "Phase B (改良)",
+        "Phase C (現行 8/9)", "Phase 10 (PID 後)",
+    ]
+    short = ["A", "B", "C", "10"]
+    colors = ["#FFB6C1", "#FFE4B5", "#90EE90", "#87CEEB"]
+
+    # ─── Q16 Must=1s 達成率 ───
+    ax = axes[0]
+    rates_must = []
+    rates_want = []
+    for p in phase_order:
+        sub = df[(df["phase"] == p) & (df["tcp_avg_send_ms"] > 0)]
+        if len(sub) < 10:
+            rates_must.append(0); rates_want.append(0); continue
+        rates_must.append((sub["tcp_avg_send_ms"] < 1000).sum() / len(sub) * 100)
+        rates_want.append((sub["tcp_avg_send_ms"] < 100).sum() / len(sub) * 100)
+    x = np.arange(len(short))
+    w = 0.4
+    ax.bar(x - w/2, rates_must, w, color="#2ca02c", alpha=0.7,
+           label="Must <1s (要求達成判定)")
+    ax.bar(x + w/2, rates_want, w, color="#d62728", alpha=0.7,
+           label="Want <100ms (WONT FIX)")
+    for i, (m, w_) in enumerate(zip(rates_must, rates_want)):
+        ax.text(i - 0.2, m + 1, f"{m:.1f}%", fontsize=8, ha="center")
+        ax.text(i + 0.2, w_ + 1, f"{w_:.1f}%", fontsize=8, ha="center")
+    ax.set_xticks(x); ax.set_xticklabels(short)
+    ax.set_ylim(0, 110)
+    ax.set_ylabel("達成率 (%)")
+    ax.set_title("Q16 許容遅延: Must <1s (緑) / Want <100ms (赤)")
+    ax.legend(loc="center right", fontsize=8)
+    ax.grid(alpha=0.3, axis="y")
+
+    # ─── Q17 ドロップ率 ≤30% 達成率 ───
+    ax = axes[1]
+    session_drops = df.groupby("source_file").agg(
+        drop=("dropped_frames", "max"),
+        cap=("spresense_camera_frames", "max"),
+        phase=("phase", "first"),
+    )
+    session_drops = session_drops[session_drops["cap"] > 0]
+    session_drops["drop_rate"] = (session_drops["drop"] / session_drops["cap"] * 100).clip(0, 100)
+    means = []
+    for p in phase_order:
+        sub = session_drops[session_drops["phase"] == p]
+        means.append(sub["drop_rate"].mean() if len(sub) > 0 else np.nan)
+    ax.bar(x, means, color=colors, alpha=0.7, edgecolor="black")
+    for i, m in enumerate(means):
+        if not np.isnan(m):
+            ax.text(i, m + 1, f"{m:.1f}%", fontsize=9, ha="center")
+        else:
+            ax.text(i, 2, "N/A", fontsize=9, ha="center", color="gray")
+    ax.axhline(y=30, color="red", linestyle="--", linewidth=1.5,
+               label="目標 ≤30%")
+    ax.set_xticks(x); ax.set_xticklabels(short)
+    ax.set_ylim(0, 100)
+    ax.set_ylabel("Drop rate (%)")
+    ax.set_title("Q17 ドロップ率: Phase 別平均 (目標 ≤30%)")
+    ax.legend(loc="upper left", fontsize=8)
+    ax.grid(alpha=0.3, axis="y")
+
+    # ─── PC FPS 推移 (Q19/ADR-002 v1.1 ref) ───
+    ax = axes[2]
+    means_fps = []
+    for p in phase_order:
+        sub = df[(df["phase"] == p) & (df["pc_fps"] > 0)]
+        means_fps.append(sub["pc_fps"].mean() if len(sub) > 0 else np.nan)
+    ax.bar(x, means_fps, color=colors, alpha=0.7, edgecolor="black")
+    for i, m in enumerate(means_fps):
+        if not np.isnan(m):
+            ax.text(i, m + 0.1, f"{m:.2f}", fontsize=9, ha="center")
+    ax.axhline(y=6.74, color="darkgreen", linestyle="--", linewidth=1,
+               label="ADR-002 v1.1 ref 6.74")
+    ax.axhline(y=2.77, color="darkred", linestyle="--", linewidth=1,
+               label="ADR-002 v1.1 ref 2.77")
+    ax.set_xticks(x); ax.set_xticklabels(short)
+    ax.set_ylim(0, 8)
+    ax.set_ylabel("PC FPS")
+    ax.set_title("Q19/ADR-002 関連: Phase 別 PC FPS 平均")
+    ax.legend(loc="upper left", fontsize=8)
+    ax.grid(alpha=0.3, axis="y")
+
+    fig.suptitle("D-13: 要求達成度 (Q16/Q17/Q19) Phase 別評価", fontsize=12)
+    plt.tight_layout()
+    plt.savefig(OUT_DIR / "ds_13_requirement_achievement.png")
+    plt.close()
+
+
 def main() -> None:
     setup_style()
     df = load_all()
@@ -957,6 +1051,7 @@ def main() -> None:
     fps_jpeg_correlation(df)
     simulate_size_cap(df)
     size_vs_fps_with_cap(df)
+    requirement_achievement(df)
 
     pngs = sorted(OUT_DIR.glob("*.png"))
     print(f"\nGenerated {len(pngs)} figures in {OUT_DIR}:")

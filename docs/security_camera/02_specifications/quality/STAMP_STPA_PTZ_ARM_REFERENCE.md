@@ -68,6 +68,16 @@
                                   (LeRobot SDK + Feetech Bus)
 ```
 
+### 実装場所 (PoC 後にコードが配置される場所)
+
+| ワークスペース | 言語 | 役割 |
+|---|---|---|
+| `~/Spr_ws/GH_wk_test/` (本リポジトリ) | C/NuttX | Spresense アプリ + docs (本書を含む設計の真実 source) — **PoC 中も変更なし** |
+| `~/Rust_ws/security_camera_viewer/` | Rust | PC viewer (motion_detector, GUI, 録画) — アーム指令送信機能を追加 |
+| **`~/Robotics_ws/` ★Phase 12 PoC X.1 で新規作成** | Python | **LeRobot SDK + 追尾制御 + アーム実装の本拠** |
+
+→ 詳細配下構造は [`PTZ_ARM_POC_PLAN.md §9.2`](../../05_future_actions/phase_planned/PTZ_ARM_POC_PLAN.md) 参照。**Spr_ws 配下ではなく独立 ws** とすることで言語・依存系の分離 + 管理煩雑化回避。
+
 ### 構成変更点 (既存防犯カメラから)
 
 | 既存 (v1.11) | 追加 (PTZ 統合時) |

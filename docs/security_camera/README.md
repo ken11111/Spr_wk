@@ -72,7 +72,7 @@
 | `/home/ken/Spr_ws/GH_wk_test/` (本リポジトリ) | docs/ + Spresense アプリ + spresense submodule |
 | `/home/ken/Spr_ws/GH_wk_test/spresense/` (submodule, フォーク版) | Spresense SDK + NuttX, 本リポジトリでは管理対象外 (`.gitignore`) |
 | `/home/ken/Rust_ws/security_camera_viewer/` (別ワークスペース) | PC viewer (Rust) 実装 |
-| (将来) LeRobot SO-ARM101 統合 | Phase 12 PoC で配置先検討中 → [`05_future_actions/phase_planned/PTZ_ARM_POC_PLAN.md`](05_future_actions/phase_planned/PTZ_ARM_POC_PLAN.md) |
+| **`/home/ken/Robotics_ws/`** ★ Phase 12 PoC で新規作成予定 | LeRobot SO-ARM101 Pro PTZ 統合 (Python/PyTorch). 言語・依存系の分離のため Spr_ws 配下ではなく独立 ws として配置。詳細: [`05_future_actions/phase_planned/PTZ_ARM_POC_PLAN.md §9.2`](05_future_actions/phase_planned/PTZ_ARM_POC_PLAN.md) |
 
 ---
 

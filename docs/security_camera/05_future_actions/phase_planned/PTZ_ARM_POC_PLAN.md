@@ -297,7 +297,73 @@
 | **安全レビュー** | 5 人日 (パートタイム) | M-41/E-Stop 設計レビュー, Phase X.4-X.5 安全試験立会 |
 | **PdM** | 3 人日 (会議のみ) | Go/No-Go 判断会議 (X.5) |
 
-### 9.2 意思決定ゲート
+### 9.2 リポジトリ・ワークスペース配置
+
+PoC 実装は **既存 Spresense リポジトリ (`~/Spr_ws/GH_wk_test/`) や PC viewer (`~/Rust_ws/`) とは分離した新規ワークスペース** に配置する。
+
+#### 配置先: `~/Robotics_ws/` (新規 — PoC 着手時 X.1 で作成)
+
+選定理由:
+- Spresense (C/NuttX) と LeRobot (Python/PyTorch) は **言語・依存系・容量特性が全く異なる** ため混在を避ける
+- `Spr_ws/` (9.3 GB) は既に Spresense 専用と化しており、LeRobot 統合で更に巨大化するリスク
+- 将来別ロボット (Unitree, ROS2 連携等) も加える場合に **拡張可能な命名**
+
+#### 配下構造案
+
+```
+~/Robotics_ws/                     # ロボティクス全般の起点
+├── README.md                      # Spresense / Rust_ws との連携メモ
+├── .venv/                         # Python 環境 (uv venv)
+├── .gitignore                     # .venv/, data/, __pycache__/ 等
+├── lerobot/                       # LeRobot SDK (pip install or submodule)
+├── so-arm101/
+│   ├── config/                    # キャリブデータ
+│   └── calibration_data.json
+├── ptz_integration/               # Spresense 防犯カメラ連携
+│   ├── tracking_controller.py     # Visual Servoing PID (M-42 対応)
+│   ├── motion_to_servo.py         # bbox → サーボ角度変換
+│   ├── e_stop_handler.py          # E-Stop ハード割込み (M-41 対応)
+│   └── soft_limit.py              # 動作領域制限 (M-41 対応)
+├── tests/                         # PoC テストスクリプト (Phase X.1〜X.5)
+│   ├── x1_servo_unit_test.py
+│   ├── x2_payload_test.py
+│   ├── x3_open_loop.py
+│   ├── x4_visual_servoing.py
+│   └── x5_24h_endurance.py
+├── docs/                          # Robotics_ws 固有 (運用ノート等)
+│   └── (本格 STAMP/設計は Spresense リポジトリ側参照)
+└── data/                          # 計測ログ / 試験データ (.gitignore 推奨)
+    ├── e2e_latency_measurements.csv
+    └── 24h_endurance_log.csv
+```
+
+#### 3 ワークスペース構成での役割分担
+
+| ワークスペース | 言語 | 役割 | 本 PoC での扱い |
+|---|---|---|---|
+| `~/Spr_ws/GH_wk_test/` | C/NuttX | Spresense アプリ + **docs/ (設計の真実 source)** | STAMP/STPA・要求書・計画はここに集約。本 PoC でも参照のみ、変更しない |
+| `~/Rust_ws/security_camera_viewer/` | Rust | PC viewer (GUI/motion_detector/録画) | アーム指令送信機能を追加 (HTTP/subprocess で Robotics_ws と連携) |
+| **`~/Robotics_ws/`** ★PoC で作成 | Python | LeRobot SDK + 追尾制御 + アーム実装 | 本 PoC の主成果物配置先 |
+
+#### ws 間連携プロトコル (案)
+
+```
+[ Rust_ws viewer (motion_detector) ]
+        │ bbox + frame
+        ▼ HTTP POST (localhost:8901) or stdin JSON
+[ Robotics_ws ptz_integration/tracking_controller.py ]
+        │ サーボ角度指令
+        ▼ LeRobot SDK API
+[ ~/Robotics_ws/lerobot/ ] ──USB-RS485──> [ SO-ARM101 Pro ]
+```
+
+#### 作成タイミング
+
+- **今 (PoC 着手前)**: 配置先方針として本書および [`../../README.md`](../../README.md) に記録
+- **Phase X.1 (機材到着+環境構築時)**: 実際に `mkdir ~/Robotics_ws/` で作成、Python venv セットアップ
+- **Phase X.5 (PoC 完了時)**: コード成果物は Robotics_ws 配下に残し、設計判断のみ Spresense リポジトリ docs/ に統合
+
+### 9.3 意思決定ゲート
 
 | ゲート | 時期 | 判断者 | 判断材料 |
 |---|---|---|---|

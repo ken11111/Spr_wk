@@ -208,13 +208,13 @@ A3/A5/B1/B5/B6/B7/C1〜C5 — 現対策で十分、再発時に再評価。
 ## 関連文書
 
 - 制約根拠: [`../architecture/SPRESENSE_TCP_CONSTRAINTS.md`](../architecture/SPRESENSE_TCP_CONSTRAINTS.md)
-- 用語集: [`GLOSSARY.md`](GLOSSARY.md) (構造的天井 #1〜#5)
-- 品質要求: [`QUALITY_REQUIREMENTS.md`](QUALITY_REQUIREMENTS.md)
-- 品質シナリオ: [`QUALITY_ATTRIBUTE_SCENARIOS.md`](QUALITY_ATTRIBUTE_SCENARIOS.md) (QAS-1〜10)
+- 用語集: [`GLOSSARY.md`](../GLOSSARY.md) (構造的天井 #1〜#5)
+- 品質要求: [`QUALITY_REQUIREMENTS.md`](../QUALITY_REQUIREMENTS.md)
+- 品質シナリオ: [`QUALITY_ATTRIBUTE_SCENARIOS.md`](../QUALITY_ATTRIBUTE_SCENARIOS.md) (QAS-1〜10)
 - セキュリティ乖離: [`SECURITY_GAP_ANALYSIS.md`](SECURITY_GAP_ANALYSIS.md)
 - 異常系: [`../use_cases/exception_scenarios.md`](../use_cases/exception_scenarios.md) (ES-1〜5)
 - 主要 UC: [`../use_cases/primary_use_cases.md`](../use_cases/primary_use_cases.md)
-- 残タスク: [`PENDING_NFR_WORK.md`](PENDING_NFR_WORK.md)
+- 残タスク: [`PENDING_NFR_WORK.md`](../PENDING_NFR_WORK.md)
 - ADR: [`../../03_achievements/architecture_decisions/`](../../03_achievements/architecture_decisions/) (特に ADR-002 v1.1, ADR-006)
 - 既存技術負債台帳: [`../../05_future_actions/technical_debt/TECHNICAL_DEBT_REGISTER.md`](../../05_future_actions/technical_debt/TECHNICAL_DEBT_REGISTER.md) (12 件)
 

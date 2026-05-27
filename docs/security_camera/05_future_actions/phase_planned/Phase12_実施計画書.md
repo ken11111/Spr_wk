@@ -57,7 +57,7 @@
 |---|---|---|
 | **X-6 CPU 利用率** (camera/usb/control) | `[CPU]` 行ログ ≥ 60 サンプル + 集計 CSV | [`CPU_MEASUREMENT_GUIDE.md`](../../07_operations/CPU_MEASUREMENT_GUIDE.md) |
 | **X-5f ST-1** 屋内常温 24h 連続 | アップタイム / FPS / ドロップ率 / FAILED 回数 | [`STRESS_TEST_PLAN.md`](../../07_operations/STRESS_TEST_PLAN.md) |
-| **X-8 Stage 1** 行カバレッジ計測 | cargo-llvm-cov 導入 + Rust 側 % 確定 | [`TEST_COVERAGE_BASELINE.md`](../../02_specifications/quality/TEST_COVERAGE_BASELINE.md) |
+| **X-8 Stage 1** 行カバレッジ計測 | cargo-llvm-cov 導入 + Rust 側 % 確定 | [`TEST_COVERAGE_BASELINE.md`](../../02_specifications/quality/performance/TEST_COVERAGE_BASELINE.md) |
 
 並列可能。**家庭用想定なので、X-5f ST-3/4 (温度試験) は対象外** (家庭の屋内温度範囲は ST-1 で十分カバー)。
 
@@ -73,7 +73,7 @@
 
 ### Phase 12.3 — セキュリティ Option B 段階実装 (約 3 週)
 
-**Option B = LAN 隔離前提 + アプリ層簡易認証 + ログ署名** ([`SECURITY_GAP_ANALYSIS.md`](../../02_specifications/quality/SECURITY_GAP_ANALYSIS.md) §5)
+**Option B = LAN 隔離前提 + アプリ層簡易認証 + ログ署名** ([`SECURITY_GAP_ANALYSIS.md`](../../02_specifications/quality/risk_analysis/SECURITY_GAP_ANALYSIS.md) §5)
 
 | Step | 実装内容 | 緩和される脅威 |
 |---|---|---|
@@ -83,7 +83,7 @@
 | **B-4 syslog 署名** | metrics packet に CRC のみだが、ログファイルに HMAC-SHA256 を 1 日 1 回付与 | TR-1/TR-2 (否認) DREAD 33 |
 
 ⚠ **実装しない**: TLS/mTLS (RAM 制約)、JWT (実装コスト大)、暗号化 (構造的天井 #4 で困難)。
-これらは [`SECURITY_GAP_ANALYSIS.md`](../../02_specifications/quality/SECURITY_GAP_ANALYSIS.md) で「Tier 1 では不可、Tier 2 移行時の再判断対象」として明記。
+これらは [`SECURITY_GAP_ANALYSIS.md`](../../02_specifications/quality/risk_analysis/SECURITY_GAP_ANALYSIS.md) で「Tier 1 では不可、Tier 2 移行時の再判断対象」として明記。
 
 ### Phase 12.4 — Phase 11 .c 判断 (約 1 日)
 
@@ -103,7 +103,7 @@
 |---|---|
 | [`FUNCTIONAL_REQUIREMENTS.md`](../../01_requirements/FUNCTIONAL_REQUIREMENTS.md) | v1.0 → v1.1。§1.0 確定方針に「Tier 1 + 家庭用」明記、§1.1 WONT FIX 一覧追加、Q1/Q3/Q5/Q16/Q24 を「実装事実」から「**確定値**」に格上げ |
 | [`PRODUCTION_DEPLOYMENT_CHECKLIST.md`](../../07_operations/PRODUCTION_DEPLOYMENT_CHECKLIST.md) | **新規** — 家庭 LAN 配置手順 (WiFi 認証情報差替 / 24h 稼働確認 / 録画ローテーション動作確認 / セキュリティ Option B 検証) |
-| [`SECURITY_GAP_ANALYSIS.md`](../../02_specifications/quality/SECURITY_GAP_ANALYSIS.md) | 12.3 実装結果を §6 に「Option B 実装済」として反映 |
+| [`SECURITY_GAP_ANALYSIS.md`](../../02_specifications/quality/risk_analysis/SECURITY_GAP_ANALYSIS.md) | 12.3 実装結果を §6 に「Option B 実装済」として反映 |
 | [`MASTER_ROADMAP_2026.md`](../master_roadmap/MASTER_ROADMAP_2026.md) | v2.0 → v2.1 — Phase 12 完了マーク + Phase 13+ の検討事項 (Tier 移行は将来候補で残す) |
 | [`REQUIREMENTS_TRACEABILITY_MATRIX.md`](../../02_specifications/traceability/REQUIREMENTS_TRACEABILITY_MATRIX.md) | v5.0 → v5.1 — §B 達成サマリ更新 (実測値ベースで上書き) |
 
@@ -168,8 +168,8 @@ Phase 12 完了 = Tier 1 + 家庭用 確定後、Phase 13 は以下の選択肢:
   - [`../../07_operations/STRESS_TEST_PLAN.md`](../../07_operations/STRESS_TEST_PLAN.md) (12.1 X-5f ST-1)
 - 戦略判断根拠:
   - [`../../03_achievements/architecture_decisions/system_architecture/ADR_002_NETWORKING_TCP_HEALTH_MONITORING.md`](../../03_achievements/architecture_decisions/system_architecture/ADR_002_NETWORKING_TCP_HEALTH_MONITORING.md) v1.1 (12.2)
-  - [`../../02_specifications/quality/SECURITY_GAP_ANALYSIS.md`](../../02_specifications/quality/SECURITY_GAP_ANALYSIS.md) (12.3)
-  - [`../../02_specifications/quality/THREAT_MODEL.md`](../../02_specifications/quality/THREAT_MODEL.md) (12.3)
+  - [`../../02_specifications/quality/risk_analysis/SECURITY_GAP_ANALYSIS.md`](../../02_specifications/quality/risk_analysis/SECURITY_GAP_ANALYSIS.md) (12.3)
+  - [`../../02_specifications/quality/risk_analysis/THREAT_MODEL.md`](../../02_specifications/quality/risk_analysis/THREAT_MODEL.md) (12.3)
 - 過去 Phase 計画書: [`Phase10_実施計画書.md`](Phase10_実施計画書.md), [`Phase11_実施計画書.md`](Phase11_実施計画書.md)
 
 ---

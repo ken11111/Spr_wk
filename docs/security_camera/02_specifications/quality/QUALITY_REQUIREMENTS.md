@@ -150,7 +150,7 @@ PC viewer (`security_camera_viewer`) の UX 仕様は**ほぼ未定義**。
 
 ## 6. セキュリティ (Security) — 🔴
 
-> **⚠ 重要警告**: `SECURITY_ARCHITECTURE.md` (Phase 9.2 設計仕様) は TLS 1.3 + AES-256-GCM + JWT 認証の多層防御を詳述しているが、**実装は完全な無保護**である。詳細は [`SECURITY_GAP_ANALYSIS.md`](SECURITY_GAP_ANALYSIS.md) 参照。
+> **⚠ 重要警告**: `SECURITY_ARCHITECTURE.md` (Phase 9.2 設計仕様) は TLS 1.3 + AES-256-GCM + JWT 認証の多層防御を詳述しているが、**実装は完全な無保護**である。詳細は [`SECURITY_GAP_ANALYSIS.md`](risk_analysis/SECURITY_GAP_ANALYSIS.md) 参照。
 
 | サブ属性 | 設計 (Phase 9.2) | 実装 | 達成 | 関連 QAS |
 |---|---|---|---|---|
@@ -160,7 +160,7 @@ PC viewer (`security_camera_viewer`) の UX 仕様は**ほぼ未定義**。
 | 説明責任 (Accountability) | 監査ログ + フォレンジック対応 | ❌ ログ署名なし | 🔴 | - |
 | 真正性 (Authenticity) | 相互認証 (mTLS + デバイス証明書) | ❌ 認証なし | 🔴 | QAS-5 |
 
-**ギャップ**: 設計-実装乖離が体系的に開示されていなかったため、本タスクで [`SECURITY_GAP_ANALYSIS.md`](SECURITY_GAP_ANALYSIS.md) を新設し透明化する。
+**ギャップ**: 設計-実装乖離が体系的に開示されていなかったため、本タスクで [`SECURITY_GAP_ANALYSIS.md`](risk_analysis/SECURITY_GAP_ANALYSIS.md) を新設し透明化する。
 
 ---
 

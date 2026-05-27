@@ -6,7 +6,7 @@
 **前提**: Spresense 物理ボード + シリアルコンソール + PC viewer
 
 > **本ガイドの位置付け**:
-> - [`../02_specifications/quality/CPU_BANDWIDTH_BUDGET.md`](../02_specifications/quality/CPU_BANDWIDTH_BUDGET.md) §2 の推定 CPU% (TBD 項目) を実測値で埋めるため
+> - [`../02_specifications/quality/performance/CPU_BANDWIDTH_BUDGET.md`](../02_specifications/quality/performance/CPU_BANDWIDTH_BUDGET.md) §2 の推定 CPU% (TBD 項目) を実測値で埋めるため
 > - 計測コードは本セッションで `apps/examples/security_camera/perf_logger.{h,c}` に実装済 (X-6 commit)
 > - **本ガイドはハードウェアでの実行手順** — code 側は build できる状態
 
@@ -195,7 +195,7 @@ control: cur 平均= 0.4% / 最大= 1.2% (n=58)
 - **計測コード**: `apps/examples/security_camera/perf_logger.{h,c}` (X-6 commit)
 - **計装箇所**: `apps/examples/security_camera/camera_threads.c` (3 thread)
 - **集計スクリプト**: `scripts/cpu_measurement/parse_cpu_log.py`
-- **静的分析**: [`../02_specifications/quality/CPU_BANDWIDTH_BUDGET.md`](../02_specifications/quality/CPU_BANDWIDTH_BUDGET.md) §2
+- **静的分析**: [`../02_specifications/quality/performance/CPU_BANDWIDTH_BUDGET.md`](../02_specifications/quality/performance/CPU_BANDWIDTH_BUDGET.md) §2
 - **タイミング図**: 同 §7 (T-1, T-2)
 - **運用ランブック**: [`RUNBOOK.md`](RUNBOOK.md) §3.6 (シリアルログ解析)
 - **残課題**: [`../02_specifications/quality/PENDING_NFR_WORK.md`](../02_specifications/quality/PENDING_NFR_WORK.md) X-6

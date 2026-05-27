@@ -84,7 +84,7 @@
 | **Response** | デバイス証明書 + 公開鍵交換、相互認証 (mTLS) |
 | **Response Measure (目標)** | handshake < 1 秒, 認証失敗率 0% |
 | **Response Measure (実測)** | ❌ **実装が存在しない**。実装は TCP 直送・クリアテキスト・認証なし |
-| **達成状況** | 🔴 **設計のみ・実装乖離**。詳細は [`SECURITY_GAP_ANALYSIS.md`](SECURITY_GAP_ANALYSIS.md) |
+| **達成状況** | 🔴 **設計のみ・実装乖離**。詳細は [`SECURITY_GAP_ANALYSIS.md`](risk_analysis/SECURITY_GAP_ANALYSIS.md) |
 | **関連** | [`../architecture/SECURITY_ARCHITECTURE.md`](../architecture/SECURITY_ARCHITECTURE.md) (Phase 9.2 設計) |
 
 ---

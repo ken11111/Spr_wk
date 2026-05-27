@@ -39,9 +39,9 @@
 
 | 領域 | 担当文書 | 本書との関係 |
 |---|---|---|
-| コンポーネント故障 | [FMEA.md](FMEA.md) | 故障モード自体は FMEA、**制御連鎖と防御不在** のみ本書で UCA 化 |
-| 攻撃者意図 | [THREAT_MODEL.md](THREAT_MODEL.md) | 14 件全件を §8.6 で UCA-Def にマッピング |
-| 設計-実装乖離 | [SECURITY_GAP_ANALYSIS.md](SECURITY_GAP_ANALYSIS.md) | §8.4 で対応関係明示 |
+| コンポーネント故障 | [FMEA.md](../risk_analysis/FMEA.md) | 故障モード自体は FMEA、**制御連鎖と防御不在** のみ本書で UCA 化 |
+| 攻撃者意図 | [THREAT_MODEL.md](../risk_analysis/THREAT_MODEL.md) | 14 件全件を §8.6 で UCA-Def にマッピング |
+| 設計-実装乖離 | [SECURITY_GAP_ANALYSIS.md](../risk_analysis/SECURITY_GAP_ANALYSIS.md) | §8.4 で対応関係明示 |
 | **制御パラメータ・相互作用** | **本書** | HAL_TIMEOUT, IOB_THROTTLE, sensitivity 等 |
 | テスト実装 | [STAMP_STPA_TEST_PLAN.md](STAMP_STPA_TEST_PLAN.md) | 本書 UCA を TC/PT に展開 |
 
@@ -69,7 +69,7 @@
 <summary>📜 改訂履歴 (v1.1 〜 v1.11) — クリックで展開</summary>
 
 > **v1.11 改訂内容** (要求書 Q1-Q25 駆動の追加対策):
-> - 新規ファイル [`REQUIREMENTS_TRACEABILITY.md`](REQUIREMENTS_TRACEABILITY.md) v1.0 を作成 — Q1〜Q25 × M-1〜M-37 × Phase × 達成状態の 3 軸マトリクス
+> - 新規ファイル [`REQUIREMENTS_TRACEABILITY.md`](../REQUIREMENTS_TRACEABILITY.md) v1.0 を作成 — Q1〜Q25 × M-1〜M-37 × Phase × 達成状態の 3 軸マトリクス
 > - ギャップ分析で抽出された **未対応要求 Q9 / Q14 / Q11** を新規対策化:
 >   - **M-38** (Q9 ファイル時間分割) — 30 分/1 時間自動分割、Phase 12.1 で 2 人日
 >   - **M-39** (Q14 OSD 重畳) — タイムスタンプ等を映像焼き込み、Phase 12.2 で 3-5 人日、Spresense 実装は M-36 Sub-Core オフロード候補
@@ -179,9 +179,9 @@
 > **位置付け (既存品質文書との関係)**:
 > | 視点 | 文書 | 起点 |
 > |---|---|---|
-> | コンポーネント故障 | [`FMEA.md`](FMEA.md) | failure mode |
-> | 攻撃者の意図 | [`THREAT_MODEL.md`](THREAT_MODEL.md) | adversary |
-> | 設計-実装乖離 | [`SECURITY_GAP_ANALYSIS.md`](SECURITY_GAP_ANALYSIS.md) | gap |
+> | コンポーネント故障 | [`FMEA.md`](../risk_analysis/FMEA.md) | failure mode |
+> | 攻撃者の意図 | [`THREAT_MODEL.md`](../risk_analysis/THREAT_MODEL.md) | adversary |
+> | 設計-実装乖離 | [`SECURITY_GAP_ANALYSIS.md`](../risk_analysis/SECURITY_GAP_ANALYSIS.md) | gap |
 > | **制御構造・相互作用** | **本書** | **unsafe control action** |
 >
 > STAMP の前提: アクシデントは「故障」だけでなく「正常動作しているコンポーネント同士の不適切な相互作用」からも発生する。本書はこの第三の視点を提供する。
@@ -200,8 +200,8 @@
 | エッジ詳細 | [`architecture/SPRESENSE_ARCHITECTURE.md`](../architecture/SPRESENSE_ARCHITECTURE.md) | HW 制約 + ソフト層構成 |
 | 通信制約 | [`architecture/SPRESENSE_TCP_CONSTRAINTS.md`](../architecture/SPRESENSE_TCP_CONSTRAINTS.md) | tx_buff[1], IOB プール, 134 ms |
 | セキュリティ (設計提案) | [`architecture/SECURITY_ARCHITECTURE.md`](../architecture/SECURITY_ARCHITECTURE.md) | TLS/JWT 設計 (未実装) |
-| 失敗モード参照 | [`FMEA.md`](FMEA.md) | 28 件の RPN |
-| 脅威参照 | [`THREAT_MODEL.md`](THREAT_MODEL.md) | STRIDE/DREAD 16 件 |
+| 失敗モード参照 | [`FMEA.md`](../risk_analysis/FMEA.md) | 28 件の RPN |
+| 脅威参照 | [`THREAT_MODEL.md`](../risk_analysis/THREAT_MODEL.md) | STRIDE/DREAD 16 件 |
 
 ---
 
@@ -922,7 +922,7 @@ v1.5 で **Scene (被写体) を Plant 入力源として明示** し、JPEG サ
 | (c) ISX012 AE/AWB 最適化 | 露出/ゲインで JPEG size 抑制 | 小〜中 | ISX012 制御範囲内のみ | 🟡 (UCA-CAM-AE.3 制約) |
 | (d) サイズ超過時 frame drop | 一定 size 超過の frame を強制 drop | 大 (帯域確保) | drop による情報損失 | 🔴 (FMEA B4 強化) |
 
-**選択基準**: case (a) 再 JPEG エンコードは画質を能動的に制御できる唯一の選択肢だが、**CXD5602 の CPU 余裕 + JPEG codec ライブラリの存在** が前提検証必要 ([`CPU_BANDWIDTH_BUDGET.md`](CPU_BANDWIDTH_BUDGET.md) §5)。
+**選択基準**: case (a) 再 JPEG エンコードは画質を能動的に制御できる唯一の選択肢だが、**CXD5602 の CPU 余裕 + JPEG codec ライブラリの存在** が前提検証必要 ([`CPU_BANDWIDTH_BUDGET.md`](../performance/CPU_BANDWIDTH_BUDGET.md) §5)。
 
 **シミュレーション結果 (performance_trends.md §Image Size Control Simulation 抜粋)**:
 - **15 KB cap**: SPI 30 fps / tx_buff 19.9 fps 達成可能 — ただし clip 影響 99.2%、画質 Q30 相当でリスク大
@@ -1038,7 +1038,7 @@ M-35 Observability 拡張 (ファミリ)
 
 #### 6.5f.1 動機 (実データ駆動の根拠)
 
-[`CPU_BANDWIDTH_BUDGET.md §2`](CPU_BANDWIDTH_BUDGET.md#2-アプリスレッド-cpu-予算-1-コア共有) の推定で **5 スレッド合計 70-100%+ = 100% 超の懸念**:
+[`CPU_BANDWIDTH_BUDGET.md §2`](../performance/CPU_BANDWIDTH_BUDGET.md#2-アプリスレッド-cpu-予算-1-コア共有) の推定で **5 スレッド合計 70-100%+ = 100% 超の懸念**:
 
 | スレッド | 推定 CPU% |
 |---|---|
@@ -1171,7 +1171,7 @@ M-36 実装に伴い [§3.7.11 CTRL-MC](#3711-ctrl-mc-multi-core-coordinator-v11
 
 ### 6.5g 要求駆動の追加対策 (v1.11 追加 — REQUIREMENTS_TRACEABILITY.md ギャップ分析より)
 
-[`REQUIREMENTS_TRACEABILITY.md`](REQUIREMENTS_TRACEABILITY.md) §5A のギャップ分析で抽出された未対応要求 (Q9 / Q14 / Q11) を STAMP/STPA の対策フレームワークに統合する。
+[`REQUIREMENTS_TRACEABILITY.md`](../REQUIREMENTS_TRACEABILITY.md) §5A のギャップ分析で抽出された未対応要求 (Q9 / Q14 / Q11) を STAMP/STPA の対策フレームワークに統合する。
 
 | ID | 対策 | 対応要求 / UCA | 工数 | 担当 | Phase | 採用条件 (KPI) | 関連 |
 |---|---|---|---|---|---|---|---|
@@ -1202,7 +1202,7 @@ M-39 (OSD) の実装場所は **2 つの候補**:
 | ID | 対策 | 対応 UCA-Def | 工数 | 担当 | Phase | 既存タスク | 採用条件 (KPI) |
 |---|---|---|---|---|---|---|---|
 | **M-10** | AP MAC アドレス固定 (Spresense 側で検証) | UCA-APV.1 | **2** | Spresense + 運用 | 12.3 | (新規) | PT-APV.1 で Evil Twin 拒否 |
-| **M-11** | MJPEG ペイロードに HMAC-SHA256 付与 | UCA-INT.1 | **5** | Spresense + PC | 12.3 | (新規) | PT-INT.1 で改ざん検知 + CPU 余裕確認 ([`CPU_BANDWIDTH_BUDGET.md`](CPU_BANDWIDTH_BUDGET.md) 突合) |
+| **M-11** | MJPEG ペイロードに HMAC-SHA256 付与 | UCA-INT.1 | **5** | Spresense + PC | 12.3 | (新規) | PT-INT.1 で改ざん検知 + CPU 余裕確認 ([`CPU_BANDWIDTH_BUDGET.md`](../performance/CPU_BANDWIDTH_BUDGET.md) 突合) |
 | **M-12** | MP4 録画ファイルにハッシュチェーン記録 | UCA-INT.2 | **3** | PC | **13+** | (新規) | PT-INT.2 で改ざん検知 |
 | **M-13** | PC GUI 操作の監査ログ + 署名 | UCA-AUDIT.1 | **5** | PC | **13+** | (新規) | PT-AUDIT.1 で操作トレース可 |
 | **M-14** | Spresense 永続ログ (SD カード) + 署名 | UCA-AUDIT.2 | **8** | Spresense + HW | **13+** | (X-5 関連) | PT-AUDIT.2 で永続ログ復元可 |
@@ -1276,7 +1276,7 @@ M-39 (OSD) の実装場所は **2 つの候補**:
 
 ## §8 STPA-Sec 拡張 — 敵対的環境下の安全分析
 
-> **STPA-Sec** (Young & Leveson, 2014, "An Integrated Approach to Safety and Security Based on Systems Theory", CACM): STAMP の枠組みを「攻撃 = システム制御構造への意図的干渉」として捉え、防御 Controller の不在 (Not Provided) を UCA として扱う拡張。本節で [`THREAT_MODEL.md`](THREAT_MODEL.md) (STRIDE × DREAD 14 件) を STPA-Sec UCA に統合し、安全 STPA と同一フォーマットで論じる。
+> **STPA-Sec** (Young & Leveson, 2014, "An Integrated Approach to Safety and Security Based on Systems Theory", CACM): STAMP の枠組みを「攻撃 = システム制御構造への意図的干渉」として捉え、防御 Controller の不在 (Not Provided) を UCA として扱う拡張。本節で [`THREAT_MODEL.md`](../risk_analysis/THREAT_MODEL.md) (STRIDE × DREAD 14 件) を STPA-Sec UCA に統合し、安全 STPA と同一フォーマットで論じる。
 
 ### 8.1 STPA-Sec で導入する新規概念
 
@@ -1659,7 +1659,7 @@ STPA-Sec の対策コストはまちまち。`PENDING_NFR_WORK.md` の Phase 12 
 
 ## 付録 B. 関連文書
 
-- 既存品質分析: [`FMEA.md`](FMEA.md) / [`THREAT_MODEL.md`](THREAT_MODEL.md) / [`SECURITY_GAP_ANALYSIS.md`](SECURITY_GAP_ANALYSIS.md)
+- 既存品質分析: [`FMEA.md`](../risk_analysis/FMEA.md) / [`THREAT_MODEL.md`](../risk_analysis/THREAT_MODEL.md) / [`SECURITY_GAP_ANALYSIS.md`](../risk_analysis/SECURITY_GAP_ANALYSIS.md)
 - 本書付随図 (SVG をクリックで原寸表示):
   - **全体像 (抽象)**: 階層制御構造 — [SVG](stamp_control_structure.svg) / [puml](stamp_control_structure.puml) (§2.1)
   - **詳細 A**: Spresense Edge 内部 white-box (+ Scene/AE v1.5) — [SVG](stamp_control_structure_spresense.svg) / [puml](stamp_control_structure_spresense.puml) (§2.4) **(v1.4 / v1.5)**
@@ -1670,7 +1670,7 @@ STPA-Sec の対策コストはまちまち。`PENDING_NFR_WORK.md` の Phase 12 
   - SVG 再生成: `docker run --rm -v "$PWD:/work" -w /work plantuml/plantuml:latest -tsvg *.puml`
 - アーキテクチャ仕様: [`../architecture/SYSTEM_ARCHITECTURE.md`](../architecture/SYSTEM_ARCHITECTURE.md) / [`../architecture/spresense_main_board_l2c_control.puml`](../architecture/spresense_main_board_l2c_control.puml)
 - 構造的天井: [`../architecture/SPRESENSE_TCP_CONSTRAINTS.md`](../architecture/SPRESENSE_TCP_CONSTRAINTS.md)
-- 未着手タスク: [`PENDING_NFR_WORK.md`](PENDING_NFR_WORK.md) (X-3 / X-4 / X-7 が本書 M-3/M-6/M-5 と対応)
+- 未着手タスク: [`PENDING_NFR_WORK.md`](../PENDING_NFR_WORK.md) (X-3 / X-4 / X-7 が本書 M-3/M-6/M-5 と対応)
 
 ## 付録 C. 用語追加 (STPA-Sec)
 

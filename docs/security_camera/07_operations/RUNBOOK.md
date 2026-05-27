@@ -330,7 +330,7 @@ arp -a | grep 192.168.1.42  # Spresense IP
 **判断材料**:
 - ADR-006 GATE-1 ハードウェア評価
 - `02_specifications/architecture/SPRESENSE_TCP_CONSTRAINTS.md` §13.5 (4 候補比較)
-- `02_specifications/quality/FMEA.md` (RPN 上位 + 対策状況)
+- `02_specifications/quality/risk_analysis/FMEA.md` (RPN 上位 + 対策状況)
 
 **移行判断者**: 保守者 + 設置者 + (将来) ステークホルダー
 
@@ -384,8 +384,8 @@ arp -a | grep 192.168.1.42  # Spresense IP
 
 ### 根拠文書
 - 構造的天井 #1〜#5: [`../02_specifications/quality/GLOSSARY.md`](../02_specifications/quality/GLOSSARY.md) §2
-- 失敗モード台帳 (FMEA): [`../02_specifications/quality/FMEA.md`](../02_specifications/quality/FMEA.md)
-- 脅威モデル (LAN 隔離前提): [`../02_specifications/quality/THREAT_MODEL.md`](../02_specifications/quality/THREAT_MODEL.md)
+- 失敗モード台帳 (FMEA): [`../02_specifications/quality/risk_analysis/FMEA.md`](../02_specifications/quality/risk_analysis/FMEA.md)
+- 脅威モデル (LAN 隔離前提): [`../02_specifications/quality/risk_analysis/THREAT_MODEL.md`](../02_specifications/quality/risk_analysis/THREAT_MODEL.md)
 - ADR-002 v1.1 (再接続の逆効果発見): [`../03_achievements/architecture_decisions/system_architecture/ADR_002_NETWORKING_TCP_HEALTH_MONITORING.md`](../03_achievements/architecture_decisions/system_architecture/ADR_002_NETWORKING_TCP_HEALTH_MONITORING.md)
 - 健全性状態遷移: [`../02_specifications/architecture/gs2200m_health_state_machine.puml`](../02_specifications/architecture/gs2200m_health_state_machine.puml)
 - TCP 構造的制約: [`../02_specifications/architecture/SPRESENSE_TCP_CONSTRAINTS.md`](../02_specifications/architecture/SPRESENSE_TCP_CONSTRAINTS.md)

@@ -522,7 +522,7 @@ plantuml -tpng docs/security_camera/02_specifications/architecture/spresense_tcp
   - QAS-1 (再接続逆効果), QAS-2 (MJPEG 送信), QAS-6 (Tier 移行) 等で本文書の制約をシナリオ化
 - **用語集**: [`../quality/GLOSSARY.md`](../quality/GLOSSARY.md)
   - 構造的天井 #1〜#5 の正規定義 + Phase 用語の統一定義
-- **設計-実装乖離 (セキュリティ)**: [`../quality/SECURITY_GAP_ANALYSIS.md`](../quality/SECURITY_GAP_ANALYSIS.md)
+- **設計-実装乖離 (セキュリティ)**: [`../quality/risk_analysis/SECURITY_GAP_ANALYSIS.md`](../quality/risk_analysis/SECURITY_GAP_ANALYSIS.md)
   - 構造的天井 #4 (RAM 1.5 MB) によって TLS 等の搭載が困難な事実を踏まえた判断材料
 - **要求書**: [`../../01_requirements/FUNCTIONAL_REQUIREMENTS.md`](../../01_requirements/FUNCTIONAL_REQUIREMENTS.md) v1.0
   - §3.3 「ハードウェア制約による達成限界」で本文書の構造的天井と要求 NFR の関係を明示

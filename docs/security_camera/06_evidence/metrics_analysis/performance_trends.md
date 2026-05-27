@@ -85,7 +85,7 @@ Phase 10 の特徴:
 - JPEG ↔ FPS 連動 (r = -0.72) で制御が機能している状態
 - 6 指標の Phase 比較 (`figures/ds_07_phase_compare.png`) で全体的に最良値
 
-→ Tier 1 で出せる性能の頭打ちに近い。これ以上の根治には [STAMP §10.6 構造的天井](../../02_specifications/quality/STAMP_STPA_ANALYSIS.md) で示した **Tier 2/3 移行** が必要 (ADR-006 GATE-1)。
+→ Tier 1 で出せる性能の頭打ちに近い。これ以上の根治には [STAMP §10.6 構造的天井](../../02_specifications/quality/safety_analysis/STAMP_STPA_ANALYSIS.md) で示した **Tier 2/3 移行** が必要 (ADR-006 GATE-1)。
 
 ### Phase 10 への直接含意 (NEW)
 
@@ -611,7 +611,7 @@ PC FPS ≤ P10 (=2.80) vs ≥ P90 (=7.95) の中央値比較:
 
 → 画像サイズ上限制御だけで FPS を 5 倍にできるわけではない。**M-24 (Scene feedforward) + 画像サイズキャップ + USB/PC 側改善** を組合せる必要がある。
 
-> ⚠ **下流ボトルネックの特定は現行計装では困難**: 現 metrics packet (58 B / 18 列) では「どこで詰まったか」しか見えず、「なぜ詰まったか」(USB CDC-ACM の stage 別タイミング, PC viewer の bounded(3) pending, per-thread CPU 等) は不可視。これに対し STAMP/STPA v1.9 で **M-35 (Observability 拡張ファミリ)** を新規対策として提案している ([§6.5e](../../02_specifications/quality/STAMP_STPA_ANALYSIS.md#65e-observability-拡張--計測拡張ファミリ-v19-追加-m-19m-23m-7m-31-統合))。M-35a (Spresense 計装拡張) で metrics packet を拡張し、M-35b (PC viewer 計装拡張) で bounded(3) pending と decode breakdown と drop 原因タグを追加、M-35c (E2E frame trace) で capture→display latency を計測することで、本セクションで言及した「下流ボトルネック」を実測で特定可能になる。
+> ⚠ **下流ボトルネックの特定は現行計装では困難**: 現 metrics packet (58 B / 18 列) では「どこで詰まったか」しか見えず、「なぜ詰まったか」(USB CDC-ACM の stage 別タイミング, PC viewer の bounded(3) pending, per-thread CPU 等) は不可視。これに対し STAMP/STPA v1.9 で **M-35 (Observability 拡張ファミリ)** を新規対策として提案している ([§6.5e](../../02_specifications/quality/safety_analysis/STAMP_STPA_ANALYSIS.md#65e-observability-拡張--計測拡張ファミリ-v19-追加-m-19m-23m-7m-31-統合))。M-35a (Spresense 計装拡張) で metrics packet を拡張し、M-35b (PC viewer 計装拡張) で bounded(3) pending と decode breakdown と drop 原因タグを追加、M-35c (E2E frame trace) で capture→display latency を計測することで、本セクションで言及した「下流ボトルネック」を実測で特定可能になる。
 
 ### 実装アプローチの選択肢
 
@@ -928,8 +928,8 @@ The temporal analysis of 7,827 samples over 14 days provides **compelling eviden
 
 - 親: [`INDEX.md`](INDEX.md) / [`README.md`](README.md)
 - 兄弟: [`visual_evidence.md`](visual_evidence.md) (ASCII 時系列, 旧版相当) / [`control_system_validation.md`](control_system_validation.md) / [`COMPLETION_REPORT.md`](COMPLETION_REPORT.md)
-- STAMP/STPA: [`../../02_specifications/quality/STAMP_STPA_ANALYSIS.md`](../../02_specifications/quality/STAMP_STPA_ANALYSIS.md) v1.7.1 — UCA-A1.5 / UCA-B1.3 / UCA-CAM-AE.1 / UCA-DRV-USB.1 の実データ裏付け
-- 既存品質分析: [`../../02_specifications/quality/FMEA.md`](../../02_specifications/quality/FMEA.md) / [`../../02_specifications/quality/THREAT_MODEL.md`](../../02_specifications/quality/THREAT_MODEL.md)
+- STAMP/STPA: [`../../02_specifications/quality/safety_analysis/STAMP_STPA_ANALYSIS.md`](../../02_specifications/quality/safety_analysis/STAMP_STPA_ANALYSIS.md) v1.7.1 — UCA-A1.5 / UCA-B1.3 / UCA-CAM-AE.1 / UCA-DRV-USB.1 の実データ裏付け
+- 既存品質分析: [`../../02_specifications/quality/risk_analysis/FMEA.md`](../../02_specifications/quality/risk_analysis/FMEA.md) / [`../../02_specifications/quality/risk_analysis/THREAT_MODEL.md`](../../02_specifications/quality/risk_analysis/THREAT_MODEL.md)
 
 ### バージョン履歴
 

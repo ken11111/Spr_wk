@@ -974,7 +974,7 @@ Spresenseメモリ制約:
 
 #### Phase 12 の位置付け
 
-既存防犯カメラに **LeRobot SO-ARM101 Pro** を統合し、PTZ (Pan/Tilt/Zoom) 型の追尾カメラを実現する技術的実現性を **PoC で検証** する。安全分析は draft 段階の [`../../02_specifications/quality/STAMP_STPA_PTZ_ARM_REFERENCE.md`](../../02_specifications/quality/STAMP_STPA_PTZ_ARM_REFERENCE.md) v0.1 で実施済。PoC 結果次第で STAMP_STPA_ANALYSIS.md v2.0 への統合可否を判断。
+既存防犯カメラに **LeRobot SO-ARM101 Pro** を統合し、PTZ (Pan/Tilt/Zoom) 型の追尾カメラを実現する技術的実現性を **PoC で検証** する。安全分析は draft 段階の [`../../02_specifications/quality/safety_analysis/STAMP_STPA_PTZ_ARM_REFERENCE.md`](../../02_specifications/quality/safety_analysis/STAMP_STPA_PTZ_ARM_REFERENCE.md) v0.1 で実施済。PoC 結果次第で STAMP_STPA_ANALYSIS.md v2.0 への統合可否を判断。
 
 #### 📋 Phase 12 詳細計画
 

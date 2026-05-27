@@ -261,7 +261,7 @@
 ## §9 関連文書
 
 - 要求書: [`../01_requirements/FUNCTIONAL_REQUIREMENTS.md`](../01_requirements/FUNCTIONAL_REQUIREMENTS.md) Q25
-- 失敗モード: [`../02_specifications/quality/FMEA.md`](../02_specifications/quality/FMEA.md) C7 (RPN 270)
+- 失敗モード: [`../02_specifications/quality/risk_analysis/FMEA.md`](../02_specifications/quality/risk_analysis/FMEA.md) C7 (RPN 270)
 - 運用ランブック: [`RUNBOOK.md`](RUNBOOK.md)
 - CPU 計測ガイド: [`CPU_MEASUREMENT_GUIDE.md`](CPU_MEASUREMENT_GUIDE.md)
 - Phase 12 引継: [`../02_specifications/quality/PENDING_NFR_WORK.md`](../02_specifications/quality/PENDING_NFR_WORK.md) X-5f

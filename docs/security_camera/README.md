@@ -34,13 +34,13 @@
 
 ### アーキテクト
 - [`02_specifications/architecture/`](02_specifications/architecture/) — システム/Spresense/Security アーキ + L1/L2 図
-- [`02_specifications/quality/STAMP_STPA_ANALYSIS.md`](02_specifications/quality/STAMP_STPA_ANALYSIS.md) — 制御構造起点の安全分析 (v1.11)
+- [`02_specifications/quality/safety_analysis/STAMP_STPA_ANALYSIS.md`](02_specifications/quality/safety_analysis/STAMP_STPA_ANALYSIS.md) — 制御構造起点の安全分析 (v1.11)
 - [`03_achievements/architecture_decisions/`](03_achievements/architecture_decisions/) — ADR 8 件
 
 ### 開発者
 - [`02_specifications/functional/`](02_specifications/functional/) — 機能仕様 7 件
 - [`02_specifications/interface/`](02_specifications/interface/) — IF 仕様 13 件
-- [`02_specifications/quality/STAMP_STPA_TEST_PLAN.md`](02_specifications/quality/STAMP_STPA_TEST_PLAN.md) — UCA 再現テスト計画
+- [`02_specifications/quality/safety_analysis/STAMP_STPA_TEST_PLAN.md`](02_specifications/quality/safety_analysis/STAMP_STPA_TEST_PLAN.md) — UCA 再現テスト計画
 - [`07_operations/CPU_MEASUREMENT_GUIDE.md`](07_operations/CPU_MEASUREMENT_GUIDE.md) — CPU 計測手順
 
 ### PdM / 計画担当
@@ -49,8 +49,8 @@
 - [`05_future_actions/technical_debt/`](05_future_actions/technical_debt/) — 技術負債レジスタ
 
 ### テスト担当
-- [`02_specifications/quality/STAMP_STPA_TEST_PLAN.md`](02_specifications/quality/STAMP_STPA_TEST_PLAN.md) — UCA 再現 + Pentest + KPI
-- [`02_specifications/quality/TEST_COVERAGE_BASELINE.md`](02_specifications/quality/TEST_COVERAGE_BASELINE.md) — テストカバレッジ
+- [`02_specifications/quality/safety_analysis/STAMP_STPA_TEST_PLAN.md`](02_specifications/quality/safety_analysis/STAMP_STPA_TEST_PLAN.md) — UCA 再現 + Pentest + KPI
+- [`02_specifications/quality/performance/TEST_COVERAGE_BASELINE.md`](02_specifications/quality/performance/TEST_COVERAGE_BASELINE.md) — テストカバレッジ
 - [`07_operations/STRESS_TEST_PLAN.md`](07_operations/STRESS_TEST_PLAN.md) — ストレステスト
 
 ### データサイエンス / 性能評価
@@ -59,9 +59,9 @@
 - [`06_evidence/metrics_analysis/analysis_tools/visualization.py`](06_evidence/metrics_analysis/analysis_tools/visualization.py) — 再生成スクリプト
 
 ### セキュリティ担当
-- [`02_specifications/quality/THREAT_MODEL.md`](02_specifications/quality/THREAT_MODEL.md) — STRIDE × DREAD 14 件
-- [`02_specifications/quality/SECURITY_GAP_ANALYSIS.md`](02_specifications/quality/SECURITY_GAP_ANALYSIS.md) — 設計 vs 実装乖離
-- [`02_specifications/quality/STAMP_STPA_ANALYSIS.md`](02_specifications/quality/STAMP_STPA_ANALYSIS.md) §8 — STPA-Sec
+- [`02_specifications/quality/risk_analysis/THREAT_MODEL.md`](02_specifications/quality/risk_analysis/THREAT_MODEL.md) — STRIDE × DREAD 14 件
+- [`02_specifications/quality/risk_analysis/SECURITY_GAP_ANALYSIS.md`](02_specifications/quality/risk_analysis/SECURITY_GAP_ANALYSIS.md) — 設計 vs 実装乖離
+- [`02_specifications/quality/safety_analysis/STAMP_STPA_ANALYSIS.md`](02_specifications/quality/safety_analysis/STAMP_STPA_ANALYSIS.md) §8 — STPA-Sec
 
 ---
 
@@ -91,7 +91,7 @@
 
 - arc42 ベース階層構造 (`MIGRATION_PLAN` で 2026-01 に確立, [`03_achievements/phase_deliverables/MIGRATION_PLAN.md`](03_achievements/phase_deliverables/MIGRATION_PLAN.md))
 - **可視化図再生成**: `cd 06_evidence/metrics_analysis/analysis_tools/ && .venv/bin/python visualization.py`
-- **PlantUML SVG 再生成**: `cd 02_specifications/quality/ && docker run --rm -v "$PWD:/work" -w /work plantuml/plantuml:latest -tsvg *.puml`
+- **PlantUML SVG 再生成**: `cd 02_specifications/quality/safety_analysis/ && docker run --rm -v "$PWD:/work" -w /work plantuml/plantuml:latest -tsvg *.puml`
 - Minto Pyramid 原則準拠で主要分析文書を構成 (各文書冒頭にエグゼクティブサマリ配置)
 
 ---

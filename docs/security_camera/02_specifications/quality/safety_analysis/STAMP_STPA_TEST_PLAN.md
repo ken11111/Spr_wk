@@ -51,7 +51,7 @@
 
 ---
 
-**位置付け**: [`TEST_COVERAGE_BASELINE.md`](TEST_COVERAGE_BASELINE.md) v1.1 の拡張。X-8 タスクと連携。
+**位置付け**: [`TEST_COVERAGE_BASELINE.md`](../performance/TEST_COVERAGE_BASELINE.md) v1.1 の拡張。X-8 タスクと連携。
 
 > **本書を読む前に**: STAMP_STPA_ANALYSIS.md レビュー (アーキ/PdM/開発者/テスト 4 視点) で **「テスト計画への落とし込みゼロ」が最重大ギャップ** と判定された。本書はそのギャップを埋める。
 
@@ -75,7 +75,7 @@
 | **Soak / Endurance** | UCA-C1.2 (ストレージ枯渇) / UCA-B1.4 (FAILED 固着) | 🟡 長時間ジョブ | 未整備 |
 | **Acceptance** | SC-1〜SC-10 の合否判定 | 🟡 metrics 自動収集 | metrics packet 58 B のみ |
 
-### 0.3 既存テストカバレッジとのギャップ ([`TEST_COVERAGE_BASELINE.md`](TEST_COVERAGE_BASELINE.md) §1)
+### 0.3 既存テストカバレッジとのギャップ ([`TEST_COVERAGE_BASELINE.md`](../performance/TEST_COVERAGE_BASELINE.md) §1)
 
 - PC viewer (Rust): 31 件 `#[test]` (うち `#[ignore]` 3 件)
 - **Spresense (C): 0 件** ← 本書 UCA 検証の最大の障壁
@@ -709,7 +709,7 @@ TARGET=${TARGET:-192.168.1.x}
 ## 関連文書
 
 - 親: [`STAMP_STPA_ANALYSIS.md`](STAMP_STPA_ANALYSIS.md) v1.1
-- 既存テスト: [`TEST_COVERAGE_BASELINE.md`](TEST_COVERAGE_BASELINE.md) v1.1
-- 既知の攻撃手順: [`THREAT_MODEL.md`](THREAT_MODEL.md) §5 (DREAD 各項目に再現手順あり)
-- 失敗モード根拠: [`FMEA.md`](FMEA.md)
-- 未着手タスク: [`PENDING_NFR_WORK.md`](PENDING_NFR_WORK.md) (X-8 と統合)
+- 既存テスト: [`TEST_COVERAGE_BASELINE.md`](../performance/TEST_COVERAGE_BASELINE.md) v1.1
+- 既知の攻撃手順: [`THREAT_MODEL.md`](../risk_analysis/THREAT_MODEL.md) §5 (DREAD 各項目に再現手順あり)
+- 失敗モード根拠: [`FMEA.md`](../risk_analysis/FMEA.md)
+- 未着手タスク: [`PENDING_NFR_WORK.md`](../PENDING_NFR_WORK.md) (X-8 と統合)

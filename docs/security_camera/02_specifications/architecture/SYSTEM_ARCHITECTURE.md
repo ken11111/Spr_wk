@@ -1837,5 +1837,5 @@ end note
 - **品質要求 (NFR 集約)**: [`../quality/QUALITY_REQUIREMENTS.md`](../quality/QUALITY_REQUIREMENTS.md) — ISO/IEC 25010 8 属性で散在 NFR を集約
 - **品質シナリオ (QAS)**: [`../quality/QUALITY_ATTRIBUTE_SCENARIOS.md`](../quality/QUALITY_ATTRIBUTE_SCENARIOS.md) — arc42 §10 形式 10 シナリオ
 - **用語集**: [`../quality/GLOSSARY.md`](../quality/GLOSSARY.md) — Phase 定義 / 構造的天井 / 制御工学用語
-- **セキュリティ設計-実装乖離**: [`../quality/SECURITY_GAP_ANALYSIS.md`](../quality/SECURITY_GAP_ANALYSIS.md) — `SECURITY_ARCHITECTURE.md` の設計と実装の乖離開示
+- **セキュリティ設計-実装乖離**: [`../quality/risk_analysis/SECURITY_GAP_ANALYSIS.md`](../quality/risk_analysis/SECURITY_GAP_ANALYSIS.md) — `SECURITY_ARCHITECTURE.md` の設計と実装の乖離開示
 - **要求書**: [`../../01_requirements/FUNCTIONAL_REQUIREMENTS.md`](../../01_requirements/FUNCTIONAL_REQUIREMENTS.md) v1.0 — 実装事実併記版

@@ -236,7 +236,7 @@ PoC 完了後、以下の基準で **STAMP_STPA_ANALYSIS.md v2.0 への統合判
 - 本書統合先候補: [`STAMP_STPA_ANALYSIS.md`](STAMP_STPA_ANALYSIS.md) v1.11
 - 構造的天井: [`STAMP_STPA_ANALYSIS.md §10.6`](STAMP_STPA_ANALYSIS.md#106-構造的天井と-tier-移行の戦略) (RAM 1.5MB が PTZ にも影響)
 - 要求書: [`../../01_requirements/FUNCTIONAL_REQUIREMENTS.md`](../../01_requirements/FUNCTIONAL_REQUIREMENTS.md) Q12 (動き検出), Q13 (複数カメラ前提)
-- 要求トレース: [`REQUIREMENTS_TRACEABILITY.md`](REQUIREMENTS_TRACEABILITY.md)
+- 要求トレース: [`REQUIREMENTS_TRACEABILITY.md`](../REQUIREMENTS_TRACEABILITY.md)
 - 外部参照: Hugging Face LeRobot SDK (Feetech サーボ制御 + 模倣学習フレームワーク)
 
 ## 改訂履歴

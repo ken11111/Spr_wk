@@ -267,7 +267,7 @@ err_camera:
 ## 関連文書
 
 - 品質要求集約: [`QUALITY_REQUIREMENTS.md`](QUALITY_REQUIREMENTS.md) §7 (保守性), §6 (セキュリティ)
-- セキュリティ乖離: [`SECURITY_GAP_ANALYSIS.md`](SECURITY_GAP_ANALYSIS.md) (§3 設定管理の WiFi 認証情報問題と関連)
+- セキュリティ乖離: [`SECURITY_GAP_ANALYSIS.md`](risk_analysis/SECURITY_GAP_ANALYSIS.md) (§3 設定管理の WiFi 認証情報問題と関連)
 - 用語集: [`GLOSSARY.md`](GLOSSARY.md)
 - 残タスク: [`PENDING_NFR_WORK.md`](PENDING_NFR_WORK.md)
 - 実装根拠:

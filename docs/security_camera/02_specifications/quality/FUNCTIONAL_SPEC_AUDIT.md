@@ -146,9 +146,9 @@
 
 - 上位要求: [`../../01_requirements/FUNCTIONAL_REQUIREMENTS.md`](../../01_requirements/FUNCTIONAL_REQUIREMENTS.md) v1.0
 - 用語集 (Phase 番号定義): [`GLOSSARY.md`](GLOSSARY.md) §1
-- セキュリティ乖離: [`SECURITY_GAP_ANALYSIS.md`](SECURITY_GAP_ANALYSIS.md)
-- 脅威モデル: [`THREAT_MODEL.md`](THREAT_MODEL.md)
-- 失敗モード台帳: [`FMEA.md`](FMEA.md)
+- セキュリティ乖離: [`SECURITY_GAP_ANALYSIS.md`](risk_analysis/SECURITY_GAP_ANALYSIS.md)
+- 脅威モデル: [`THREAT_MODEL.md`](risk_analysis/THREAT_MODEL.md)
+- 失敗モード台帳: [`FMEA.md`](risk_analysis/FMEA.md)
 - 残タスク: [`PENDING_NFR_WORK.md`](PENDING_NFR_WORK.md)
 - ユースケース: [`../use_cases/primary_use_cases.md`](../use_cases/primary_use_cases.md)
 - RTM v5.0: [`../traceability/REQUIREMENTS_TRACEABILITY_MATRIX.md`](../traceability/REQUIREMENTS_TRACEABILITY_MATRIX.md)

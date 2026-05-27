@@ -167,9 +167,9 @@
 ## §7 関連文書
 
 - 上位: [`../05_future_actions/phase_planned/Phase12_実施計画書.md`](../05_future_actions/phase_planned/Phase12_実施計画書.md) §Phase 12.5
-- セキュリティ前提: [`../02_specifications/quality/SECURITY_GAP_ANALYSIS.md`](../02_specifications/quality/SECURITY_GAP_ANALYSIS.md) §5 Option B
-- 脅威モデル: [`../02_specifications/quality/THREAT_MODEL.md`](../02_specifications/quality/THREAT_MODEL.md)
-- 失敗モード: [`../02_specifications/quality/FMEA.md`](../02_specifications/quality/FMEA.md) C6 (ストレージ) / C7 (環境)
+- セキュリティ前提: [`../02_specifications/quality/risk_analysis/SECURITY_GAP_ANALYSIS.md`](../02_specifications/quality/risk_analysis/SECURITY_GAP_ANALYSIS.md) §5 Option B
+- 脅威モデル: [`../02_specifications/quality/risk_analysis/THREAT_MODEL.md`](../02_specifications/quality/risk_analysis/THREAT_MODEL.md)
+- 失敗モード: [`../02_specifications/quality/risk_analysis/FMEA.md`](../02_specifications/quality/risk_analysis/FMEA.md) C6 (ストレージ) / C7 (環境)
 - ストレステスト: [`STRESS_TEST_PLAN.md`](STRESS_TEST_PLAN.md) ST-1
 - 運用ランブック: [`RUNBOOK.md`](RUNBOOK.md)
 - CPU 計測: [`CPU_MEASUREMENT_GUIDE.md`](CPU_MEASUREMENT_GUIDE.md)

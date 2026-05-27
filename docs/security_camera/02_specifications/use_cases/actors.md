@@ -68,7 +68,7 @@
 |---|---|
 | 想定能力 | 同一 WiFi LAN への接続済み (WPA2 突破済 or 招待された Guest)、Wireshark 等のパケットキャプチャ可能 |
 | 想定攻撃 | MJPEG パケット盗聴、TCP 8888 への不正接続、改ざん試行、DoS スパム |
-| 現実装での防御 | ❌ 殆どなし — 詳細は [`../quality/SECURITY_GAP_ANALYSIS.md`](../quality/SECURITY_GAP_ANALYSIS.md) §3 参照 |
+| 現実装での防御 | ❌ 殆どなし — 詳細は [`../quality/risk_analysis/SECURITY_GAP_ANALYSIS.md`](../quality/risk_analysis/SECURITY_GAP_ANALYSIS.md) §3 参照 |
 | アクセス権限 (与えるべき) | なし (本来) |
 | 関連 ADR | (なし — 設計のみ存在の SECURITY_ARCHITECTURE.md, 実装乖離は GAP_ANALYSIS) |
 | 関連 QAS | QAS-5 (TLS handshake — 設計のみ・未実装) |
@@ -124,5 +124,5 @@
 
 - ユースケース: [`primary_use_cases.md`](primary_use_cases.md), [`exception_scenarios.md`](exception_scenarios.md)
 - 図示: [`use_case_overview.puml`](use_case_overview.puml)
-- 脅威詳細: [`../quality/SECURITY_GAP_ANALYSIS.md`](../quality/SECURITY_GAP_ANALYSIS.md)
+- 脅威詳細: [`../quality/risk_analysis/SECURITY_GAP_ANALYSIS.md`](../quality/risk_analysis/SECURITY_GAP_ANALYSIS.md)
 - 用語集: [`../quality/GLOSSARY.md`](../quality/GLOSSARY.md)

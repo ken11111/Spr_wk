@@ -639,7 +639,7 @@ Spresense HDRカメラボードを使用した防犯カメラシステムを構�
 - → **v1.0 確定値**:
   - 「ローカル LAN 内利用前提」を**明示的に脅威モデルに記載**
   - 公開 NW 利用時は Tier 移行 + セキュリティ実装が必須
-  - 詳細: [`../02_specifications/quality/SECURITY_GAP_ANALYSIS.md`](../02_specifications/quality/SECURITY_GAP_ANALYSIS.md)
+  - 詳細: [`../02_specifications/quality/risk_analysis/SECURITY_GAP_ANALYSIS.md`](../02_specifications/quality/risk_analysis/SECURITY_GAP_ANALYSIS.md)
 
 ---
 
@@ -767,4 +767,4 @@ Spresense HDRカメラボードを使用した防犯カメラシステムを構�
 **文書バージョン**: 1.1 (Phase 12 確定方針反映)
 **最終更新**: 2026-05-05
 **ステータス**: ✅ **Tier 1 + 家庭用 恒久化** (WONT FIX 5 件明示)
-**関連文書**: [`../02_specifications/quality/QUALITY_REQUIREMENTS.md`](../02_specifications/quality/QUALITY_REQUIREMENTS.md), [`../02_specifications/quality/GLOSSARY.md`](../02_specifications/quality/GLOSSARY.md), [`../02_specifications/quality/QUALITY_ATTRIBUTE_SCENARIOS.md`](../02_specifications/quality/QUALITY_ATTRIBUTE_SCENARIOS.md), [`../02_specifications/quality/SECURITY_GAP_ANALYSIS.md`](../02_specifications/quality/SECURITY_GAP_ANALYSIS.md)
+**関連文書**: [`../02_specifications/quality/QUALITY_REQUIREMENTS.md`](../02_specifications/quality/QUALITY_REQUIREMENTS.md), [`../02_specifications/quality/GLOSSARY.md`](../02_specifications/quality/GLOSSARY.md), [`../02_specifications/quality/QUALITY_ATTRIBUTE_SCENARIOS.md`](../02_specifications/quality/QUALITY_ATTRIBUTE_SCENARIOS.md), [`../02_specifications/quality/risk_analysis/SECURITY_GAP_ANALYSIS.md`](../02_specifications/quality/risk_analysis/SECURITY_GAP_ANALYSIS.md)

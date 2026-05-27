@@ -17,8 +17,8 @@
 ## 親文書からのナビゲーション
 
 - 異常系シナリオ: [`../02_specifications/use_cases/exception_scenarios.md`](../02_specifications/use_cases/exception_scenarios.md) (ES-1〜5)
-- 障害モード: [`../02_specifications/quality/FMEA.md`](../02_specifications/quality/FMEA.md) (28 失敗モード)
-- 脅威モデル: [`../02_specifications/quality/THREAT_MODEL.md`](../02_specifications/quality/THREAT_MODEL.md)
+- 障害モード: [`../02_specifications/quality/risk_analysis/FMEA.md`](../02_specifications/quality/risk_analysis/FMEA.md) (28 失敗モード)
+- 脅威モデル: [`../02_specifications/quality/risk_analysis/THREAT_MODEL.md`](../02_specifications/quality/risk_analysis/THREAT_MODEL.md)
 - アクター: [`../02_specifications/use_cases/actors.md`](../02_specifications/use_cases/actors.md) (保守者)
 - ユースケース: [`../02_specifications/use_cases/primary_use_cases.md`](../02_specifications/use_cases/primary_use_cases.md) (UC-7 障害時の人手介入)
 

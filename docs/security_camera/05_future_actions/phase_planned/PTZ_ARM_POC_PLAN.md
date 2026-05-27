@@ -4,7 +4,7 @@
 **作成日**: 2026-05-26
 **ステータス**: 🟡 **PoC 計画段階** — 機材調達・体制確定待ち
 **目的**: 既存 Spresense 防犯カメラに LeRobot SO-ARM101 Pro を統合し、PTZ (Pan/Tilt/Zoom) 型の追尾カメラを実現するための PoC を計画する。
-**親 STAMP 文書**: [`../../02_specifications/quality/STAMP_STPA_PTZ_ARM_REFERENCE.md`](../../02_specifications/quality/STAMP_STPA_PTZ_ARM_REFERENCE.md) v0.1 (PoC 前 draft の安全分析)
+**親 STAMP 文書**: [`../../02_specifications/quality/safety_analysis/STAMP_STPA_PTZ_ARM_REFERENCE.md`](../../02_specifications/quality/safety_analysis/STAMP_STPA_PTZ_ARM_REFERENCE.md) v0.1 (PoC 前 draft の安全分析)
 
 ---
 
@@ -60,7 +60,7 @@
 
 ## §2 システム概要
 
-詳細は [`STAMP_STPA_PTZ_ARM_REFERENCE.md §1`](../../02_specifications/quality/STAMP_STPA_PTZ_ARM_REFERENCE.md#1-想定システム構成-案-a-pc-経由-ptz-型) 参照。
+詳細は [`STAMP_STPA_PTZ_ARM_REFERENCE.md §1`](../../02_specifications/quality/safety_analysis/STAMP_STPA_PTZ_ARM_REFERENCE.md#1-想定システム構成-案-a-pc-経由-ptz-型) 参照。
 
 ### 2.1 構成図 (再掲)
 
@@ -397,8 +397,8 @@ PoC 実装は **既存 Spresense リポジトリ (`~/Spr_ws/GH_wk_test/`) や PC
 
 ## §11 関連文書
 
-- 親 STAMP draft: [`../../02_specifications/quality/STAMP_STPA_PTZ_ARM_REFERENCE.md`](../../02_specifications/quality/STAMP_STPA_PTZ_ARM_REFERENCE.md) v0.1
-- 既存 STAMP 本書: [`../../02_specifications/quality/STAMP_STPA_ANALYSIS.md`](../../02_specifications/quality/STAMP_STPA_ANALYSIS.md) v1.11
+- 親 STAMP draft: [`../../02_specifications/quality/safety_analysis/STAMP_STPA_PTZ_ARM_REFERENCE.md`](../../02_specifications/quality/safety_analysis/STAMP_STPA_PTZ_ARM_REFERENCE.md) v0.1
+- 既存 STAMP 本書: [`../../02_specifications/quality/safety_analysis/STAMP_STPA_ANALYSIS.md`](../../02_specifications/quality/safety_analysis/STAMP_STPA_ANALYSIS.md) v1.11
 - 既存 ROADMAP: [`PHASE_PLANNED_ROADMAP.md`](PHASE_PLANNED_ROADMAP.md) (本書 Phase 12 として追加予定)
 - 要求書: [`../../01_requirements/FUNCTIONAL_REQUIREMENTS.md`](../../01_requirements/FUNCTIONAL_REQUIREMENTS.md) Q12 (動き検出), Q13 (単一カメラ前提)
 - 外部: Hugging Face LeRobot 公式ドキュメント (https://github.com/huggingface/lerobot)

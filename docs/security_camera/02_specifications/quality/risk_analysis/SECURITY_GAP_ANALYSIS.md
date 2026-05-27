@@ -127,7 +127,7 @@
 - 設計: [`../architecture/SECURITY_ARCHITECTURE.md`](../architecture/SECURITY_ARCHITECTURE.md) (Phase 9.2 設計仕様, 679 行)
 - 機能仕様: [`../functional/SECURITY_SPEC.md`](../functional/SECURITY_SPEC.md)
 - 構造的制約: [`../architecture/SPRESENSE_TCP_CONSTRAINTS.md`](../architecture/SPRESENSE_TCP_CONSTRAINTS.md) §2 (RAM 1.5 MB 制約)
-- 関連 QAS: QAS-5 (TLS handshake 設計のみ) — [`QUALITY_ATTRIBUTE_SCENARIOS.md`](QUALITY_ATTRIBUTE_SCENARIOS.md)
+- 関連 QAS: QAS-5 (TLS handshake 設計のみ) — [`QUALITY_ATTRIBUTE_SCENARIOS.md`](../QUALITY_ATTRIBUTE_SCENARIOS.md)
 
 ---
 

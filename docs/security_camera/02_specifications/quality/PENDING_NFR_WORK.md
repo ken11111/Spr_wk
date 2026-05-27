@@ -14,7 +14,7 @@
 
 ### ✅ P1-A. CPU/帯域予算表の追記 — **完了 (2026-05-01)**
 
-**成果物**: [`CPU_BANDWIDTH_BUDGET.md`](CPU_BANDWIDTH_BUDGET.md) 新設
+**成果物**: [`CPU_BANDWIDTH_BUDGET.md`](performance/CPU_BANDWIDTH_BUDGET.md) 新設
 **実施内容の要点**:
 - CPU モデルの正確化: CONFIG_SMP=n のため**単一コア動作** (旧記述「6 コア」を訂正)
 - 5 アプリスレッドの CPU 共有を理論的に分析、推定 CPU% を提示
@@ -131,7 +131,7 @@
 
 ### ✅ P2-B. FMEA テーブル (失敗モード影響解析) — **完了 (2026-05-02)**
 
-**成果物**: [`FMEA.md`](FMEA.md) 新設 (~280 行)
+**成果物**: [`FMEA.md`](risk_analysis/FMEA.md) 新設 (~280 行)
 **実施内容の要点**:
 - 28 失敗モードを 4 カテゴリで抽出 (A 構造的天井 5 件 / B ソフト失敗 8 件 / C ハード環境 7 件 / D 運用セキュリティ 8 件)
 - 各モードを Severity × Occurrence × Detection (1-10) で採点 → RPN 計算
@@ -153,7 +153,7 @@
 - 各モードについて: 影響 (Severity) × 発生確率 (Occurrence) × 検知容易性 (Detection) = RPN 計算
 - 高 RPN モードへの対策と現状実装の対応
 
-**新規作成先**: `02_specifications/quality/FMEA.md`
+**新規作成先**: `02_specifications/quality/risk_analysis/FMEA.md`
 
 **関連**: QAS-1, QAS-8, ADR-002 v1.1, gs2200m_health_state_machine.puml
 
@@ -161,7 +161,7 @@
 
 ### ✅ P2-C. 詳細 Threat Model (STRIDE / DREAD) — **完了 (2026-05-02)**
 
-**成果物**: [`THREAT_MODEL.md`](THREAT_MODEL.md) 新設 (~340 行)
+**成果物**: [`THREAT_MODEL.md`](risk_analysis/THREAT_MODEL.md) 新設 (~340 行)
 **実施内容の要点**:
 - STRIDE 6 カテゴリ × 14 脅威シナリオを DREAD (D+R+E+A+D, max 50) で採点
 - 上位 5 件 (DREAD ≥ 35):
@@ -190,7 +190,7 @@
 - DREAD (Damage / Reproducibility / Exploitability / Affected users / Discoverability) で 1-10 採点
 - 軽減策の優先順位付け
 
-**新規作成先**: `02_specifications/quality/THREAT_MODEL.md` または SECURITY_GAP_ANALYSIS.md §3 を拡充
+**新規作成先**: `02_specifications/quality/risk_analysis/THREAT_MODEL.md` または SECURITY_GAP_ANALYSIS.md §3 を拡充
 
 **関連**: SECURITY_GAP_ANALYSIS.md, Phase 12 セキュリティ判断
 
@@ -540,7 +540,7 @@ make                                  # nuttx.spk が生成される
 
 ### ✅ X-8. テストカバレッジ実測 + ベースライン確立 (旧 — 2026-05-05 ベースライン確立, 2026-05-08 Stage 1 実測完了で更新)
 
-**成果物**: [`TEST_COVERAGE_BASELINE.md`](TEST_COVERAGE_BASELINE.md) (~250 行)
+**成果物**: [`TEST_COVERAGE_BASELINE.md`](performance/TEST_COVERAGE_BASELINE.md) (~250 行)
 
 **実測ベースライン (2026-05-05)**:
 - PC viewer (Rust): **31 test 関数** (35 pass / 0 fail / 3 ignored)
@@ -662,7 +662,7 @@ make                                  # nuttx.spk が生成される
 
 ## 関連ドキュメント
 
-- 完了済: [`README.md`](README.md), [`GLOSSARY.md`](GLOSSARY.md), [`QUALITY_REQUIREMENTS.md`](QUALITY_REQUIREMENTS.md), [`QUALITY_ATTRIBUTE_SCENARIOS.md`](QUALITY_ATTRIBUTE_SCENARIOS.md), [`SECURITY_GAP_ANALYSIS.md`](SECURITY_GAP_ANALYSIS.md)
+- 完了済: [`README.md`](README.md), [`GLOSSARY.md`](GLOSSARY.md), [`QUALITY_REQUIREMENTS.md`](QUALITY_REQUIREMENTS.md), [`QUALITY_ATTRIBUTE_SCENARIOS.md`](QUALITY_ATTRIBUTE_SCENARIOS.md), [`SECURITY_GAP_ANALYSIS.md`](risk_analysis/SECURITY_GAP_ANALYSIS.md)
 - 既存台帳: [`../../05_future_actions/technical_debt/TECHNICAL_DEBT_REGISTER.md`](../../05_future_actions/technical_debt/TECHNICAL_DEBT_REGISTER.md) (12 件登録済)
 - 要求書: [`../../01_requirements/FUNCTIONAL_REQUIREMENTS.md`](../../01_requirements/FUNCTIONAL_REQUIREMENTS.md) v1.0 §10 「次のステップ」
 

@@ -391,12 +391,12 @@ DREAD 45、しかも **緩和策のコストが小さい** (X-7 で `.gitignore`
 
 - セキュリティ設計-実装乖離: [`SECURITY_GAP_ANALYSIS.md`](SECURITY_GAP_ANALYSIS.md)
 - 失敗モード採点 (FMEA): [`FMEA.md`](FMEA.md) — D カテゴリ (運用/セキュリティ) と相互補完
-- 品質要求: [`QUALITY_REQUIREMENTS.md`](QUALITY_REQUIREMENTS.md) §6 (セキュリティ)
+- 品質要求: [`QUALITY_REQUIREMENTS.md`](../QUALITY_REQUIREMENTS.md) §6 (セキュリティ)
 - アクター: [`../use_cases/actors.md`](../use_cases/actors.md) (Adversary)
 - 異常系: [`../use_cases/exception_scenarios.md`](../use_cases/exception_scenarios.md) (ES-5 設定不整合)
 - 設計提案: [`../architecture/SECURITY_ARCHITECTURE.md`](../architecture/SECURITY_ARCHITECTURE.md) (Phase 9.2 設計, 未実装)
 - 機能仕様: [`../functional/SECURITY_SPEC.md`](../functional/SECURITY_SPEC.md) (同上)
-- 残タスク: [`PENDING_NFR_WORK.md`](PENDING_NFR_WORK.md) (X-4 運用ランブック / X-7 WiFi 認証情報)
+- 残タスク: [`PENDING_NFR_WORK.md`](../PENDING_NFR_WORK.md) (X-4 運用ランブック / X-7 WiFi 認証情報)
 
 ---
 

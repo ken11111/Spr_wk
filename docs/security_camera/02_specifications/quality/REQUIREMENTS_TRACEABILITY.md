@@ -2,7 +2,7 @@
 
 **バージョン**: 1.0
 **作成日**: 2026-05-23
-**目的**: [`../../01_requirements/FUNCTIONAL_REQUIREMENTS.md`](../../01_requirements/FUNCTIONAL_REQUIREMENTS.md) v1.1 の **Q1〜Q25** を、[`STAMP_STPA_ANALYSIS.md`](STAMP_STPA_ANALYSIS.md) v1.10.1 の対策 **M-1〜M-37**、関連 UCA/Hazard、実装 Phase、達成状態と対応付ける。
+**目的**: [`../../01_requirements/FUNCTIONAL_REQUIREMENTS.md`](../../01_requirements/FUNCTIONAL_REQUIREMENTS.md) v1.1 の **Q1〜Q25** を、[`STAMP_STPA_ANALYSIS.md`](safety_analysis/STAMP_STPA_ANALYSIS.md) v1.10.1 の対策 **M-1〜M-37**、関連 UCA/Hazard、実装 Phase、達成状態と対応付ける。
 **位置付け**: arc42 §11 (Risk Trace), ISO/IEC 25010 補完。**「要求 vs 対策 vs 実装事実」の 3 軸を一画面で把握** することが目的。
 
 ---
@@ -140,7 +140,7 @@
 ## §6 関連文書
 
 - 要求書: [`../../01_requirements/FUNCTIONAL_REQUIREMENTS.md`](../../01_requirements/FUNCTIONAL_REQUIREMENTS.md) v1.1
-- 対策原本: [`STAMP_STPA_ANALYSIS.md`](STAMP_STPA_ANALYSIS.md) v1.10.1
+- 対策原本: [`STAMP_STPA_ANALYSIS.md`](safety_analysis/STAMP_STPA_ANALYSIS.md) v1.10.1
 - 実データ評価: [`../../06_evidence/metrics_analysis/performance_trends.md`](../../06_evidence/metrics_analysis/performance_trends.md) v1.4
 - 達成度可視化: [`../../06_evidence/metrics_analysis/figures/ds_13_requirement_achievement.png`](../../06_evidence/metrics_analysis/figures/ds_13_requirement_achievement.png)
 - 関連: [`QUALITY_ATTRIBUTE_SCENARIOS.md`](QUALITY_ATTRIBUTE_SCENARIOS.md) (QAS-1〜10)

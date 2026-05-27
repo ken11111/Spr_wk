@@ -83,7 +83,7 @@
 - `STABILITY_HISTORY_SIZE=5` の分散計算 + `prediction_window` の trend 分析 = 推定 < 5 ms / 100 ms 周期 → 余裕あり
 - ただし frame_statistics_update が camera_thread で動いているため、Phase 11 拡張で更に重くなる可能性あり (要計測)
 
-> ⚠ **Phase 12 拡張時の CPU 100% 超リスク (v1.3 追加)**: Phase 12.3 で予定する **M-1 多変数 PID + M-11 HMAC + M-34 再 JPEG** で **+10-20% CPU 追加** = 上記推定値と合わせ **確実に 100% 超過**。これに対し STAMP/STPA v1.10 で **新規 Hazard H-17** + **新規対策 M-36 (Sub-Core オフロード)** を提案。詳細は [`STAMP_STPA_ANALYSIS.md §6.5f`](STAMP_STPA_ANALYSIS.md#65f-multi-core-オフロード-v110-追加--cpu-100-超推定に対する対策) 参照。Spresense Sub-Core API (AMP) で JPEG 再エンコ + complexity 計算をサブコアに切り出し、メインコア負荷を 70% 以下に維持する戦略。Phase 13+ → Phase 12.3 に前倒し配置。
+> ⚠ **Phase 12 拡張時の CPU 100% 超リスク (v1.3 追加)**: Phase 12.3 で予定する **M-1 多変数 PID + M-11 HMAC + M-34 再 JPEG** で **+10-20% CPU 追加** = 上記推定値と合わせ **確実に 100% 超過**。これに対し STAMP/STPA v1.10 で **新規 Hazard H-17** + **新規対策 M-36 (Sub-Core オフロード)** を提案。詳細は [`STAMP_STPA_ANALYSIS.md §6.5f`](../safety_analysis/STAMP_STPA_ANALYSIS.md#65f-multi-core-オフロード-v110-追加--cpu-100-超推定に対する対策) 参照。Spresense Sub-Core API (AMP) で JPEG 再エンコ + complexity 計算をサブコアに切り出し、メインコア負荷を 70% 以下に維持する戦略。Phase 13+ → Phase 12.3 に前倒し配置。
 
 ---
 
@@ -380,12 +380,12 @@ control_thread の 10 Hz 動作と他 thread の CPU 競合を 1 秒間 (10 サ�
 ## 関連文書
 
 - 構造的制約 (メモリ予算): [`../architecture/SPRESENSE_TCP_CONSTRAINTS.md`](../architecture/SPRESENSE_TCP_CONSTRAINTS.md)
-- 品質要求集約: [`QUALITY_REQUIREMENTS.md`](QUALITY_REQUIREMENTS.md) §2 (性能効率性)
-- QAS シナリオ: [`QUALITY_ATTRIBUTE_SCENARIOS.md`](QUALITY_ATTRIBUTE_SCENARIOS.md) QAS-2, QAS-3, QAS-10
-- 用語集: [`GLOSSARY.md`](GLOSSARY.md) (構造的天井 #1〜#5)
+- 品質要求集約: [`QUALITY_REQUIREMENTS.md`](../QUALITY_REQUIREMENTS.md) §2 (性能効率性)
+- QAS シナリオ: [`QUALITY_ATTRIBUTE_SCENARIOS.md`](../QUALITY_ATTRIBUTE_SCENARIOS.md) QAS-2, QAS-3, QAS-10
+- 用語集: [`GLOSSARY.md`](../GLOSSARY.md) (構造的天井 #1〜#5)
 - 実測根拠: `bak/04_test_results/22_PHASE8_PERFORMANCE_ANALYSIS.md`, `phase15_vga_dataflow.puml`
 - 計装基盤: `apps/examples/security_camera/perf_logger.c/h`
-- 残タスク: [`PENDING_NFR_WORK.md`](PENDING_NFR_WORK.md) X-6 (CPU 予算実測手段)
+- 残タスク: [`PENDING_NFR_WORK.md`](../PENDING_NFR_WORK.md) X-6 (CPU 予算実測手段)
 
 ---
 

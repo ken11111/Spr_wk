@@ -211,5 +211,5 @@ Phase A/B 除外 (queue=0 排除) で n=5,815。**Spresense capture (0.45 ratio)
 
 - 親: [`performance_trends.md`](../performance_trends.md) (差し替え先)
 - 兄弟: [`visual_evidence.md`](../visual_evidence.md) (ASCII 時系列、廃止候補)
-- STAMP/STPA: [`../../02_specifications/quality/STAMP_STPA_ANALYSIS.md`](../../../02_specifications/quality/STAMP_STPA_ANALYSIS.md) v1.7.1
+- STAMP/STPA: [`../../02_specifications/quality/safety_analysis/STAMP_STPA_ANALYSIS.md`](../../../02_specifications/quality/safety_analysis/STAMP_STPA_ANALYSIS.md) v1.7.1
 - スクリプト: [`../analysis_tools/visualization.py`](../analysis_tools/visualization.py)

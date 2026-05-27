@@ -7,7 +7,7 @@
 **目的**: X-3 監査で判明した「テストカバレッジ 92%」未根拠問題に対するベースライン確立 + 改善計画
 **位置付け**: X-8 タスク (PENDING_NFR_WORK.md), Phase 12.1 Stage 1 完了
 
-> **背景**: `functional/TEST_COVERAGE_ENHANCEMENT_SPEC.md` v1.0 (2026-01-23) は「カバレッジ 92% → 95% (3% 向上)」と数値目標を掲げているが、**実測値の根拠が無い**ことが X-3 監査で判明 ([`FUNCTIONAL_SPEC_AUDIT.md`](FUNCTIONAL_SPEC_AUDIT.md) §7)。本書は実測ベースの新しい起点となる。
+> **背景**: `functional/TEST_COVERAGE_ENHANCEMENT_SPEC.md` v1.0 (2026-01-23) は「カバレッジ 92% → 95% (3% 向上)」と数値目標を掲げているが、**実測値の根拠が無い**ことが X-3 監査で判明 ([`FUNCTIONAL_SPEC_AUDIT.md`](../FUNCTIONAL_SPEC_AUDIT.md) §7)。本書は実測ベースの新しい起点となる。
 
 ---
 
@@ -223,10 +223,10 @@ NuttX RTOS 上の組込み C コードは以下の理由で**通常の cargo tes
 
 ## §5 関連文書
 
-- 整合性監査 (X-3): [`FUNCTIONAL_SPEC_AUDIT.md`](FUNCTIONAL_SPEC_AUDIT.md) §7
+- 整合性監査 (X-3): [`FUNCTIONAL_SPEC_AUDIT.md`](../FUNCTIONAL_SPEC_AUDIT.md) §7
 - 旧仕様 (要改訂): [`../functional/TEST_COVERAGE_ENHANCEMENT_SPEC.md`](../functional/TEST_COVERAGE_ENHANCEMENT_SPEC.md)
-- 品質要求 §7.5 (試験性): [`QUALITY_REQUIREMENTS.md`](QUALITY_REQUIREMENTS.md)
-- 残課題: [`PENDING_NFR_WORK.md`](PENDING_NFR_WORK.md) X-8
+- 品質要求 §7.5 (試験性): [`QUALITY_REQUIREMENTS.md`](../QUALITY_REQUIREMENTS.md)
+- 残課題: [`PENDING_NFR_WORK.md`](../PENDING_NFR_WORK.md) X-8
 - CI 設定: `Rust_ws/security_camera_viewer/.github/workflows/ci.yml`
 
 ---

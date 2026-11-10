@@ -1,0 +1,21 @@
+name: CI - Unit Tests
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+    paths:
+      - 'apps/examples/security_camera/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'apps/examples/security_camera/**'
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run unit tests
+        working-directory: apps/examples/security_camera/tests
+        run: make test

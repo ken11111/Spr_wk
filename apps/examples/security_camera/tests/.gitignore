@@ -1,0 +1,3 @@
+# Compiled test binaries
+test_mjpeg_protocol
+test_frame_queue
